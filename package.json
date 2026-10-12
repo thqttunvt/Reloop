@@ -1,0 +1,11 @@
+{
+  "name": "reloop",
+  "private": true,
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "dev:be": "npm run dev -w backend",
+    "dev:fe": "npm run dev -w frontend",
+    "test": "npm test -w backend",
+    "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend"
+  }
+}

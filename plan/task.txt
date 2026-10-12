@@ -1,0 +1,316 @@
+RELOOP — DANH SÁCH TASK TRIỂN KHAI (bản chốt sau buổi hỏi đáp)
+=====================================================================
+Căn cứ: spec v1.0 + quyetdinh.txt (ưu tiên cao nhất) + giaiphap.txt.
+Nhóm: 3–4 người · Thời gian: 12 tuần · Ngân sách: 20–50 USD/tháng.
+
+Phân vai đề xuất (nhóm 3 người thì gộp BE-CORE và BE-PAY):
+  FE      — Frontend React + TypeScript
+  BE-CORE — Backend nghiệp vụ: listing, AI, matching, báo giá, giao dịch, đánh giá
+  BE-PAY  — Backend ví & thanh toán (chuyên trách từ tuần 3)
+  OPS     — Hạ tầng AWS, Terraform, CI/CD, giám sát, kiểm thử
+
+Ký hiệu: [P0] bắt buộc MVP · [P1] nên có · [MR] mở rộng nếu còn thời gian
+         QĐ-xx = quyết định trong quyetdinh.txt
+
+
+=====================================================================
+TỔNG QUAN TIMELINE
+=====================================================================
+  Tuần 1–2   : GĐ 0 — Chuẩn bị & nền tảng
+  Tuần 3–7   : GĐ 1 — MVP chức năng (luồng thu mua chạy end-to-end, có tiền thật)
+  Tuần 8–9   : GĐ 2 — Tin cậy & quản trị (đánh giá, Admin, tranh chấp)
+  Tuần 10–11 : GĐ 3 — Cloud Engineering (IaC đầy đủ, CI/CD, giám sát, kiểm thử, chi phí)
+  Tuần 12    : GĐ 4 — Tài liệu, workshop, demo
+
+Mốc kiểm tra:
+  Cuối tuần 2 : deploy được "Hello" lên dev qua CI; data model + API contract đã chốt.
+  Cuối tuần 5 : Owner đăng tin → AI → matching → có báo giá dự kiến.
+  Cuối tuần 7 : chạy trọn kịch bản thu mua với tiền thật (nạp → giữ → hoàn tất → rút).
+  Cuối tuần 9 : tranh chấp, đánh giá 2 chiều, Admin đầy đủ.
+  Cuối tuần 11: load test, demo lỗi đồng thời, báo cáo chi phí xong.
+
+
+=====================================================================
+GĐ 0 — CHUẨN BỊ & NỀN TẢNG (tuần 1–2)
+=====================================================================
+
+Việc không phải code (làm ngay tuần 1 vì cần thời gian chờ duyệt):
+  T0.1  [P0] Mở / chọn tài khoản ngân hàng dùng làm "TK ReLoop" cho demo.            (BE-PAY)
+  T0.2  [P0] Đăng ký dịch vụ webhook biến động số dư (SePay / payOS / Casso),
+             test thử nhận webhook khi chuyển khoản thật.                             (BE-PAY)
+  T0.3  [P0] Xin quyền truy cập model Bedrock (Claude Haiku) ở region triển khai.     (OPS)
+  T0.4  [P0] Tạo AWS Budgets 50/80/100%, tag Project=ReLoop.                          (OPS)
+  T0.5  [P1] Soạn bản nháp Điều khoản sử dụng, Chính sách quyền riêng tư, Điều khoản
+             ví & giữ tiền; ghi rõ là dự án thực tập (QĐ-28).                          (cả nhóm)
+
+Kỹ thuật:
+  T0.6  [P0] Repo monorepo: frontend/ backend/ infra/ docs/; lint, format, quy ước commit,
+             branch main + pull request review.                                      (OPS)
+  T0.7  [P0] Terraform khung: state backend, môi trường dev; Cognito, API Gateway,
+             DynamoDB, S3 ảnh, S3 + CloudFront frontend.                              (OPS)
+  T0.8  [P0] CI tối thiểu: lint + test + deploy dev khi merge main.                    (OPS)
+  T0.9  [P0] Viết bảng access patterns → chốt thiết kế DynamoDB single-table
+             (giaiphap.txt E2) + bảng ví, sổ cái, lệnh nạp/rút.                        (BE-CORE + BE-PAY)
+  T0.10 [P0] Chốt API Contract (OpenAPI): schema, mã lỗi, phân trang cursor,
+             Idempotency-Key, quyền từng endpoint (giaiphap.txt C + QĐ TL-06).        (BE-CORE + BE-PAY)
+  T0.11 [P0] Khung backend: 1 codebase nhiều Lambda handler; middleware đọc JWT,
+             kiểm tra role, kiểm tra sở hữu tài nguyên, validate input, log JSON
+             (không log token).                                                       (BE-CORE)
+  T0.12 [P0] Khung frontend: routing 3 vùng Owner / Partner / Admin, layout responsive,
+             API client gắn token, cơ chế polling dùng chung.                          (FE)
+  T0.13 [P0] Vẽ state machine Listing / Quote / Transaction / TopUp / Withdrawal
+             (quyetdinh.txt mục 5) thành code dùng chung: bảng chuyển hợp lệ + ai được làm. (BE-CORE)
+
+
+=====================================================================
+GĐ 1 — MVP CHỨC NĂNG (tuần 3–7)
+=====================================================================
+
+EPIC 1 — Xác thực & hồ sơ                                               (tuần 3)
+  T1.1  [P0] Cognito: đăng ký email/mật khẩu, xác minh email, quên/khôi phục mật khẩu.   (OPS)
+  T1.2  [P0] Tạo hồ sơ user trong DynamoDB sau đăng ký, mặc định role OWNER;
+             GET /me, PATCH /me.                                                       (BE-CORE)
+  T1.3  [P0] Lưu đồng ý điều khoản (phiên bản + thời điểm) khi đăng ký (QĐ-28).        (BE-CORE)
+  T1.4  [P0] Xác minh số điện thoại bằng OTP — bắt buộc trước khi nạp tiền (QĐ-09).    (BE-CORE)
+  T1.5  [P0] Cognito group "admin", "admin_finance"; script bootstrap Admin đầu tiên.  (OPS)
+  T1.6  [P0] FE: Landing, Đăng ký (có ô đồng ý điều khoản), Đăng nhập, Quên mật khẩu,
+             Profile, xác minh SĐT.                                                    (FE)
+  ✔ Xong khi: đăng ký → đăng nhập → gọi API có bảo vệ; sửa role ở trình duyệt không có tác dụng.
+
+EPIC 2 — Địa điểm                                                        (tuần 3)
+  T2.1  [P0] CRUD Saved Locations + 1 địa điểm mặc định.                              (BE-CORE)
+  T2.2  [P0] Lưu geohash cấp 4 cho địa điểm và chi nhánh (TL-01); hàm Haversine.       (BE-CORE)
+  T2.3  [P0] Location Snapshot khi tạo Listing; đổi vị trí Listing đang mở → tăng version,
+             chạy lại matching, INVALIDATED báo giá không còn đúng.                    (BE-CORE)
+  T2.4  [P0] Bảo vệ vị trí: khoảng cách làm tròn 0,5 km, chỉ hiện phường/quận trước khi
+             tiền được giữ (QĐ-20, giaiphap E4).                                       (BE-CORE)
+  T2.5  [P0] FE: trang Saved Locations, ghim tọa độ bằng Leaflet + OpenStreetMap (QĐ-21). (FE)
+
+EPIC 3 — Đối tác (Partner)                                               (tuần 3–4)
+  T3.1  [P0] POST /partners/apply: tên doanh nghiệp, số giấy phép KD + ảnh giấy phép,
+             ảnh mặt tiền, SĐT, STK doanh nghiệp (QĐ-10, QĐ-24).                       (BE-CORE)
+  T3.2  [P0] Chi nhánh: CRUD, bán kính 1–5 km (chặn > 5 km), danh mục nhận,
+             tình trạng nhận (kể cả Unknown), hình thức bàn giao, bật/tắt.             (BE-CORE)
+  T3.3  [P0] FE: Partner Registration, Branch & Service Settings, Partner Dashboard.   (FE)
+
+EPIC 4 — Tin đăng & ảnh                                                  (tuần 4)
+  T4.1  [P0] POST /uploads/presign: presigned POST, JPEG/PNG/WebP, ≤5 MB, 1–6 ảnh,
+             key theo prefix user, bucket private (giaiphap E6).                       (BE-CORE)
+  T4.2  [P0] CRUD Listing: tạo → ACTIVE, expiresAt = +7 ngày; hủy khi chưa có giao dịch;
+             đơn vị theo cái / theo kg + khối lượng ước tính (QĐ-25).                  (BE-CORE)
+  T4.3  [P0] FE: Create Listing (upload → AI → xác nhận → preview → đăng), My Listings,
+             Owner Dashboard.                                                         (FE)
+
+EPIC 5 — AI phân tích ảnh (chạy nền)                                     (tuần 4)
+  T5.1  [P0] POST /ai/analyses trả 202; Worker Lambda gọi Bedrock; GET /ai/analyses/{id}
+             (QĐ-13, giaiphap A1).                                                    (BE-CORE)
+  T5.2  [P0] Prompt + JSON schema; validate; không khẳng định máy chạy được; Unknown khi
+             không chắc; kiểm tra ảnh không liên quan / không phù hợp.                 (BE-CORE)
+  T5.3  [P0] Giới hạn 3 lần / Listing, 20 lần / user / ngày; lỗi → nhập thủ công.       (BE-CORE)
+
+EPIC 6 — Matching (chạy nền)                                             (tuần 5)
+  T6.1  [P0] Sự kiện ListingCreated → Matching Lambda: 9 ô geohash → Haversine ≤ bán kính
+             → lọc Partner đã duyệt, đang hoạt động, đúng danh mục/tình trạng/bàn giao.  (BE-CORE)
+  T6.2  [P0] matchingStatus PENDING → DONE; idempotent theo (listingId, version).       (BE-CORE)
+  T6.3  [P0] Không có Partner phù hợp → báo Owner, không tạo giá giả.                  (BE-CORE)
+  T6.4  [P1] Matching ngược khi chi nhánh mới được duyệt / bật rule (giaiphap D2).      (BE-CORE)
+
+EPIC 7 — Quy tắc giá & báo giá                                            (tuần 5)
+  T7.1  [P0] Pricing Rules CRUD: chi nhánh, danh mục, tình trạng, đơn vị (cái/kg),
+             khoảng giá, số lượng tối thiểu, bật/tắt.                                   (BE-CORE)
+  T7.2  [P0] Auto-Quote: tạo ESTIMATED + Rule Snapshot cho mỗi chi nhánh khớp rule.     (BE-CORE)
+  T7.3  [P0] Owner yêu cầu xác nhận → Partner xác nhận (được khác khoảng dự kiến, QĐ-16)
+             / từ chối; hạn trả lời 24h.                                               (BE-CORE)
+  T7.4  [P0] Manual Offer; Partner rút offer chưa được chọn; offer hết hạn (mặc định 72h).  (BE-CORE)
+  T7.5  [P0] FE: Pricing Rules, Matching Requests, Offers (Partner);
+             Listing Details & so sánh báo giá, nhãn "Giá dự kiến — chưa xác nhận",
+             cảnh báo giá xác nhận khác dự kiến (Owner).                               (FE)
+  ✔ Mốc tuần 5: Owner đăng tin → AI → matching → thấy báo giá dự kiến + offer.
+
+EPIC 8 — VÍ & THANH TOÁN                                                  (tuần 3–7, BE-PAY)
+  T8.1  [P0] Data model ví (available / held / withdrawing) + sổ cái bút toán kép,
+             append-only (QĐ-30, TL-02).                                               (BE-PAY)
+  T8.2  [P0] Hàm chuyển tiền dùng chung: TransactWriteItems ghi bút toán + cập nhật số dư,
+             điều kiện "available >= số tiền", Idempotency-Key.                        (BE-PAY)
+  T8.3  [P0] Nạp tiền: POST /wallet/topups → sinh VietQR (số tiền + mã RLN-xxxx);
+             hạn mức nạp tối thiểu 10.000đ, số dư tối đa 20 triệu; lệnh hết hạn sau 24h.  (BE-PAY)
+  T8.4  [P0] POST /webhooks/bank: xác thực chữ ký/API key, idempotent theo mã giao dịch
+             ngân hàng, lưu raw payload; khớp mã → TOPUP; không khớp → hàng đợi đối soát.  (BE-PAY)
+  T8.5  [P0] Thanh toán giao dịch: POST /transactions/{id}/pay → HOLD; thiếu tiền → trả về
+             số còn thiếu để FE hiện QR nạp (QĐ-05).                                   (BE-PAY)
+  T8.6  [P0] Mở khóa tự động: RELEASE sang ví bên nhận khi COMPLETED; REFUND phần chênh
+             lệch / toàn bộ khi giảm giá, hủy, thất bại (QĐ-06, QĐ-07).                (BE-PAY)
+  T8.7  [P0] Hàng theo kg: giữ ước tính × 1,2; chốt theo cân thực tế; thiếu thì thanh toán
+             thêm (QĐ-26).                                                            (BE-PAY)
+  T8.8  [P0] Khai STK: POST /bank-accounts → chờ Admin xác minh tên chủ TK khớp tên đăng ký. (BE-PAY)
+  T8.9  [P0] Rút tiền: POST /wallet/withdrawals (tối thiểu 50.000đ, chỉ STK đã xác minh)
+             → REQUESTED → PROCESSING → PAID (webhook tiền ra) / FAILED (trả lại).      (BE-PAY)
+  T8.10 [P0] Interface PayoutProvider (bản MVP = Admin chuyển tay + QR sẵn).            (BE-PAY)
+  T8.11 [P0] FE: trang Ví (3 số dư, lịch sử), Nạp tiền (QR + tự cập nhật khi tiền vào),
+             nút Thanh toán trong giao dịch, Khai STK, Rút tiền.                        (FE)
+  T8.12 [P0] Unit test bắt buộc: không âm số dư, không trừ trùng, bảo toàn tổng tiền.   (BE-PAY)
+  T8.13 [P0] Hoa hồng 10% (tối thiểu 5.000đ), bên trả chịu, tính trên giá cuối; ví REVENUE;
+             GET /fees?price= để FE hiện "giá + phí" (QĐ-32).                ✔ ĐÃ LÀM   (BE-PAY)
+  T8.14 [P0] Phí đăng bài 20.000đ, bài đầu miễn phí, idempotent theo listingId;
+             hoàn phí (QĐ-33).                                               ✔ ĐÃ LÀM   (BE-PAY)
+  T8.15 [P0] Module Listing gọi chargeListingFee khi Đăng; job hết hạn 7 ngày gọi
+             refundListingFee nếu không có báo giá CONFIRMED_OFFER nào.                 (BE-CORE)
+  T8.16 [P0] FE: hiện phí đăng bài trước khi bấm Đăng; hiện "giá + hoa hồng = tổng phải trả"
+             ở nút Thanh toán của Partner; thiếu tiền → QR nạp phần thiếu.              (FE)
+  T8.17 [P1] Admin rút doanh thu từ ví REVENUE về TK công ty (cùng luồng lệnh rút).    (BE-PAY)
+  ✔ Xong khi: chuyển khoản thật 10.000đ → số dư tăng trong < 1 phút; thanh toán → hoàn tất
+    → ví bên nhận tăng; rút → Admin chuyển → trạng thái PAID.
+
+EPIC 9 — Giao dịch                                                        (tuần 6–7)
+  T9.1  [P0] Chọn offer: POST /transactions (TransactWriteItems — 2 request đồng thời chỉ
+             1 thành công) → AWAITING_PAYMENT, Listing → MATCHED.                       (BE-CORE)
+  T9.2  [P0] Hạn thanh toán 12h → quá hạn CANCELLED, Listing mở lại (QĐ-14).            (BE-CORE)
+  T9.3  [P0] Mở SĐT / địa chỉ chi tiết cho hai bên sau khi tiền được giữ (QĐ-20).       (BE-CORE)
+  T9.4  [P0] Handover plan: đề xuất – chấp nhận (phương thức, địa điểm, thời gian).      (BE-CORE)
+  T9.5  [P0] Điều chỉnh giá: chỉ giảm, lý do + ảnh, tối đa 2 lần, Owner đồng ý/từ chối (QĐ-15). (BE-CORE)
+  T9.6  [P0] POST /transactions/{id}/confirm-completion: bên thứ nhất → AWAITING_COUNTERPARTY;
+             bên thứ hai → COMPLETED → gọi RELEASE.                                    (BE-CORE)
+  T9.7  [P0] Hủy trước khi gặp (CANCELLED) / báo thất bại kèm mã lý do (FAILED) → REFUND. (BE-CORE)
+  T9.8  [P0] Ghi TransactionEvents cho mọi chuyển trạng thái và thay đổi giá.           (BE-CORE)
+  T9.9  [P0] FE: trang Giao dịch cho Owner & Partner (trạng thái, đếm ngược hạn, nút theo
+             vai trò, thông tin liên lạc khi được mở).                                  (FE)
+
+EPIC 10 — Lịch & tác vụ nền                                               (tuần 6)
+  T10.1 [P0] EventBridge Scheduler one-time: Listing hết hạn 7 ngày, hạn thanh toán 12h,
+             nhắc 24h + tự hoàn tất 48h (QĐ-18), lệnh nạp hết hạn 24h.                  (OPS + BE-CORE)
+  T10.2 [P0] Mọi Lambda lịch kiểm tra trạng thái bằng ConditionExpression trước khi xử lý
+             (chạy trễ / trùng không sai).                                             (BE-CORE)
+  T10.3 [P1] Job quét bù mỗi giờ cho các mốc bị sót (giaiphap E3).                      (BE-CORE)
+  T10.4 [P0] Listing hết hạn / bị hủy → đóng các báo giá đang mở.                       (BE-CORE)
+
+EPIC 11 — Thông báo                                                       (tuần 7)
+  T11.1 [P0] Lưu notification trong DynamoDB (TTL 90 ngày) cho sự kiện Owner / Partner /
+             Admin, gồm cả sự kiện tiền (nạp thành công, đã giữ tiền, đã nhận tiền, rút xong). (BE-CORE)
+  T11.2 [P0] API: danh sách, unread-count, đánh dấu đã đọc.                            (BE-CORE)
+  T11.3 [P0] FE: chuông thông báo, polling 30s khi tab hiển thị.                       (FE)
+  T11.4 [P1] Email (SNS/SES) cho sự kiện tiền và hạn thanh toán.                        (OPS)
+
+  ✔ Mốc tuần 7: chạy trọn kịch bản thu mua với tiền thật.
+
+
+=====================================================================
+GĐ 2 — TIN CẬY & QUẢN TRỊ (tuần 8–9)
+=====================================================================
+
+EPIC 12 — Đánh giá hai chiều & uy tín                                     (tuần 8)
+  T12.1 [P0] Owner chấm Partner và Partner chấm Owner (1–5 sao + nhận xét), mỗi bên 1 lần /
+             giao dịch đã kết thúc; nhãn VERIFIED_TRANSACTION khi COMPLETED có 2 xác nhận (QĐ-22). (BE-CORE)
+  T12.2 [P0] Phản hồi đánh giá, báo cáo đánh giá; sửa trong 7 ngày (giữ phiên bản cũ).  (BE-CORE)
+  T12.3 [P0] Chỉ số cơ bản cho cả Partner và Owner: Average Rating, số giao dịch hoàn thành,
+             Completion Rate, Cancellation Rate, No-show; "Chưa đủ dữ liệu" khi ít mẫu (QĐ-21). (BE-CORE)
+  T12.4 [P0] FE: form đánh giá, trang Reviews & Reputation, hiển thị uy tín trong so sánh báo giá. (FE)
+
+EPIC 13 — Tranh chấp                                                      (tuần 8)
+  T13.1 [P0] Khiếu nại trong 48h → DISPUTED → đóng băng tiền (QĐ-08).                  (BE-CORE + BE-PAY)
+  T13.2 [P0] Hai bên upload bằng chứng (ảnh, ghi chú).                                 (BE-CORE)
+  T13.3 [P0] Admin quyết (≤ 7 ngày): chuyển bên nhận / trả bên trả / chia theo giá
+             điều chỉnh → bút toán tương ứng.                                          (BE-PAY)
+
+EPIC 14 — Admin                                                           (tuần 8–9)
+  T14.1 [P0] Duyệt Partner: hồ sơ, giấy phép, chi nhánh; duyệt / từ chối / yêu cầu bổ sung /
+             tạm ngừng (tạm ngừng → INVALIDATED các báo giá đang mở).                   (BE-CORE)
+  T14.2 [P0] Xác minh STK (tên chủ TK khớp tên đăng ký).                               (BE-PAY)
+  T14.3 [P0] Hàng đợi lệnh rút: xem QR, đánh dấu đang chuyển; alarm lệnh quá 20h (QĐ-23). (BE-PAY)
+  T14.4 [P0] Hàng đợi đối soát: tiền vào sai mã / thiếu / thừa → gán cho lệnh nạp đúng
+             hoặc hoàn lại.                                                            (BE-PAY)
+  T14.5 [P0] Xử lý tranh chấp (EPIC 13), kiểm duyệt Listing / đánh giá / báo cáo vi phạm. (BE-CORE)
+  T14.6 [P1] Thống kê: người dùng, Partner, Listing, báo giá, giao dịch, tổng tiền giữ,
+             tỷ lệ thất bại, rating trung bình.                                        (BE-CORE)
+  T14.7 [P0] Tách quyền admin / admin_finance (TL-05); audit log mọi thao tác tiền (TL-04). (BE-PAY)
+  T14.8 [P0] FE: Admin Dashboard, Partner Approvals, Bank Accounts, Withdrawals,
+             Reconciliation, Disputes, Moderation.                                    (FE)
+  ✔ Mốc tuần 9: tranh chấp, đánh giá 2 chiều, Admin đầy đủ.
+
+
+=====================================================================
+GĐ 3 — CLOUD ENGINEERING (tuần 10–11)
+=====================================================================
+  T15.1 [P0] Terraform đầy đủ mọi tài nguyên; thêm môi trường prod.                    (OPS)
+  T15.2 [P0] CI/CD: merge main → deploy dev; deploy prod cần duyệt thủ công.            (OPS)
+  T15.3 [P0] CloudWatch dashboard + alarm: Lambda error > 1%, API 5XX > 1%, p95 > 2s,
+             DLQ có message, Bedrock throttle, webhook lỗi, lệnh rút quá 20h,
+             ĐỐI SOÁT LỆCH (tổng ví ≠ tiền TK ngân hàng).                               (OPS + BE-PAY)
+  T15.4 [P0] Job đối soát hằng ngày (bất biến quyetdinh.txt mục 5).                     (BE-PAY)
+  T15.5 [P0] Bảo mật: HTTPS, S3 Block Public Access, IAM least privilege theo từng Lambda,
+             WAF trên CloudFront (bật khi demo), throttling API tiền, không log token / STK đầy đủ. (OPS)
+  T15.6 [P0] S3 Lifecycle: ảnh rác 24h, ảnh Listing 90 ngày sau kết thúc; CloudWatch Logs
+             30 ngày (QĐ-27).                                                         (OPS)
+  T15.7 [P0] Integration test theo kịch bản demo + test phân quyền (user khác / role khác
+             bị từ chối).                                                             (OPS + cả nhóm)
+  T15.8 [P0] Test độ tin cậy có quay video làm bằng chứng:
+             • 2 request chọn offer đồng thời → chỉ 1 thành công
+             • bấm Thanh toán 2 lần → chỉ trừ 1 lần
+             • webhook ngân hàng gửi trùng → chỉ cộng 1 lần
+             • Listing tự hết hạn; lịch chạy trùng không gây sai
+             • hết 48h tự hoàn tất và tự chuyển tiền                                   (OPS + BE-PAY)
+  T15.9 [P0] Load test: 50 user đồng thời, 20 req/s trong 10 phút, lỗi < 1%,
+             p95 đọc < 500 ms / ghi < 1 s (giaiphap F1).                                (OPS)
+  T15.10[P0] Phân tích chi phí thực tế + ước tính khi mở rộng.                          (OPS)
+  T15.11[P1] AWS Well-Architected Review (6 trụ cột).                                  (OPS)
+
+
+=====================================================================
+GĐ 4 — TÀI LIỆU, WORKSHOP & DEMO (tuần 12)
+=====================================================================
+  T16.1 [P0] Spec v1.1 (gộp quyetdinh.txt vào spec).                                   (cả nhóm)
+  T16.2 [P0] Sơ đồ kiến trúc AWS, data model, API contract, state machine.              (cả nhóm)
+  T16.3 [P0] Bằng chứng: kết quả integration test, load test, video demo lỗi.           (OPS)
+  T16.4 [P0] Báo cáo chi phí, Well-Architected Review.                                 (OPS)
+  T16.5 [P0] Mục PHÁP LÝ trong báo cáo: ví & giữ tiền cần giấy phép trung gian thanh toán
+             NHNN; chạy thương mại phải hợp tác đơn vị có phép (QĐ-03).                (cả nhóm)
+  T16.6 [P0] Deployment Workshop (hướng dẫn dựng lại từ đầu bằng Terraform).            (OPS)
+  T16.7 [P0] Final Report + diễn tập demo 2 lần.                                       (cả nhóm)
+
+Kịch bản demo (cập nhật từ §25 theo quyết định mới):
+  1. Owner đăng ký, xác minh SĐT, thêm địa điểm Thủ Đức.
+  2. Owner đăng laptop Dell hỏng → AI phân tích → đăng tin.
+  3. Matching trong 5 km → Auto-Quote → Partner nhận thông báo.
+  4. Owner yêu cầu Partner A xác nhận; Partner B gửi Manual Offer; Owner chọn B.
+  5. Partner B nạp tiền THẬT qua VietQR → bấm Thanh toán → tiền được giữ → mở SĐT.
+  6. Gặp mặt, kiểm tra, (tùy chọn) điều chỉnh giảm giá → hai bên xác nhận
+     → tiền TỰ ĐỘNG vào ví Owner, phần chênh lệch về ví Partner.
+  7. Owner rút tiền → Admin chuyển → PAID.
+  8. Đánh giá 2 chiều.
+  9. Cloud: dashboard, đối soát khớp, demo lỗi đồng thời / trùng, Listing hết hạn,
+     load test, chi phí.
+
+
+=====================================================================
+MỞ RỘNG — LÀM NẾU CÒN THỜI GIAN [MR]
+=====================================================================
+  M1  Chiều BÁN TÁI CHẾ: Partner đăng sản phẩm tái chế, khách mua, trả từ ví (QĐ-29).
+  M2  Reputation nâng cao: Quote Accuracy, Price Reduction Rate, cờ giá bất thường.
+  M3  Amazon Location Service: tìm địa chỉ, chuẩn hóa vị trí.
+  M4  Chi trả tự động qua API chi hộ (thay PayoutProvider).
+  M5  WebSocket thông báo thời gian thực.
+  M6  Kiểm duyệt ảnh bằng Amazon Rekognition.
+
+
+=====================================================================
+DEFINITION OF DONE (áp dụng cho mọi task)
+=====================================================================
+  □ Code được review, CI xanh.
+  □ Unit test cho quy tắc nghiệp vụ / chuyển trạng thái (task tiền: bắt buộc test
+    không âm, không trùng, bảo toàn tổng).
+  □ Test phân quyền: người khác / vai trò khác bị từ chối.
+  □ Hạ tầng liên quan nằm trong Terraform, đã deploy lên dev.
+  □ API Contract đã cập nhật.
+  □ Có log có cấu trúc + metric cho thao tác chính.
+  □ Chạy được bước tương ứng trong kịch bản demo.
+
+
+=====================================================================
+RỦI RO CẦN THEO DÕI
+=====================================================================
+  R1  Ví & thanh toán là phần nặng nhất → 1 người chuyên trách từ tuần 3; nếu tuần 7 chưa
+      xong nạp/giữ/mở khóa thì lùi rút tiền tự động hóa, Admin xử lý tay hoàn toàn.
+  R2  Dịch vụ webhook ngân hàng chậm duyệt / đổi API → làm T0.2 ngay tuần 1; dự phòng:
+      Admin xác nhận nạp tiền thủ công.
+  R3  Bedrock chưa được cấp quyền → T0.3 tuần 1; dự phòng: nhập thủ công.
+  R4  Chi phí vượt ngân sách → tắt WAF / môi trường prod khi không demo.
+  R5  Pháp lý ví điện tử → chỉ dùng tiền và tài khoản của nhóm; ghi rõ trong báo cáo.

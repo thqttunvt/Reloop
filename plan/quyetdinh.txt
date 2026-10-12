@@ -1,0 +1,250 @@
+RELOOP — NHẬT KÝ QUYẾT ĐỊNH (Tech Lead × Product Owner)
+=====================================================================
+Ghi lại các quyết định đã chốt trong buổi hỏi đáp. Quyết định ở đây GHI ĐÈ lên
+spec v1.0, baton.txt và giaiphap.txt nếu có mâu thuẫn.
+Ngày bắt đầu: 2026-10-10 · Cập nhật lần 2: chuyển từ ký quỹ từng giao dịch sang VÍ NỘI BỘ.
+
+Thuật ngữ dùng trong file:
+  • Bên TRẢ (payer)  : bên bỏ tiền ra trong giao dịch.
+  • Bên NHẬN (payee) : bên nhận tiền khi giao dịch hoàn tất.
+  • Chiều THU MUA    : Owner bán đồ điện tử cũ / đồ tái chế → Partner trả, Owner nhận.
+  • Chiều BÁN TÁI CHẾ: Partner bán đồ điện tử tái chế / tân trang → Khách trả, Partner nhận.
+
+
+=====================================================================
+1. BỐI CẢNH & PHẠM VI
+=====================================================================
+
+QĐ-01  Nhân lực & thời gian
+       3–4 người, khoảng 3 tháng → timeline 12 tuần (giaiphap.txt F3).
+
+QĐ-02  Mô hình doanh thu (cập nhật 2026-10-11 — thay "chưa thu phí")
+       ReLoop thu 2 loại phí để có kinh phí duy trì (chi tiết QĐ-32, QĐ-33).
+       Tiền phí chuyển vào ví doanh thu REVENUE của ReLoop, vẫn nằm trong bất biến đối soát.
+
+QĐ-29  Hai chiều giao dịch, dùng chung ví và cơ chế giữ tiền:
+       • Chiều THU MUA (Partner trả → Owner nhận): làm trong MVP, đúng spec + kịch bản demo §25.
+       • Chiều BÁN TÁI CHẾ (Khách trả → Partner nhận): MỤC TIÊU MỞ RỘNG, làm nếu tuần 9–10
+         còn thời gian. Cần thêm module Partner đăng sản phẩm tái chế.
+       • Data model hỗ trợ cả hai chiều ngay từ đầu: Transaction có direction, payerId, payeeId;
+         ví và sổ cái không phân biệt chiều.
+
+QĐ-10  Partner phải là doanh nghiệp / cơ sở kinh doanh
+       Bắt buộc giấy phép kinh doanh, có hóa đơn chứng từ. Không nhận cá nhân làm Partner.
+
+QĐ-11  Bán kính: trần cứng 5 km. Partner chọn 1–5 km cho mỗi chi nhánh
+       (hai bên cần gặp mặt để bàn giao).
+
+QĐ-12  Bỏ phân giai đoạn ưu tiên 24h. Listing: ACTIVE → MATCHED → COMPLETED,
+       ACTIVE → EXPIRED (7 ngày) | CANCELLED.
+
+QĐ-13  AI và Matching chạy nền (bất đồng bộ) + frontend polling.
+
+QĐ-17  Ngân sách: 20–50 USD/tháng cho AWS + dịch vụ ngoài. AWS Budgets cảnh báo 50/80/100%.
+
+QĐ-21  Lùi xuống "làm nếu còn thời gian":
+       • Reputation nâng cao (Quote Accuracy, Price Reduction Rate, cờ giá bất thường).
+         MVP giữ: Average Rating, số giao dịch hoàn thành, Completion / Cancellation Rate.
+       • Amazon Location Service → MVP dùng Leaflet + OpenStreetMap để ghim tọa độ.
+       • Chiều BÁN TÁI CHẾ (QĐ-29).
+
+
+=====================================================================
+2. TIỀN — MÔ HÌNH VÍ NỘI BỘ  (thay thế QĐ-03 → QĐ-06 bản cũ)
+=====================================================================
+
+QĐ-03  Mọi giao dịch đều đi qua VÍ NỘI BỘ của ReLoop, tiền được GIỮ cho tới khi hoàn tất.
+       • Thay đổi so với spec §1.3 ("ReLoop không xử lý thanh toán").
+       • Demo dùng tiền thật, tài khoản ngân hàng của chính nhóm.
+       • ⚠ Pháp lý: giữ số dư cho người dùng (ví điện tử) và giữ tiền hộ / chi hộ đều là
+         dịch vụ trung gian thanh toán cần giấy phép NHNN. Báo cáo cuối phải ghi rõ:
+         chạy thương mại cần hợp tác với đơn vị có giấy phép.
+
+QĐ-04  NẠP tiền vào ví
+       • Người dùng nhập số tiền → hệ thống sinh VietQR tới TK ReLoop, nội dung chứa mã nạp
+         riêng (vd RLN-8F3K2).
+       • Dịch vụ theo dõi biến động số dư (SePay / payOS / Casso) bắn webhook → khớp mã →
+         cộng vào số dư KHẢ DỤNG ngay.
+       • Sai mã / không có mã → hàng đợi đối soát của Admin.
+
+QĐ-30  Cấu trúc số dư mỗi ví:
+         Khả dụng (available)  — dùng để thanh toán hoặc rút.
+         Đang giữ (held)       — đã trừ cho giao dịch, chưa hoàn tất.
+         Đang rút (withdrawing) — đã tạo lệnh rút, chờ Admin chuyển.
+       Hạn mức (chỉnh bằng cấu hình): nạp tối thiểu 10.000đ, số dư tối đa 20.000.000đ,
+       rút tối thiểu 50.000đ.
+
+QĐ-05  THANH TOÁN giao dịch (giữ tiền)
+       • Sau khi Owner chọn offer, bên TRẢ bấm "Thanh toán" → hệ thống chuyển tiền từ
+         Khả dụng sang Đang giữ (trừ tiền ngay).
+       • Không đủ số dư → hiện QR nạp đúng phần còn thiếu, nạp xong mới thanh toán được.
+       • Hạn thanh toán: 12 giờ sau khi offer được chọn (QĐ-14).
+       • Owner chỉ đi bàn giao khi tiền đã được giữ.
+
+QĐ-06  MỞ KHÓA khi hoàn tất — TỰ ĐỘNG
+       • Khi hai bên cùng xác nhận hoàn thành (hoặc hết 48h im lặng theo QĐ-18):
+         hệ thống TỰ ĐỘNG chuyển tiền từ Đang giữ của bên trả sang Khả dụng của bên nhận.
+         Không cần Admin. Diễn ra tức thì (chỉ là bút toán trong sổ cái).
+       • Phần chênh lệch (giảm giá, cân thiếu) tự động trả về Khả dụng của bên trả.
+
+QĐ-31  RÚT tiền về ngân hàng
+       • Rút bất kỳ lúc nào, chỉ phần Khả dụng.
+       • Chỉ rút về STK đã được Admin xác minh: TÊN CHỦ TÀI KHOẢN phải trùng tên đã đăng ký
+         (Partner: tên doanh nghiệp trên giấy phép; Owner: họ tên trên hồ sơ).
+       • Lệnh rút: Khả dụng → Đang rút → Admin chuyển tay (1 chạm, có QR sẵn) → webhook tiền ra
+         khớp → hoàn tất. Chuyển lỗi → trả lại Khả dụng.
+       • Cam kết xử lý trong 24 giờ (QĐ-23).
+       • Thiết kế interface PayoutProvider để sau thay bằng API chi hộ tự động.
+
+QĐ-07  Giao dịch không thành sau khi đã giữ tiền → trả 100% về Khả dụng của bên trả
+       (tự động). Không phạt tiền. Bên có lỗi bị ghi vào chỉ số uy tín.
+
+QĐ-08  Tranh chấp → tiền Đang giữ bị ĐÓNG BĂNG. Hai bên nộp bằng chứng. Admin quyết trong
+       7 ngày: chuyển cho bên nhận / trả bên trả / chia theo giá điều chỉnh.
+
+QĐ-09  Xác minh danh tính
+       • Mọi người dùng: xác minh số điện thoại bằng OTP trước khi nạp tiền.
+       • STK rút tiền phải được Admin xác minh tên chủ TK (QĐ-31).
+
+QĐ-19  Owner khai STK khi rút tiền lần đầu (không bắt buộc lúc đăng tin hay chọn offer,
+       vì tiền giờ về ví trước).
+
+QĐ-24  Partner khai STK doanh nghiệp khi đăng ký; tên chủ TK phải khớp giấy phép kinh doanh;
+       Admin duyệt cùng hồ sơ.
+
+QĐ-23  Cam kết xử lý lệnh rút trong 24 giờ. CloudWatch alarm khi lệnh quá 20 giờ chưa xử lý.
+
+
+QĐ-32  HOA HỒNG GIAO DỊCH: 10% giá cuối, tối thiểu 5.000đ (chỉnh bằng cấu hình).
+       • Bên TRẢ chịu, CỘNG THÊM vào: giá 200.000đ → Partner bị giữ 220.000đ,
+         Owner nhận đủ 200.000đ, ReLoop thu 20.000đ.
+       • Khi thanh toán: giữ = giá + hoa hồng(giá). Hàng theo kg: giá = ước tính × 1,2.
+       • Tính trên GIÁ CUỐI thực trả cho bên nhận: giảm giá thì phí giảm theo,
+         phần phí giữ dư được hoàn cùng chênh lệch.
+       • Giao dịch hủy / thất bại / Admin xử cho bên trả: không thu phí.
+
+QĐ-33  PHÍ ĐĂNG BÀI: 20.000đ/bài, Owner trả, trừ từ ví khi bấm Đăng.
+       • Bài đăng ĐẦU TIÊN của mỗi tài khoản miễn phí.
+       • Không đủ số dư → hiện QR nạp phần còn thiếu.
+       • Hoàn phí khi tin hết hạn 7 ngày mà KHÔNG có báo giá được Partner xác nhận nào.
+       • Owner tự hủy tin: KHÔNG hoàn phí.
+
+
+=====================================================================
+3. GIAO DỊCH & GIÁ
+=====================================================================
+
+QĐ-14  Hạn thanh toán: 12 giờ sau khi offer được chọn. Quá hạn → Transaction CANCELLED
+       (lỗi bên trả, tính vào uy tín), Listing mở lại nếu còn hạn; offer khác còn hiệu lực
+       vẫn chọn được.
+
+QĐ-15  Điều chỉnh giá khi kiểm tra (chiều THU MUA): chỉ GIẢM, bắt buộc lý do + ảnh,
+       tối đa 2 lần, Owner phải đồng ý. Đồng ý → phần chênh lệch tự trả về ví Partner khi
+       hoàn tất. Từ chối → giữ giá cũ hoặc Partner báo thất bại (hoàn 100%).
+
+QĐ-16  Partner xác nhận với giá khác khoảng dự kiến: vẫn là CONFIRMED_OFFER, hiển thị cảnh báo.
+       Owner bấm Chọn = chấp nhận.
+
+QĐ-25  Đơn vị giá: THEO CÁI và THEO KG; chỉ VND, số nguyên.
+
+QĐ-26  Hàng theo kg: giữ = đơn giá × khối lượng ước tính × 1,2. Giá cuối theo cân thực tế,
+       Owner đồng ý. Phần thừa tự trả về ví bên trả. Vượt số đã giữ → bên trả thanh toán thêm
+       từ ví trước khi hoàn tất.
+
+QĐ-18  Một bên xác nhận hoàn thành, bên kia im lặng: nhắc ở 24h, quá 48h tự hoàn tất và
+       tự mở khóa tiền (QĐ-06). Trong 48h bên kia được khiếu nại → QĐ-08.
+
+QĐ-20  SĐT, địa chỉ chi tiết chỉ mở cho nhau SAU KHI tiền đã được giữ.
+
+QĐ-22  Đánh giá HAI CHIỀU (1–5 sao + nhận xét), mỗi bên 1 lần / giao dịch, sau khi kết thúc.
+
+
+=====================================================================
+4. DỮ LIỆU & PHÁP LÝ
+=====================================================================
+
+QĐ-27  Lưu trữ: ảnh Listing xóa 90 ngày sau khi kết thúc; ảnh rác xóa sau 24h;
+       sổ cái, lệnh nạp / rút, bằng chứng tranh chấp giữ lâu dài. Xóa tài khoản = ẩn danh hóa,
+       và chỉ được xóa khi ví về 0 và không có giao dịch đang mở.
+
+QĐ-28  Bắt buộc đồng ý Điều khoản sử dụng + Chính sách quyền riêng tư + Điều khoản ví & giữ tiền.
+       Lưu phiên bản + thời điểm đồng ý. Ghi rõ là dự án thực tập.
+
+
+=====================================================================
+5. STATE MACHINE (thay §15 của spec)
+=====================================================================
+
+LISTING:  ACTIVE → MATCHED → COMPLETED
+          ACTIVE → EXPIRED (7 ngày) | CANCELLED (Owner)
+          MATCHED → ACTIVE (giao dịch hủy/thất bại, còn hạn) | EXPIRED (hết hạn)
+
+QUOTE:    như giaiphap.txt B1 (có INVALIDATED).
+
+TRANSACTION:
+  AWAITING_PAYMENT ──(bên trả bấm Thanh toán, đủ số dư)──▶ HANDOVER_PENDING
+  AWAITING_PAYMENT ──(quá 12h / hủy)──────────────────────▶ CANCELLED
+  HANDOVER_PENDING ──(đề nghị điều chỉnh giá)─────────────▶ PRICE_ADJUSTMENT_PENDING
+  PRICE_ADJUSTMENT_PENDING ──(Owner đồng ý / từ chối)──────▶ HANDOVER_PENDING
+  HANDOVER_PENDING ──(một bên xác nhận hoàn thành)────────▶ AWAITING_COUNTERPARTY (48h)
+  AWAITING_COUNTERPARTY ──(bên kia xác nhận / quá 48h)────▶ COMPLETED   → tự mở khóa tiền
+  AWAITING_COUNTERPARTY ──(bên kia khiếu nại)─────────────▶ DISPUTED    → đóng băng tiền
+  HANDOVER_PENDING ──(hủy trước khi gặp)──────────────────▶ CANCELLED   → trả tiền bên trả
+  HANDOVER_PENDING / PRICE_ADJUSTMENT_PENDING ──(báo thất bại)▶ FAILED  → trả tiền bên trả
+  DISPUTED ──(Admin quyết, ≤ 7 ngày)──────────────────────▶ COMPLETED | FAILED
+
+LỆNH NẠP (TopUp):   CREATED → CREDITED (webhook khớp) | EXPIRED (quá 24h không có tiền)
+LỆNH RÚT (Withdrawal): REQUESTED → PROCESSING (Admin đang chuyển) → PAID (webhook tiền ra)
+                       → FAILED (trả lại Khả dụng)
+
+SỔ CÁI (append-only, bút toán kép — mỗi lần chuyển ghi 1 dòng trừ + 1 dòng cộng):
+  TOPUP        ngân hàng ReLoop      → ví.available
+  HOLD         ví.available (bên trả) → ví.held (bên trả)
+  RELEASE      ví.held (bên trả)      → ví.available (bên nhận)
+  REFUND       ví.held (bên trả)      → ví.available (bên trả)
+  SETTLE (có phí) ví.held (bên trả) → ví.available (bên nhận) + REVENUE.available (hoa hồng)
+                  + ví.available (bên trả, phần dư)
+  LISTING_FEE  ví.available (Owner)   → REVENUE.available
+  LISTING_FEE_REFUND  REVENUE.available → ví.available (Owner)
+  FREEZE/UNFREEZE  đánh dấu trên khoản held của giao dịch tranh chấp
+  WITHDRAW     ví.available           → ví.withdrawing → ngân hàng ReLoop (khi PAID)
+
+BẤT BIẾN KIỂM TRA HẰNG NGÀY (job đối soát + CloudWatch alarm nếu lệch):
+  Tổng (available + held + withdrawing) của mọi ví
+    = Số dư thực tế TK ngân hàng ReLoop dành cho ví.
+  Không ví nào có số dư âm.
+
+
+=====================================================================
+6. CÁC MỤC CÒN LẠI TRONG baton.txt
+=====================================================================
+Các mục chưa hỏi riêng (C1–C16, D5, D6, D8, D9, D13–D16, E2–E9, F1, F3, F4) áp dụng theo
+giaiphap.txt, điều chỉnh cho khớp các quyết định trên (bỏ priority, ví nội bộ, đánh giá
+2 chiều). Product Owner có thể phản đối bất kỳ mục nào.
+
+
+=====================================================================
+7. QUYẾT ĐỊNH KỸ THUẬT TECH LEAD TỰ CHỐT
+=====================================================================
+TL-01  Tìm chi nhánh theo vị trí: geohash độ chính xác 4 (ô ~39 × 19,5 km), lấy ô chứa
+       Listing + 8 ô lân cận = 9 Query, rồi lọc chính xác bằng Haversine ≤ bán kính.
+TL-02  Tiền là số nguyên VND. Sổ cái append-only, bút toán kép; số dư ví là bản tổng hợp
+       cập nhật CÙNG TransactWriteItems với bút toán và có ConditionExpression
+       "available >= số tiền" → không bao giờ âm, không trừ trùng khi bấm 2 lần.
+TL-03  Webhook ngân hàng: endpoint công khai không dùng JWT, xác thực bằng chữ ký / API key
+       của nhà cung cấp; idempotent theo mã giao dịch ngân hàng; lưu raw payload để đối soát.
+TL-04  Mọi thao tác tiền (thanh toán, rút, Admin quyết tranh chấp) bắt buộc Idempotency-Key
+       và ghi audit log (ai, lúc nào, IP).
+TL-05  API Admin cho tiền tách quyền riêng (role admin_finance) để demo nguyên tắc
+       least privilege.
+TL-06  API bổ sung, quy ước API, thiết kế DynamoDB, lịch EventBridge: theo giaiphap.txt
+       mục C, E2, E3; bổ sung nhóm API ví:
+         GET  /wallet                       (số dư 3 phần)
+         GET  /wallet/ledger?cursor=        (lịch sử bút toán)
+         POST /wallet/topups                (tạo lệnh nạp + VietQR)
+         POST /transactions/{id}/pay        (giữ tiền)
+         POST /wallet/withdrawals           (tạo lệnh rút)
+         POST /bank-accounts                (khai STK, chờ Admin xác minh)
+         POST /webhooks/bank                (webhook nhà cung cấp, không JWT)
+         GET  /admin/withdrawals?status=    · POST /admin/withdrawals/{id}/mark-processing
+         GET  /admin/reconciliation         · POST /admin/bank-accounts/{id}/verify

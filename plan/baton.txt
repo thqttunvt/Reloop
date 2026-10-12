@@ -1,0 +1,203 @@
+RELOOP — CÁC ĐIỂM BẤT CẬP / CHƯA RÕ TRONG TÀI LIỆU ĐẶC TẢ (v1.0)
+=====================================================================
+Nguồn: file "Theo báo cáo Global E-waste Monitor 2024 ... .docx"
+(ReLoop — Complete Business Workflow & System Specification v1.0)
+Ký hiệu §x.y = số mục trong tài liệu gốc.
+Mức độ: [CAO] = phải chốt trước khi code · [TB] = chốt trong Phase 1 · [THẤP] = có thể chốt sau.
+
+
+A. MÂU THUẪN TRONG TÀI LIỆU
+---------------------------------------------------------------------
+
+A1. [CAO] AI chạy đồng bộ hay bất đồng bộ?
+    - §21 có API POST /ai/analyze (ngụ ý trả kết quả ngay).
+    - Nhưng §10.2 lại có thông báo "AI Analysis hoàn thành" → ngụ ý chạy nền.
+    - API Gateway REST giới hạn timeout 29 giây; Bedrock xử lý nhiều ảnh có thể vượt quá.
+    → Cần chốt: đồng bộ (giới hạn số ảnh) hay bất đồng bộ (tạo job + polling).
+
+A2. [CAO] Matching / Auto-Quote chạy đồng bộ hay bất đồng bộ?
+    - §8.3 bước 6 "Trả kết quả về frontend" → đồng bộ.
+    - Kiến trúc ghi "Event-Driven", §6.6 ghi "Kích hoạt xử lý matching" → bất đồng bộ.
+    → Cần chốt luồng: POST /listings trả về ngay rồi frontend polling matches/quotes?
+
+A3. [CAO] Giai đoạn ACTIVE_PUBLIC mở rộng tới ai?
+    - §14.2: "hiển thị đến nhóm Partner phù hợp rộng hơn".
+    - Cùng §14.2: "không được tự động bỏ qua các giới hạn phục vụ mà Partner đã cấu hình".
+    - Nếu Partner đã bị lọc theo bán kính từ đầu thì "rộng hơn" là nhóm nào?
+    → Cần định nghĩa cụ thể (vd: nới điều kiện số lượng/khối lượng? gồm Partner mới đăng ký?).
+
+A4. [TB] Hai chỗ cùng quy định khoảng cách.
+    - Chi nhánh có "Bán kính phục vụ" (§5.3), Pricing Rule lại có "Maximum Distance" (§8.2).
+    - Nếu Max Distance > bán kính chi nhánh thì lấy giá trị nào?
+    → Đề xuất: Max Distance của Rule phải ≤ bán kính chi nhánh, backend validate.
+
+A5. [TB] Chuyển trạng thái Listing khi giao dịch thất bại.
+    - §15.1 nói Listing "có thể được mở lại", nhưng danh sách chuyển trạng thái
+      KHÔNG có MATCHED → ACTIVE_*, cũng không có MATCHED → EXPIRED / CANCELLED.
+    → Cần bổ sung đầy đủ các chuyển trạng thái này.
+
+A6. [TB] Tên file .docx không khớp nội dung.
+    - Tên file là câu mở đầu về báo cáo E-waste Monitor 2024, nội dung lại là đặc tả ReLoop.
+    → Nên đổi tên (vd: ReLoop_Specification_v1.0.docx) để dễ quản lý.
+
+
+B. STATE MACHINE CHƯA ĐẦY ĐỦ
+---------------------------------------------------------------------
+
+B1. [CAO] Quote và Transaction chỉ liệt kê trạng thái, KHÔNG có bảng chuyển trạng thái.
+    - Listing có danh sách chuyển trạng thái, còn Quote (7 trạng thái) và
+      Transaction (6 trạng thái) thì không.
+    → Cần vẽ sơ đồ: từ trạng thái nào sang trạng thái nào, ai được thực hiện.
+
+B2. [CAO] Partner "đề xuất mức giá khác" (§8.5) → chuyển sang trạng thái nào?
+    - Không có trạng thái kiểu COUNTER_OFFERED. Owner có phải chấp nhận lại không?
+
+B3. [CAO] Estimated Quote bị "vô hiệu hóa" khi Listing đổi vị trí (§5.6).
+    - Không có trạng thái INVALIDATED. Dùng EXPIRED hay WITHDRAWN? Cả hai đều sai nghĩa.
+
+B4. [CAO] Owner TỪ CHỐI điều chỉnh giá (§12.3) → giao dịch đi về đâu?
+    - Quay lại HANDOVER_PENDING với giá cũ? Hay FAILED?
+    - Tương tự: Partner "từ chối tiếp nhận" khi kiểm tra → FAILED hay CANCELLED?
+
+B5. [TB] Khác nhau giữa FAILED và CANCELLED không được định nghĩa.
+    - §12.5 liệt kê "Một bên hủy" là nguyên nhân THẤT BẠI → vậy CANCELLED dùng khi nào?
+
+B6. [TB] DISPUTED được giải quyết thế nào?
+    - Admin xem xét xong thì giao dịch sang trạng thái gì? Không có API cho Admin xử lý.
+
+B7. [TB] Khi Listing hết hạn / bị hủy thì các Quote đang mở xử lý ra sao?
+    - Có tự động chuyển tất cả sang EXPIRED không?
+
+B8. [TB] Khi Owner chọn 1 offer, các offer còn lại của Listing đó thì sao?
+    - Giữ nguyên hay chuyển trạng thái? Nếu giao dịch thất bại, các offer cũ còn dùng lại được không?
+
+
+C. API CÒN THIẾU (§21 chỉ là bản sơ bộ)
+---------------------------------------------------------------------
+
+C1.  [CAO] Notification: không có GET /notifications, đánh dấu đã đọc.
+C2.  [CAO] Partner xem Listing phù hợp (Matching Requests) — không có API.
+C3.  [CAO] Partner xem / rút báo giá đã gửi (WITHDRAWN) — không có API.
+C4.  [CAO] Owner đồng ý / từ chối điều chỉnh giá — không có API.
+C5.  [CAO] Báo giao dịch thất bại — không có API (chỉ có /cancel).
+C6.  [CAO] Danh sách giao dịch: không có GET /transactions.
+C7.  [CAO] POST /transactions/{id}/confirm-handover và /complete: không rõ khác nhau
+           thế nào, ai gọi API nào.
+C8.  [TB]  Cập nhật thỏa thuận bàn giao (thời gian, địa điểm) — không có API.
+C9.  [TB]  Đổi địa điểm bàn giao khi cả hai bên đồng ý (§5.6) — không có cơ chế xác nhận 2 bên.
+C10. [TB]  Geocode địa chỉ (proxy tới Amazon Location Service) — không có API.
+C11. [TB]  Pricing rules: không có GET (Partner xem danh sách rule).
+C12. [TB]  Partner branches: không có GET, không có ngừng hoạt động chi nhánh.
+C13. [TB]  Owner báo cáo vi phạm (Listing, Partner) — có entity Reports nhưng không có API tạo.
+C14. [TB]  Admin: thiếu tạm ngừng Partner, tạm ngừng Pricing Rule, kiểm duyệt Listing,
+           kiểm duyệt Review, xử lý tranh chấp, xem chi tiết giao dịch.
+C15. [THẤP] Trang hồ sơ công khai của Partner (GET /partners/{id}).
+C16. [THẤP] Không có API cho Admin cấp / thu hồi quyền Admin.
+
+
+D. NGHIỆP VỤ CHƯA RÕ
+---------------------------------------------------------------------
+
+D1.  [CAO] Một bên không bao giờ xác nhận hoàn tất (§12.4) → giao dịch treo mãi?
+     - Cần timeout hoặc cơ chế nhắc / tự động chuyển DISPUTED.
+
+D2.  [CAO] Partner mới đăng ký / bật rule mới SAU khi Listing đã đăng thì có thấy Listing không?
+     - Matching chỉ chạy khi tạo Listing và khi đổi vị trí. Cần chốt có chạy lại định kỳ không.
+
+D3.  [CAO] Thời hạn mặc định của Estimated Quote và Offer là bao lâu?
+
+D4.  [TB] Listing mở lại sau giao dịch thất bại quay về ACTIVE_PRIORITY hay ACTIVE_PUBLIC?
+     - Có reset priorityUntil / expiresAt không?
+
+D5.  [TB] "Rút báo giá theo chính sách" (§9.3) — chính sách là gì? Rút sau khi Owner đã
+     yêu cầu xác nhận có được không?
+
+D6.  [TB] Tình trạng "Unknown" khi matching: Partner phải cấu hình nhận "Unknown", hay
+     Unknown khớp với mọi tình trạng?
+
+D7.  [TB] Đơn vị giá: theo cái hay theo kg? Hiển thị tổng tiền = giá × số lượng/khối lượng?
+     Chỉ hỗ trợ VND?
+
+D8.  [TB] Tạm ngừng Partner khi Partner đang có giao dịch → giao dịch đó xử lý ra sao?
+
+D9.  [TB] Partner sửa bán kính / danh mục chi nhánh → các match và quote hiện có có bị ảnh hưởng?
+
+D10. [TB] Hai bên liên lạc với nhau bằng cách nào? Không có chat; "thông tin liên hệ cần thiết"
+     là số điện thoại? Lưu ở đâu, khi nào được mở?
+
+D11. [TB] Một tài khoản nhiều vai trò (§4.3): role lấy từ đâu là chuẩn — Cognito Groups hay
+     DynamoDB? Tài khoản Admin đầu tiên được tạo thế nào?
+
+D12. [TB] Xác minh Partner (§17.1): Admin dựa vào giấy tờ gì? Có upload giấy phép kinh doanh không?
+
+D13. [TB] Review: "một Review Owner ĐANG CÓ HIỆU LỰC" (§13.5) ngụ ý có thể sửa / thay thế.
+     Owner có được sửa review không? Có giới hạn thời gian đánh giá không?
+
+D14. [TB] Review từ giao dịch thất bại có được tính vào Average Rating không?
+
+D15. [TB] Công thức Reputation Metrics chưa có: mẫu số, cửa sổ thời gian, khi nào tính lại
+     (realtime qua DynamoDB Streams hay theo lịch?). "Partner chủ động hủy" xác định thế nào?
+
+D16. [TB] Ngưỡng "giá bất thường" (§13.6): giảm bao nhiêu % và bao nhiêu lần thì đánh dấu?
+
+D17. [THẤP] Partner KHÔNG đánh giá được Owner → Owner bỏ hẹn, mô tả sai thiết bị thì không
+     có cơ chế uy tín nào cho Owner. Có cần bổ sung không?
+
+
+E. KỸ THUẬT / KIẾN TRÚC
+---------------------------------------------------------------------
+
+E1.  [CAO] Truy vấn theo vị trí trên DynamoDB.
+     - DynamoDB không hỗ trợ truy vấn không gian. Tìm chi nhánh trong bán kính sẽ phải Scan
+       toàn bảng nếu không có thiết kế geohash / chia theo khu vực.
+     → Cần chốt chiến lược (geohash prefix, chia theo tỉnh/quận, hoặc chấp nhận Scan cho MVP).
+
+E2.  [CAO] Chưa có thiết kế DynamoDB vật lý, trong khi §20 yêu cầu dựa trên access patterns.
+     → Cần liệt kê access patterns trước khi viết code.
+
+E3.  [CAO] EventBridge Scheduler: tạo 2 schedule cho mỗi Listing (24h, 7 ngày) hay 1 job
+     quét định kỳ? Cả hai có ưu nhược điểm (số lượng schedule, dọn dẹp khi Listing bị hủy
+     / matched, độ trễ).
+
+E4.  [TB] Location Privacy: trả khoảng cách chính xác từ nhiều chi nhánh có thể cho phép
+     suy ngược vị trí nhà Owner (tam giác hóa). Nên làm tròn khoảng cách (vd: 0,5 km)
+     và làm mờ tọa độ.
+
+E5.  [TB] Chưa đề cập kiểm duyệt ảnh upload (ảnh nhạy cảm, không liên quan).
+     Có thể dùng Bedrock / Rekognition.
+
+E6.  [TB] Chưa có giới hạn ảnh cụ thể: định dạng, dung lượng tối đa, số ảnh tối đa.
+
+E7.  [TB] Chưa chọn model Bedrock, chưa có dự toán chi phí / giới hạn số lần gọi AI cho mỗi
+     user (để tránh bị lạm dụng).
+
+E8.  [TB] Chưa có chu kỳ polling thông báo — polling qua Lambda + DynamoDB ảnh hưởng chi phí.
+
+E9.  [TB] Chưa định nghĩa môi trường (dev / staging / prod) cho IaC và CI/CD.
+
+E10. [THẤP] Chính sách lưu trữ và xóa dữ liệu (§22.3) được nhắc nhưng không có nội dung:
+     giữ ảnh bao lâu, xóa tài khoản thì dữ liệu giao dịch xử lý ra sao.
+
+
+F. YÊU CẦU PHI CHỨC NĂNG & QUẢN LÝ DỰ ÁN
+---------------------------------------------------------------------
+
+F1. [CAO] Không có mục tiêu đo lường: độ trễ API, số request đồng thời khi load test,
+    uptime, ngưỡng cảnh báo. Load test và Well-Architected Review cần có con số để đối chiếu.
+
+F2. [CAO] Không có ngân sách AWS tối đa cho dự án thực tập.
+
+F3. [TB] Không có timeline, số thành viên, phân công theo phase.
+
+F4. [TB] Không có tiêu chí nghiệm thu (Definition of Done) cho từng chức năng.
+
+F5. [THẤP] Pháp lý: dữ liệu cá nhân (số điện thoại, địa chỉ) cần tuân thủ Nghị định
+    13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân; tài liệu chưa đề cập điều khoản sử dụng /
+    sự đồng ý xử lý dữ liệu.
+
+
+G. ĐỀ XUẤT THỨ TỰ CHỐT
+---------------------------------------------------------------------
+1. Chốt ngay (trước khi code): A1, A2, A3, B1–B4, C1–C7, D1–D3, E1–E3, F1, F2.
+2. Chốt trong Phase 1: các mục [TB] còn lại.
+3. Chốt sau: các mục [THẤP].

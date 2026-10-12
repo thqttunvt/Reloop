@@ -1,0 +1,503 @@
+RELOOP — ĐỀ XUẤT GIẢI PHÁP CHO CÁC ĐIỂM BẤT CẬP (đi kèm baton.txt)
+=====================================================================
+Mỗi mục dưới đây trả lời đúng mã tương ứng trong baton.txt (A1, B2, C4...).
+Đây là ĐỀ XUẤT để thảo luận — các con số (thời hạn, ngưỡng, giới hạn) là giá trị khởi điểm
+hợp lý cho MVP thực tập, cần nhóm/mentor xác nhận trước khi đưa vào spec v1.1.
+
+Nguyên tắc chung khi đề xuất:
+  • Giữ MVP đơn giản, ít trạng thái mới nhất có thể.
+  • Mọi thứ không chắc chắn → đưa cho Admin xem xét, không tự động kết luận.
+  • Mọi tác vụ chạy nền phải idempotent (chạy lại / chạy trùng không gây sai).
+
+
+=====================================================================
+A. MÂU THUẪN TRONG TÀI LIỆU
+=====================================================================
+
+A1. AI chạy bất đồng bộ (khuyến nghị)
+    Luồng:
+      1. POST /ai/analyses  {listingDraftId, imageKeys[]}  → 202 {analysisId, status: PENDING}
+      2. Lambda API gọi Lambda Worker theo kiểu async (InvocationType=Event) hoặc qua SQS.
+      3. Worker gọi Bedrock, validate JSON, lưu kết quả → status COMPLETED / FAILED.
+      4. Frontend polling GET /ai/analyses/{id} mỗi 2 giây, tối đa 60 giây.
+      5. FAILED hoặc quá 60 giây → hiện form nhập thủ công (§23.1).
+    Lý do: tránh timeout 29 giây của API Gateway, khớp với thông báo "AI Analysis hoàn thành".
+    Phương án dự phòng nếu muốn đơn giản hơn: gọi đồng bộ nhưng giới hạn ≤3 ảnh, resize ≤1024px,
+    timeout Bedrock 20 giây — khi đó bỏ thông báo "AI hoàn thành" khỏi §10.2.
+
+A2. Matching / Auto-Quote chạy bất đồng bộ
+    Luồng:
+      1. POST /listings lưu Listing với matchingStatus = PENDING → trả 201 ngay.
+      2. Sự kiện ListingCreated (DynamoDB Streams hoặc EventBridge) → Matching Lambda.
+      3. Matching xong → gọi Auto-Quote → tạo thông báo cho Partner → matchingStatus = DONE.
+      4. Frontend trang Listing Details polling GET /listings/{id} cho tới khi DONE,
+         sau đó gọi GET /listings/{id}/matches và /quotes.
+    Idempotent: khóa xử lý theo (listingId, listingVersion); chạy trùng thì bỏ qua.
+    Sửa §8.3 bước 6 thành: "Lưu kết quả; frontend đọc lại qua API".
+
+A3. Định nghĩa lại Priority / Public theo PHẠM VI PHÂN PHỐI, không theo bán kính
+    • Cả hai giai đoạn đều chỉ xét các Partner đủ điều kiện (đúng bán kính, danh mục...).
+    • ACTIVE_PRIORITY (24h đầu): chỉ gửi thông báo + hiển thị trong Matching Requests cho
+      tối đa N = 5 chi nhánh xếp hạng cao nhất (khoảng cách gần + uy tín).
+    • ACTIVE_PUBLIC: hiển thị và thông báo cho TẤT CẢ chi nhánh đủ điều kiện,
+      kể cả Partner mới được duyệt sau thời điểm đăng tin (xem D2).
+    Lợi ích: Partner uy tín được ưu tiên, Partner mới vẫn có cơ hội, không phá giới hạn phục vụ.
+    Lưu ý: Auto-Quote (giá tham khảo) vẫn tính cho mọi chi nhánh đủ điều kiện ngay từ đầu,
+    vì Owner cần thấy giá sớm; chỉ việc THÔNG BÁO cho Partner là phân theo giai đoạn.
+
+A4. Quy tắc khoảng cách
+    • Rule.maxDistanceKm là tùy chọn; nếu có thì backend bắt buộc ≤ branch.serviceRadiusKm.
+    • Khoảng cách hiệu lực = min(rule.maxDistanceKm, branch.serviceRadiusKm).
+    • Khi Partner giảm bán kính chi nhánh, rule nào vượt quá sẽ được tự động cắt về bằng bán kính.
+
+A5. Bổ sung chuyển trạng thái Listing
+    MATCHED → ACTIVE_PUBLIC   : giao dịch FAILED/CANCELLED và now < expiresAt (mở lại)
+    MATCHED → EXPIRED         : giao dịch FAILED/CANCELLED và now ≥ expiresAt
+    MATCHED → CANCELLED       : Owner hủy Listing sau khi giao dịch đã CANCELLED/FAILED
+    MATCHED → COMPLETED       : (đã có)
+    Không cho phép MATCHED → CANCELLED khi Transaction còn đang mở.
+
+A6. Đổi tên file tài liệu gốc thành "ReLoop_Specification_v1.0.docx",
+    bản sửa theo đề xuất này đặt tên v1.1.
+
+
+=====================================================================
+B. STATE MACHINE
+=====================================================================
+
+B1. Bảng chuyển trạng thái đầy đủ (đề xuất)
+
+  QUOTE  (thêm 1 trạng thái mới: INVALIDATED — xem B3)
+  ┌─────────────────────────┬──────────────────────────┬──────────────┬────────────────────────────┐
+  │ Từ                      │ Sang                     │ Ai           │ Điều kiện                  │
+  ├─────────────────────────┼──────────────────────────┼──────────────┼────────────────────────────┤
+  │ ESTIMATED               │ CONFIRMATION_REQUESTED   │ Owner        │ Listing ACTIVE_*           │
+  │ ESTIMATED               │ INVALIDATED              │ Hệ thống     │ Listing đổi vị trí/thông   │
+  │                         │                          │              │ tin, rule bị tắt/tạm ngừng │
+  │ ESTIMATED               │ EXPIRED                  │ Hệ thống     │ Listing hết hạn/bị hủy     │
+  │ CONFIRMATION_REQUESTED  │ CONFIRMED_OFFER          │ Partner      │ Nhập giá cụ thể (B2)       │
+  │ CONFIRMATION_REQUESTED  │ REJECTED                 │ Partner      │                            │
+  │ CONFIRMATION_REQUESTED  │ EXPIRED                  │ Hệ thống     │ Partner không trả lời 24h  │
+  │ CONFIRMED_OFFER         │ SELECTED                 │ Owner        │ Còn hạn, Listing ACTIVE_*  │
+  │ CONFIRMED_OFFER         │ WITHDRAWN                │ Partner      │ Chưa được chọn             │
+  │ CONFIRMED_OFFER         │ EXPIRED                  │ Hệ thống     │ Quá validUntil / Listing   │
+  │                         │                          │              │ hết hạn hoặc bị hủy        │
+  │ CONFIRMED_OFFER         │ INVALIDATED              │ Hệ thống/    │ Partner bị tạm ngừng       │
+  │                         │                          │ Admin        │                            │
+  └─────────────────────────┴──────────────────────────┴──────────────┴────────────────────────────┘
+  Trạng thái kết thúc: SELECTED, REJECTED, WITHDRAWN, EXPIRED, INVALIDATED.
+  Manual Offer tạo thẳng ở CONFIRMED_OFFER.
+
+  TRANSACTION
+  ┌──────────────────────────┬──────────────────────────┬──────────────┬───────────────────────────┐
+  │ Từ                       │ Sang                     │ Ai           │ Điều kiện                 │
+  ├──────────────────────────┼──────────────────────────┼──────────────┼───────────────────────────┤
+  │ (tạo mới)                │ HANDOVER_PENDING         │ Owner        │ Chọn offer (§12.1)        │
+  │ HANDOVER_PENDING         │ PRICE_ADJUSTMENT_PENDING │ Partner      │ Có giá mới + lý do        │
+  │ PRICE_ADJUSTMENT_PENDING │ HANDOVER_PENDING         │ Owner        │ Đồng ý (cập nhật giá) HOẶC│
+  │                          │                          │              │ từ chối (giữ giá cũ) — B4 │
+  │ HANDOVER_PENDING         │ COMPLETED                │ Hệ thống     │ Đủ xác nhận của 2 bên     │
+  │ HANDOVER_PENDING         │ CANCELLED                │ Owner/Partner│ Chủ động hủy trước khi    │
+  │                          │                          │              │ bàn giao (B5)             │
+  │ HANDOVER_PENDING /       │ FAILED                   │ Owner/Partner│ Báo thất bại tại bước     │
+  │ PRICE_ADJUSTMENT_PENDING │                          │              │ bàn giao (B5)             │
+  │ HANDOVER_PENDING         │ DISPUTED                 │ Hệ thống     │ 2 bên báo kết quả trái    │
+  │                          │                          │              │ nhau, hoặc quá hạn (D1)   │
+  │ DISPUTED                 │ COMPLETED / FAILED       │ Admin        │ Sau khi xem xét (B6)      │
+  └──────────────────────────┴──────────────────────────┴──────────────┴───────────────────────────┘
+  Mọi chuyển trạng thái ghi 1 bản ghi TransactionEvents (ai, lúc nào, từ → sang, lý do, giá).
+  Dùng ConditionExpression "status = :expectedFrom" cho mọi lần cập nhật.
+
+B2. Partner "đề xuất mức giá khác" = xác nhận với giá khác
+    • Không thêm trạng thái mới. Partner trả lời yêu cầu xác nhận bằng một mức giá cụ thể;
+      giá đó có thể khác khoảng giá dự kiến → quote sang CONFIRMED_OFFER.
+    • Lưu cờ priceDiffersFromEstimate = true; frontend hiển thị
+      "Partner xác nhận giá khác với giá dự kiến (dự kiến 200–400k, xác nhận 150k)".
+    • Owner không cần "chấp nhận lại": việc Owner bấm Chọn chính là chấp nhận.
+
+B3. Thêm trạng thái INVALIDATED cho Quote
+    Dùng khi báo giá không còn đúng do thay đổi dữ liệu (Listing đổi vị trí/thông tin, rule bị tắt,
+    Partner bị tạm ngừng). Tách biệt với EXPIRED (hết thời gian) và WITHDRAWN (Partner chủ động rút)
+    để thống kê và tính uy tín không bị lẫn.
+
+B4. Owner từ chối điều chỉnh giá
+    • Giao dịch quay về HANDOVER_PENDING với giá đã xác nhận ban đầu.
+    • Partner khi đó chọn: tiếp nhận theo giá cũ (→ tiếp tục hoàn tất) HOẶC báo thất bại với
+      lý do PRICE_DISAGREEMENT (→ FAILED).
+    • Partner "từ chối tiếp nhận" khi kiểm tra → FAILED với lý do DEVICE_MISMATCH hoặc
+      PARTNER_REFUSED (bắt buộc ghi chú).
+    • Mỗi giao dịch cho phép tối đa 2 lần đề nghị điều chỉnh giá để tránh mặc cả vô hạn.
+
+B5. Phân biệt CANCELLED và FAILED
+    • CANCELLED: một bên chủ động hủy TRƯỚC khi gặp nhau bàn giao (đổi ý, bận, tìm được nơi khác).
+      Bắt buộc ghi bên hủy (cancelledBy) và lý do.
+    • FAILED: hai bên đã tới bước bàn giao/kiểm tra nhưng không thành: không đến hẹn
+      (NO_SHOW_OWNER / NO_SHOW_PARTNER), thiết bị khác mô tả (DEVICE_MISMATCH),
+      không thống nhất giá (PRICE_DISAGREEMENT), khác (OTHER).
+    • Cancellation Rate chỉ tính CANCELLED có cancelledBy = PARTNER.
+    • Sửa §12.5: bỏ "Một bên hủy" khỏi danh sách nguyên nhân thất bại.
+
+B6. Admin xử lý DISPUTED
+    API: POST /admin/transactions/{id}/resolve
+         {outcome: "COMPLETED" | "FAILED", finalPrice?, failureReason?, note}
+    • Kết quả COMPLETED → Listing COMPLETED, mở quyền đánh giá (không gắn VERIFIED_TRANSACTION
+      vì không đủ xác nhận 2 bên — ghi nhãn ADMIN_RESOLVED).
+    • Kết quả FAILED → Listing theo A5.
+    • Cả hai bên nhận thông báo kết quả kèm ghi chú của Admin.
+
+B7. Listing kết thúc thì đóng các Quote đang mở
+    Khi Listing → EXPIRED hoặc CANCELLED: Lifecycle Lambda chuyển mọi quote đang ở
+    ESTIMATED / CONFIRMATION_REQUESTED / CONFIRMED_OFFER sang EXPIRED (theo lô, có điều kiện,
+    chạy lại an toàn).
+
+B8. Các offer còn lại khi Owner chọn một offer
+    • Giữ nguyên trạng thái, chỉ ẩn nút Chọn khi Listing đang MATCHED.
+    • Nếu giao dịch FAILED/CANCELLED và Listing được mở lại: offer nào còn hạn vẫn chọn được ngay
+      (Owner không phải chờ lại từ đầu).
+    • Offer đã SELECTED của giao dịch thất bại giữ nguyên làm lịch sử; Partner đó muốn tiếp tục
+      thì gửi Manual Offer mới.
+    • Offer của Partner khác hết hạn trong lúc Listing đang MATCHED thì vẫn EXPIRED bình thường.
+
+
+=====================================================================
+C. API BỔ SUNG
+=====================================================================
+Quy ước chung cho mọi API:
+  • Danh sách: phân trang bằng cursor (?limit=20&cursor=...), trả {items, nextCursor}.
+  • POST thay đổi trạng thái: header Idempotency-Key bắt buộc.
+  • Lỗi: {code, message, details}; mã nghiệp vụ dạng INVALID_STATE_TRANSITION,
+    OFFER_EXPIRED, LISTING_ALREADY_MATCHED, FORBIDDEN_RESOURCE...
+  • userId và role luôn lấy từ JWT + DynamoDB, không nhận từ body.
+
+C1.  Thông báo
+       GET  /notifications?unreadOnly=true&cursor=
+       GET  /notifications/unread-count          (nhẹ, dùng cho polling — xem E8)
+       POST /notifications/{id}/read
+       POST /notifications/read-all
+
+C2.  Partner xem tin phù hợp
+       GET  /partners/me/matching-requests?branchId=&cursor=
+
+C3.  Partner quản lý báo giá
+       GET  /partners/me/offers?status=CONFIRMED_OFFER|SELECTED|EXPIRED...
+       POST /quotes/{id}/withdraw
+
+C4.  Owner phản hồi điều chỉnh giá
+       POST /transactions/{id}/price-adjustment/accept
+       POST /transactions/{id}/price-adjustment/reject
+
+C5.  Báo thất bại
+       POST /transactions/{id}/report-failure   {reason, note}
+
+C6.  Danh sách giao dịch
+       GET  /transactions?as=owner|partner&status=&cursor=
+
+C7.  Gộp confirm-handover và complete
+       • Bỏ POST /transactions/{id}/complete.
+       • Dùng một API: POST /transactions/{id}/confirm-completion  {finalPrice}
+         Mỗi bên gọi một lần; backend xác định bên nào dựa theo token.
+       • Khi đủ 2 xác nhận và finalPrice khớp nhau → COMPLETED.
+         Hai bên nhập finalPrice khác nhau → DISPUTED.
+
+C8.  Thỏa thuận bàn giao (đề xuất – chấp nhận)
+       PUT  /transactions/{id}/handover-plan     {method, locationId|branchId, time, note}
+       POST /transactions/{id}/handover-plan/accept
+       Bên nào đề xuất thì bên kia chấp nhận; trạng thái kế hoạch: PROPOSED → AGREED.
+       Sửa kế hoạch đã AGREED → quay về PROPOSED, cần bên kia chấp nhận lại.
+
+C9.  Đổi địa điểm bàn giao khi đã có giao dịch: dùng chính cơ chế C8 (địa điểm là một phần
+     của handover plan) — tự nhiên thỏa yêu cầu "cả hai bên đồng ý" của §5.6.
+
+C10. Địa chỉ / bản đồ (proxy tới Amazon Location Service, có giới hạn tần suất)
+       GET  /geo/search?text=
+       GET  /geo/reverse?lat=&lng=
+
+C11. Pricing rules
+       GET  /pricing-rules?branchId=
+       PATCH /pricing-rules/{id}   (gồm cả status ACTIVE/INACTIVE)
+
+C12. Chi nhánh
+       GET  /partners/branches
+       PATCH /partners/branches/{id}  {status: INACTIVE}
+       Không xóa cứng chi nhánh đang có giao dịch mở.
+
+C13. Báo cáo vi phạm
+       POST /reports  {targetType: LISTING|PARTNER|REVIEW|TRANSACTION, targetId, reason, note}
+
+C14. Admin
+       POST /admin/partners/{id}/suspend | /reactivate
+       POST /admin/pricing-rules/{id}/suspend
+       POST /admin/listings/{id}/hide
+       POST /admin/reviews/{id}/hide | /restore
+       GET  /admin/transactions?status=DISPUTED
+       GET  /admin/transactions/{id}
+       POST /admin/transactions/{id}/resolve        (B6)
+       POST /admin/reports/{id}/resolve
+       GET  /admin/flags/pricing                    (D16)
+
+C15. Hồ sơ công khai Partner: GET /partners/{id} (tên, chi nhánh, khu vực, chỉ số uy tín).
+
+C16. Cấp quyền Admin: KHÔNG làm API trong MVP. Dùng script CLI (thêm user vào Cognito group
+     "admin" + cập nhật roles trong DynamoDB). Admin đầu tiên tạo bằng script bootstrap trong
+     README triển khai. Giảm bề mặt tấn công.
+
+
+=====================================================================
+D. NGHIỆP VỤ
+=====================================================================
+
+D1.  Giao dịch treo
+     • Một bên đã xác nhận hoàn tất mà bên kia im lặng: nhắc sau 24h, nhắc lần 2 sau 48h,
+       quá 72h → DISPUTED để Admin xem.
+     • HANDOVER_PENDING không có hoạt động quá 7 ngày sau thời điểm hẹn → nhắc cả hai bên;
+       quá 14 ngày → DISPUTED.
+     • Dùng EventBridge Scheduler (one-time) đặt lịch khi có xác nhận đầu tiên; Lambda kiểm tra
+       trạng thái trước khi xử lý.
+
+D2.  Matching ngược cho Partner mới
+     Khi một chi nhánh được duyệt/kích hoạt, hoặc một rule được bật: chạy "reverse matching"
+     trên các Listing đang ACTIVE_PUBLIC trong vùng địa lý của chi nhánh (truy vấn qua geohash,
+     xem E1) → tạo Match + Estimated Quote nếu đủ điều kiện → thông báo Owner có báo giá mới.
+     Listing ACTIVE_PRIORITY không nhận thêm (giữ đúng ý nghĩa ưu tiên — xem A3).
+
+D3.  Thời hạn mặc định
+     • Estimated Quote: hết hiệu lực cùng lúc với Listing.
+     • CONFIRMATION_REQUESTED: Partner có 24h để trả lời, quá hạn → EXPIRED.
+     • Confirmed / Manual Offer: Partner chọn validUntil từ 24h đến 7 ngày, mặc định 72h,
+       không vượt quá expiresAt của Listing.
+
+D4.  Mở lại Listing sau giao dịch thất bại
+     • Về ACTIVE_PUBLIC (đã dùng hết thời gian ưu tiên), giữ nguyên expiresAt.
+     • Nếu thời gian còn lại < 24h: Owner được gia hạn MỘT lần thêm 3 ngày.
+
+D5.  Chính sách rút báo giá
+     • Được rút khi ở CONFIRMED_OFFER và chưa được chọn, bất kỳ lúc nào.
+     • Đang ở CONFIRMATION_REQUESTED thì dùng "Từ chối", không phải "Rút".
+     • Ghi nhận Offer Withdrawal Rate làm chỉ số tham khảo cho Admin (không hiển thị công khai MVP).
+
+D6.  Tình trạng "Unknown"
+     Partner chọn tường minh các tình trạng chấp nhận, trong đó "Unknown" là một ô riêng.
+     Gợi ý mặc định ở UI: Partner tái chế / thu phế liệu → bật sẵn Unknown; cửa hàng thu mua
+     máy cũ → tắt. Matching chỉ khớp khi tình trạng của Listing nằm trong danh sách đã chọn.
+
+D7.  Đơn vị và hiển thị giá
+     • priceUnit ∈ {PER_DEVICE, PER_KG}; tiền tệ chỉ VND, lưu số nguyên.
+     • Tổng ước tính = đơn giá × số lượng (PER_DEVICE) hoặc × khối lượng ước tính (PER_KG).
+     • Rule PER_KG mà Listing không có khối lượng → chỉ hiển thị đơn giá, không tính tổng.
+     • Luôn hiển thị cả đơn giá và tổng để Owner so sánh được giữa các Partner.
+
+D8.  Tạm ngừng Partner
+     • Ngay lập tức: không được match mới, không gửi offer mới; các ESTIMATED/CONFIRMED_OFFER
+       → INVALIDATED.
+     • Giao dịch đang chạy: vẫn tiếp tục; Owner được thông báo và được hủy KHÔNG tính vào
+       uy tín của Owner. Admin có thể chọn "tạm ngừng khẩn cấp" để hủy luôn các giao dịch.
+
+D9.  Partner sửa chi nhánh / danh mục
+     • Chỉ ảnh hưởng matching từ thời điểm đó trở đi.
+     • ESTIMATED không còn đúng điều kiện → INVALIDATED.
+     • CONFIRMED_OFFER giữ nguyên (Partner đã cam kết), giao dịch đang chạy không đổi.
+
+D10. Liên lạc giữa hai bên
+     • Số điện thoại: bắt buộc với Partner, bắt buộc với Owner khi tạo giao dịch.
+     • Chỉ hiển thị cho bên kia khi Transaction được tạo; ẩn lại 30 ngày sau khi giao dịch kết thúc.
+     • MVP không có chat; handover plan (C8) có trường ghi chú để trao đổi ngắn.
+
+D11. Nguồn sự thật của vai trò
+     • DynamoDB (Users.roles) là nguồn sự thật cho vai trò nghiệp vụ OWNER / PARTNER.
+     • Cognito group "admin" dùng để chặn route /admin/* ngay tại API Gateway; Lambda kiểm tra lại.
+     • Vai trò PARTNER được gán khi Admin duyệt đơn; Partner bị tạm ngừng vẫn giữ vai trò
+       nhưng partner.status = SUSPENDED.
+
+D12. Hồ sơ xác minh Partner
+     Bắt buộc: tên cơ sở, số điện thoại, ≥1 chi nhánh có tọa độ đã xác nhận, ảnh mặt tiền cửa hàng.
+     Tùy chọn (khuyến khích): số giấy phép kinh doanh / mã số thuế + ảnh giấy phép
+     (lưu S3 private, chỉ Admin xem). Admin có checklist duyệt; có thể yêu cầu bổ sung
+     (trạng thái NEEDS_INFO).
+
+D13. Sửa đánh giá
+     • Owner viết đánh giá trong vòng 14 ngày sau khi giao dịch kết thúc.
+     • Được sửa trong 7 ngày sau khi đăng; mỗi lần sửa tạo phiên bản mới, bản cũ giữ lại
+       (SUPERSEDED) để Admin tra cứu. Chỉ phiên bản mới nhất được tính.
+
+D14. Đánh giá từ giao dịch thất bại
+     • Average Rating chỉ tính review có nhãn VERIFIED_TRANSACTION (+ ADMIN_RESOLVED nếu COMPLETED).
+     • Phản hồi từ giao dịch thất bại hiển thị ở mục riêng "Phản hồi từ giao dịch không thành công",
+       không tính vào điểm sao.
+
+D15. Công thức Reputation Metrics (cửa sổ 180 ngày gần nhất)
+     • Average Rating       = trung bình rating của review hợp lệ (D14). Hiển thị khi ≥ 3 review.
+     • Completion Rate      = COMPLETED / (COMPLETED + FAILED + CANCELLED bởi Partner).
+                              Không tính giao dịch đang mở và giao dịch Owner tự hủy.
+                              Hiển thị khi ≥ 5 giao dịch kết thúc.
+     • Cancellation Rate    = CANCELLED bởi Partner / tổng giao dịch đã kết thúc.
+     • Quote Accuracy       = % giao dịch COMPLETED có |giá cuối − giá xác nhận| ≤ 10% giá xác nhận.
+     • Price Reduction Rate = % giao dịch có đề nghị giảm giá / giao dịch đã tới bước bàn giao
+                              (COMPLETED + FAILED).
+     • Verified Review Count = số review VERIFIED_TRANSACTION.
+     Cập nhật: Lambda đọc DynamoDB Streams khi Transaction/Review đổi trạng thái kết thúc
+     (idempotent theo eventId) + job chạy đêm tính lại toàn bộ để sửa sai lệch.
+     Dưới ngưỡng hiển thị → "Chưa đủ dữ liệu".
+
+D16. Ngưỡng cảnh báo giá bất thường (cấu hình được)
+     Trong 90 ngày, đánh dấu cho Admin xem khi đồng thời:
+       – ≥ 3 lần đề nghị giảm giá, VÀ
+       – Price Reduction Rate ≥ 30%, VÀ
+       – Mức giảm trung bình ≥ 20% so với giá xác nhận.
+     Chỉ tạo flag, không tự động tạm ngừng (đúng §13.6).
+
+D17. Uy tín của Owner
+     MVP: không cho Partner chấm sao Owner, nhưng ghi nhận nội bộ số lần Owner NO_SHOW và
+     DEVICE_MISMATCH (chỉ Admin xem). Đưa "Partner đánh giá Owner" vào danh sách phát triển sau.
+
+
+=====================================================================
+E. KỸ THUẬT / KIẾN TRÚC
+=====================================================================
+
+E1.  Tìm chi nhánh theo bán kính bằng geohash
+     • Mỗi chi nhánh lưu geohash độ chính xác 4 (ô khoảng 39 × 19,5 km).
+     • GSI_GEO: PK = "GEO4#<geohash4>", SK = "BRANCH#<branchId>".
+     • Khi matching: lấy ô chứa vị trí Listing + 8 ô lân cận = 9 lần Query,
+       sau đó lọc chính xác bằng Haversine và các điều kiện khác.
+     • Điều kiện để đúng: giới hạn serviceRadiusKm tối đa 15 km trong MVP
+       (nhỏ hơn cạnh ngắn của ô nên 9 ô luôn phủ đủ).
+     • Phương án dự phòng đơn giản hơn: chia theo mã tỉnh/thành, nhưng sai ở vùng giáp ranh.
+
+E2.  Bản nháp thiết kế DynamoDB (single-table, cần rà lại theo access patterns)
+       PK                    SK                         Dữ liệu
+       USER#<id>             PROFILE                    hồ sơ, roles
+       USER#<id>             LOC#<locId>                địa điểm đã lưu
+       USER#<id>             NOTIF#<ts>#<id>            thông báo (TTL 90 ngày)
+       PARTNER#<id>          PROFILE                    hồ sơ, trạng thái duyệt
+       PARTNER#<id>          BRANCH#<branchId>          chi nhánh + năng lực tiếp nhận
+       PARTNER#<id>          RULE#<ruleId>              pricing rule
+       PARTNER#<id>          REVIEW#<ts>#<id>           review + phản hồi
+       PARTNER#<id>          METRICS                    reputation metrics
+       LISTING#<id>          META                       listing + location snapshot
+       LISTING#<id>          IMG#<n>                    metadata ảnh
+       LISTING#<id>          MATCH#<branchId>           kết quả matching
+       LISTING#<id>          QUOTE#<quoteId>            báo giá (kèm rule snapshot)
+       TX#<id>               META                       giao dịch
+       TX#<id>               EVENT#<ts>                 lịch sử trạng thái/giá
+       REPORT#<id>           META                       báo cáo vi phạm
+     GSI gợi ý:
+       GSI1 Owner xem tin của mình      : OWNER#<uid>          / LISTING#<createdAt>
+       GSI2 Tìm chi nhánh theo vị trí   : GEO4#<geohash>       / BRANCH#<id>          (E1)
+       GSI3 Partner xem offer/yêu cầu   : PBRANCH#<branchId>   / QUOTE#<status>#<ts>
+       GSI4 Giao dịch theo người tham gia: PARTY#<uid|pid>      / TX#<status>#<ts>
+       GSI5 Hàng đợi Admin / quét lịch  : STATUS#<entity>#<status> / <ts>
+     Việc cần làm: viết bảng access patterns (khoảng 25–30 mẫu) và kiểm tra từng mẫu được phục vụ
+     bằng Query (không Scan) trước khi chốt.
+
+E3.  Lịch xử lý Listing: kết hợp 2 cơ chế
+     • Chính: tạo 2 one-time schedule cho mỗi Listing (priorityUntil, expiresAt) bằng
+       EventBridge Scheduler với ActionAfterCompletion = DELETE (tự xóa sau khi chạy).
+     • Không cần xóa schedule khi Listing bị hủy/matched: Lambda kiểm tra trạng thái bằng
+       ConditionExpression, không khớp thì bỏ qua.
+     • Dự phòng: một schedule chạy mỗi giờ, query GSI5 tìm Listing quá hạn mà vẫn ACTIVE_* để xử lý
+       bù. Đây cũng là bằng chứng tốt cho phần demo "sự kiện trễ/trùng".
+
+E4.  Bảo vệ vị trí Owner
+     • Khoảng cách trả cho Partner làm tròn tới 0,5 km, hiển thị "khoảng 2,5 km".
+     • Khu vực hiển thị ở mức phường/quận.
+     • Không bao giờ gửi tọa độ chính xác của Owner cho Partner trước khi có Transaction;
+       nếu cần bản đồ thì dùng tâm ô geohash độ chính xác 6 (khoảng 1,2 km).
+
+E5.  Kiểm duyệt ảnh
+     • Thêm trường kiểm tra vào prompt Bedrock: isElectronicDevice, isInappropriate.
+     • Ảnh bị đánh dấu → không cho đăng tin, ghi cờ cho Admin.
+     • Nâng cấp sau: Amazon Rekognition DetectModerationLabels qua S3 event.
+
+E6.  Giới hạn ảnh
+     • Định dạng JPEG / PNG / WebP; tối đa 5 MB/ảnh; 1–6 ảnh/Listing.
+     • Frontend resize về cạnh dài ≤ 1600 px trước khi upload.
+     • Dùng S3 presigned POST có điều kiện content-length-range và Content-Type, hết hạn 5 phút.
+     • Key: uploads/<userId>/<uploadId>/<n>.<ext>; backend chỉ chấp nhận key đúng prefix của user.
+
+E7.  Bedrock
+     • Dùng model Claude Haiku bản mới nhất có sẵn trên Bedrock ở region triển khai
+       (đa phương thức, rẻ, nhanh); chốt model ID khi dựng môi trường.
+     • Ép đầu ra theo JSON schema (tool use / structured output), validate lại ở backend.
+     • Giới hạn: 3 lần phân tích / Listing, 20 lần / user / ngày.
+     • Đặt CloudWatch alarm theo số lần gọi và theo AWS Budgets (F2).
+
+E8.  Polling thông báo
+     • Gọi GET /notifications/unread-count mỗi 30 giây khi tab đang hiển thị;
+       dừng khi tab bị ẩn (Page Visibility API).
+     • Chỉ tải danh sách đầy đủ khi người dùng mở chuông thông báo.
+     • Trang đang chờ kết quả (AI, matching) dùng polling riêng nhanh hơn, có thời gian tối đa.
+
+E9.  Môi trường
+     • 2 môi trường: dev và prod (staging để sau nếu cần).
+     • Terraform: một module dùng chung, mỗi môi trường một thư mục/state riêng + tfvars riêng.
+     • Lý tưởng: mỗi môi trường một AWS account; nếu không có thì đặt tiền tố tên tài nguyên
+       reloop-dev-* / reloop-prod-* và tag Environment.
+     • CI/CD: merge vào nhánh main → deploy dev tự động; deploy prod cần duyệt thủ công.
+
+E10. Chính sách lưu trữ dữ liệu
+     • Ảnh upload nhưng không gắn vào Listing: xóa sau 24h (S3 Lifecycle theo prefix).
+     • Ảnh Listing: xóa 90 ngày sau khi Listing kết thúc (S3 Lifecycle theo tag).
+     • Thông báo: DynamoDB TTL 90 ngày.
+     • CloudWatch Logs: giữ 30 ngày (dev 7 ngày).
+     • Xóa tài khoản: ẩn danh hóa thông tin cá nhân; giữ giao dịch và review ở dạng ẩn danh để
+       không làm sai chỉ số uy tín của Partner.
+
+
+=====================================================================
+F. PHI CHỨC NĂNG & QUẢN LÝ DỰ ÁN
+=====================================================================
+
+F1.  Mục tiêu đo lường (đề xuất cho MVP)
+     • API đọc: p95 < 500 ms; API ghi: p95 < 1 s (không tính AI).
+     • AI phân tích: p95 < 20 s. Matching hoàn tất: < 10 s sau khi tạo Listing.
+     • Load test: 50 người dùng đồng thời, 20 request/giây liên tục 10 phút, tỷ lệ lỗi < 1%.
+     • Mục tiêu sẵn sàng: 99,5% trong thời gian demo.
+     • Alarm: Lambda error rate > 1% trong 5 phút; API 5XX > 1%; p95 latency > 2 s;
+       DLQ có message; Bedrock bị throttle; chi phí vượt ngưỡng.
+
+F2.  Ngân sách
+     • Đề xuất trần 50 USD/tháng cho dev (cần mentor xác nhận).
+     • AWS Budgets cảnh báo ở 50% / 80% / 100%; tag mọi tài nguyên Project=ReLoop, Environment=...
+     • Tắt / dọn tài nguyên tốn phí (WAF, Location Service) khi không demo.
+
+F3.  Timeline gợi ý 12 tuần (điều chỉnh theo thời gian thực tập thật)
+       Tuần 1–2  : Phase 0 (repo, IaC khung, data model, API contract, chốt baton.txt)
+       Tuần 3–7  : Phase 1 (Functional MVP)
+       Tuần 8–9  : Phase 2 (Review, Reputation, Admin)
+       Tuần 10–11: Phase 3 (CI/CD, monitoring, security, reliability/load test, cost)
+       Tuần 12   : Phase 4 (tài liệu, workshop, báo cáo, demo)
+
+F4.  Definition of Done chung cho mỗi task
+     • Code được review; lint/test pass trên CI.
+     • Có unit test cho quy tắc nghiệp vụ và chuyển trạng thái.
+     • Có test phân quyền: user khác / role khác bị từ chối.
+     • Hạ tầng liên quan nằm trong Terraform, đã deploy lên dev.
+     • API được cập nhật trong API Contract.
+     • Có log có cấu trúc và metric cho thao tác chính.
+     • Chạy được phần tương ứng trong kịch bản demo §25.
+
+F5.  Dữ liệu cá nhân
+     • Ô đồng ý Điều khoản sử dụng & Chính sách quyền riêng tư khi đăng ký; lưu thời điểm
+       và phiên bản đã đồng ý.
+     • Chỉ thu thập dữ liệu cần thiết (thu thập tối thiểu); cho phép người dùng xóa tài khoản (E10).
+     • Ghi rõ trong chính sách: dữ liệu nào chia sẻ cho Partner, khi nào (D10).
+     • Tham chiếu Nghị định 13/2023/NĐ-CP; nhờ mentor xác nhận mức độ cần thiết cho dự án thực tập.
+
+
+=====================================================================
+G. VIỆC CẦN SỬA TRONG SPEC (lên v1.1)
+=====================================================================
+  §5.3   Giới hạn serviceRadiusKm ≤ 15 km (E1).
+  §6.3   AI chạy bất đồng bộ, thêm kiểm duyệt ảnh (A1, E5).
+  §6.2   Giới hạn ảnh cụ thể (E6).
+  §8.2   Max Distance ≤ bán kính chi nhánh; priceUnit PER_DEVICE / PER_KG (A4, D7).
+  §8.3   Bỏ "trả kết quả về frontend", thay bằng luồng bất đồng bộ (A2).
+  §8.5   "Đề xuất giá khác" = xác nhận với giá khác (B2); thời hạn trả lời 24h (D3).
+  §9.3   Chính sách rút báo giá (D5).
+  §12    Handover plan đề xuất – chấp nhận; gộp API hoàn tất; timeout (C7, C8, D1).
+  §12.5  Tách CANCELLED và FAILED, danh sách mã lý do (B5).
+  §13    Công thức metrics, ngưỡng giá bất thường, chính sách sửa review (D13–D16).
+  §14.2  Định nghĩa lại Priority / Public (A3).
+  §15    Thêm INVALIDATED; bảng chuyển trạng thái đầy đủ Quote / Transaction / Listing (A5, B1, B3).
+  §21    Bổ sung các API ở mục C và quy ước chung.
+  Mới    Mục "Yêu cầu phi chức năng" (F1, F2), "Lưu trữ dữ liệu" (E10), "Quyền riêng tư" (F5).
