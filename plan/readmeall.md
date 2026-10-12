@@ -128,6 +128,7 @@ projecmeo/
 - **Toàn bộ lõi ví:** nạp, webhook vào/ra, giữ tiền, kết thúc giao dịch kèm hoa hồng, đóng băng, phí đăng bài và hoàn phí, tài khoản ngân hàng, rút tiền, đối soát.
 - API Admin: duyệt tài khoản ngân hàng (có gợi ý tên khớp), hàng đợi lệnh rút kèm QR, đối soát kèm doanh thu.
 - Frontend: đăng nhập dev, hồ sơ, ví (nạp QR tự cập nhật, lịch sử, rút), trang Admin.
+- **GitHub Issues:** 13 issue cho GĐ 0 (#1–#13, milestone "GĐ 0 — Nền tảng (tuần 1–2)", label FE/BE-CORE/BE-PAY/OPS/P0/P1/không-code); #13 đã đóng. Chưa gán người làm. Máy đã có `gh` 2.102.0, đăng nhập `thqttunvt`.
 - **Git + CI:** đã commit đầu tiên; .github/workflows/ci.yml chạy typecheck, test, build frontend khi push lên main hoặc mở PR.
 - **Kết quả kiểm tra:** 43/43 test pass, typecheck sạch cả hai bên, frontend build được. Đã chạy thật ở local bằng curl (nạp → giữ → kết thúc → đối soát khớp) và gọi qua proxy frontend.
 
@@ -144,7 +145,7 @@ projecmeo/
 
 ## 7. Việc tiếp theo
 
-**Đang chờ người dùng:** repo đã push nhưng đang để **Public template**; cần bỏ tick Template và chuyển sang Private. Kiểm tra CI pass trong tab Actions, rồi bật branch protection cho `main` (bắt buộc CI pass). Vẫn còn treo câu hỏi: "Bắt đầu viết `DynamoTable` không?"
+**Đang chờ người dùng:** repo vẫn **Public** (đã bỏ Template), cân nhắc chuyển sang Private; CI lần đầu đã pass. Gán người làm cho issue #1–#12 khi thành viên đã nhận lời mời. Bật branch protection cho `main` (bắt buộc CI pass). Vẫn còn treo câu hỏi: "Bắt đầu viết `DynamoTable` không?"
 
 **Claude làm được ngay (không cần AWS)**
 1. `DynamoTable`: dùng AWS SDK v3, `TransactWriteItems` + `ConditionExpression`, **đọc số dư bằng `ConsistentRead: true`**.
@@ -180,3 +181,4 @@ projecmeo/
 | 2026-10-12 | Trình bày các bước triển khai AWS (mục 7). Tạo file `readmeall.md` này. |
 | 2026-10-12 | (phiên 2) Người dùng chọn đưa lên GitHub kèm CI. Thêm .github/workflows/ci.yml và .gitattributes, kiểm tra lại (typecheck, 43 test, build đều pass), commit đầu 3da3ba7. Chờ người dùng tạo repo và push. |
 | 2026-10-12 | (phiên 2) Người dùng đã push lên 	hqttunvt/Reloop. Repo đang Public template; đã khuyên chuyển sang Private. |
+| 2026-10-12 | (phiên 2) Cài gh CLI. Tạo label, milestone GĐ 0 và 13 issue từ task.txt (T0.1–T0.13); đóng #13. CI lần đầu pass. |
