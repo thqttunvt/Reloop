@@ -113,7 +113,7 @@ projecmeo/
 
 - Windows 10, Node 22.12, npm 10.9, Git 2.47.
 - **Chưa có:** Docker, Java (nên không chạy được DynamoDB Local), AWS CLI, Terraform, thư mục `~/.aws`.
-- **Đã là git repo** (nhánh `main`, commit đầu `3da3ba7`). Chưa có remote GitHub. `.gitattributes` ép xuống dòng LF.
+- **Đã là git repo** (nhánh `main`, commit đầu `3da3ba7`). Remote: `https://github.com/thqttunvt/Reloop` (đã push). `.gitattributes` ép xuống dòng LF.
 - **Chạy local:**
   - `npm install`
   - `cp backend/.env.example backend/.env` (file `.env` đã có sẵn)
@@ -144,7 +144,7 @@ projecmeo/
 
 ## 7. Việc tiếp theo
 
-**Đang chờ người dùng:** tạo repo **Private** trên GitHub, rồi chạy `git remote add origin <url>` và `git push -u origin main`. Sau đó bật branch protection cho `main` (bắt buộc CI pass). Vẫn còn treo câu hỏi: "Bắt đầu viết `DynamoTable` không?"
+**Đang chờ người dùng:** repo đã push nhưng đang để **Public template**; cần bỏ tick Template và chuyển sang Private. Kiểm tra CI pass trong tab Actions, rồi bật branch protection cho `main` (bắt buộc CI pass). Vẫn còn treo câu hỏi: "Bắt đầu viết `DynamoTable` không?"
 
 **Claude làm được ngay (không cần AWS)**
 1. `DynamoTable`: dùng AWS SDK v3, `TransactWriteItems` + `ConditionExpression`, **đọc số dư bằng `ConsistentRead: true`**.
@@ -161,7 +161,7 @@ projecmeo/
 - **Gửi tài liệu API MB Bank** (người dùng đã hứa gửi). Lưu ý:
   - Nếu đó là thư viện không chính thức (đăng nhập internet banking bằng mật khẩu) thì phải cảnh báo, vì vi phạm điều khoản ngân hàng.
   - Không bao giờ nhận key hay mật khẩu qua chat.
-- Tạo repo GitHub và push (xem phần "Đang chờ" ở trên).
+- Chuyển repo GitHub sang Private, thêm thành viên nhóm, bật branch protection.
 - Trả lời có thêm chatbot FAQ (Bedrock) vào phần mở rộng không.
 
 ## 8. Rủi ro đang theo dõi
@@ -179,3 +179,4 @@ projecmeo/
 | 2026-10-11 | Người dùng yêu cầu có doanh thu → chốt hoa hồng 10% (min 5k, Partner trả) + phí đăng bài 20k (bài đầu miễn phí) → code + 7 test mới (43 tổng) → cập nhật quyetdinh/task/README. |
 | 2026-10-12 | Trình bày các bước triển khai AWS (mục 7). Tạo file `readmeall.md` này. |
 | 2026-10-12 | (phiên 2) Người dùng chọn đưa lên GitHub kèm CI. Thêm .github/workflows/ci.yml và .gitattributes, kiểm tra lại (typecheck, 43 test, build đều pass), commit đầu 3da3ba7. Chờ người dùng tạo repo và push. |
+| 2026-10-12 | (phiên 2) Người dùng đã push lên 	hqttunvt/Reloop. Repo đang Public template; đã khuyên chuyển sang Private. |
