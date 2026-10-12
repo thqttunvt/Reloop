@@ -1,7 +1,7 @@
 # ReLoop — Bàn giao ngữ cảnh (đọc file này đầu tiên)
 
 > **Mục đích:** lưu toàn bộ ngữ cảnh dự án để khi mở lại máy, Claude (hoặc thành viên mới) đọc là biết đã làm tới đâu.
-> **Cập nhật lần cuối:** 2026-10-12
+> **Cập nhật lần cuối:** 2026-10-12 (phiên 2)
 > **Quy tắc:** mỗi khi xong một phần việc hoặc chốt quyết định mới, cập nhật mục 6 (Trạng thái), mục 7 (Việc tiếp theo) và mục 9 (Nhật ký).
 
 ---
@@ -113,7 +113,7 @@ projecmeo/
 
 - Windows 10, Node 22.12, npm 10.9, Git 2.47.
 - **Chưa có:** Docker, Java (nên không chạy được DynamoDB Local), AWS CLI, Terraform, thư mục `~/.aws`.
-- **Thư mục dự án chưa phải git repo.** Chưa `git init` vì người dùng chưa yêu cầu.
+- **Đã là git repo** (nhánh `main`, commit đầu `3da3ba7`). Chưa có remote GitHub. `.gitattributes` ép xuống dòng LF.
 - **Chạy local:**
   - `npm install`
   - `cp backend/.env.example backend/.env` (file `.env` đã có sẵn)
@@ -128,6 +128,7 @@ projecmeo/
 - **Toàn bộ lõi ví:** nạp, webhook vào/ra, giữ tiền, kết thúc giao dịch kèm hoa hồng, đóng băng, phí đăng bài và hoàn phí, tài khoản ngân hàng, rút tiền, đối soát.
 - API Admin: duyệt tài khoản ngân hàng (có gợi ý tên khớp), hàng đợi lệnh rút kèm QR, đối soát kèm doanh thu.
 - Frontend: đăng nhập dev, hồ sơ, ví (nạp QR tự cập nhật, lịch sử, rút), trang Admin.
+- **Git + CI:** đã commit đầu tiên; .github/workflows/ci.yml chạy typecheck, test, build frontend khi push lên main hoặc mở PR.
 - **Kết quả kiểm tra:** 43/43 test pass, typecheck sạch cả hai bên, frontend build được. Đã chạy thật ở local bằng curl (nạp → giữ → kết thúc → đối soát khớp) và gọi qua proxy frontend.
 
 **Đang tạm dùng bản dev (chưa có bản thật)**
@@ -139,11 +140,11 @@ projecmeo/
 
 **Chưa làm**
 - Module địa điểm, tin đăng, ảnh, AI, matching, báo giá, giao dịch, lịch tác vụ, thông báo, đánh giá, tranh chấp đầy đủ, Partner onboarding.
-- `DynamoTable`, Terraform, CI/CD, đóng gói Lambda, đăng nhập Cognito ở frontend.
+- `DynamoTable`, Terraform, CD (tự deploy lên AWS), đóng gói Lambda, đăng nhập Cognito ở frontend.
 
 ## 7. Việc tiếp theo
 
-**Đang chờ người dùng trả lời:** "Bắt đầu viết `DynamoTable` (adapter DynamoDB thật) không?" Đây là mục 1 trong danh sách việc Claude làm được mà không cần tài khoản AWS.
+**Đang chờ người dùng:** tạo repo **Private** trên GitHub, rồi chạy `git remote add origin <url>` và `git push -u origin main`. Sau đó bật branch protection cho `main` (bắt buộc CI pass). Vẫn còn treo câu hỏi: "Bắt đầu viết `DynamoTable` không?"
 
 **Claude làm được ngay (không cần AWS)**
 1. `DynamoTable`: dùng AWS SDK v3, `TransactWriteItems` + `ConditionExpression`, **đọc số dư bằng `ConsistentRead: true`**.
@@ -160,7 +161,7 @@ projecmeo/
 - **Gửi tài liệu API MB Bank** (người dùng đã hứa gửi). Lưu ý:
   - Nếu đó là thư viện không chính thức (đăng nhập internet banking bằng mật khẩu) thì phải cảnh báo, vì vi phạm điều khoản ngân hàng.
   - Không bao giờ nhận key hay mật khẩu qua chat.
-- Quyết định có `git init` và đưa lên GitHub không (cần cho CI/CD).
+- Tạo repo GitHub và push (xem phần "Đang chờ" ở trên).
 - Trả lời có thêm chatbot FAQ (Bedrock) vào phần mở rộng không.
 
 ## 8. Rủi ro đang theo dõi
@@ -177,3 +178,4 @@ projecmeo/
 | 2026-10-10 | Đọc spec .docx → tóm tắt task (plan/README.md) → baton.txt (58 bất cập) → giaiphap.txt → hỏi đáp tech lead 6 vòng → quyetdinh.txt (escrow, sau đó chuyển sang ví nội bộ, hai chiều giao dịch) → task.txt. Chốt local-first. Chuyển tài liệu vào `plan/`. Dựng monorepo, lõi ví, frontend; 36 test. |
 | 2026-10-11 | Người dùng yêu cầu có doanh thu → chốt hoa hồng 10% (min 5k, Partner trả) + phí đăng bài 20k (bài đầu miễn phí) → code + 7 test mới (43 tổng) → cập nhật quyetdinh/task/README. |
 | 2026-10-12 | Trình bày các bước triển khai AWS (mục 7). Tạo file `readmeall.md` này. |
+| 2026-10-12 | (phiên 2) Người dùng chọn đưa lên GitHub kèm CI. Thêm .github/workflows/ci.yml và .gitattributes, kiểm tra lại (typecheck, 43 test, build đều pass), commit đầu 3da3ba7. Chờ người dùng tạo repo và push. |
