@@ -74,6 +74,11 @@ export function createApiHandler(deps: { routes: Route[]; auth: AuthProvider; ta
     let status = 500;
     let principal: Principal | undefined;
     try {
+      // Preflight CORS: API Gateway gắn header CORS theo cấu hình, Lambda chỉ cần trả 2xx.
+      if (method === 'OPTIONS') {
+        status = 204;
+        return { statusCode: 204, body: '' };
+      }
       let params: Record<string, string> | undefined;
       const route = deps.routes.find((r) => r.method === method && (params = matchPath(r.path, path)));
       if (!route || !params) {

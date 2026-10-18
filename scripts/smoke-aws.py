@@ -1,0 +1,131 @@
+"""Integration / smoke test trên AWS dev (T15.7): gọi thẳng Lambda reloop-dev-api với JWT claims giả
+(bỏ qua API Gateway), chạy trọn luồng đối tác → đăng tin → matching → báo giá → giao dịch → thông báo,
+rồi dọn dữ liệu test. Vị trí test ở biển gần Cà Mau để không trùng dữ liệu thật.
+
+Dùng:  AWS_PROFILE=reloop AWS_REGION=ap-southeast-1 python scripts/smoke-aws.py
+"""
+import json, os, struct, subprocess, sys, tempfile, urllib.request, uuid, zlib
+
+SP = tempfile.mkdtemp(prefix='reloop-smoke-')
+RUN = uuid.uuid4().hex[:6]
+OWNER, PARTNER, ADMIN = f'smoke-owner-{RUN}', f'smoke-partner-{RUN}', f'smoke-admin-{RUN}'
+SEA = {'lat': 8.45, 'lng': 104.6}  # biển gần Cà Mau — không trùng dữ liệu thật
+
+
+def call(method, path, user, body=None, groups=None, idem=False):
+    claims = {'sub': user}
+    if groups:
+        claims['cognito:groups'] = '[' + ' '.join(groups) + ']'
+    headers = {'content-type': 'application/json'}
+    if idem:
+        headers['idempotency-key'] = uuid.uuid4().hex
+    event = {
+        'version': '2.0', 'rawPath': path, 'rawQueryString': '', 'headers': headers,
+        'queryStringParameters': {},
+        'body': json.dumps(body) if body is not None else None,
+        'requestContext': {'http': {'method': method, 'path': path}, 'authorizer': {'jwt': {'claims': claims}}},
+    }
+    ev = os.path.join(SP, 'smoke_ev.json'); out = os.path.join(SP, 'smoke_out.json')
+    with open(ev, 'w', encoding='utf8') as f:
+        json.dump(event, f)
+    subprocess.run(['aws', 'lambda', 'invoke', '--function-name', 'reloop-dev-api', '--cli-binary-format', 'raw-in-base64-out',
+                    '--payload', 'file://' + ev.replace('\\', '/'), out], check=True, capture_output=True, shell=(os.name == 'nt'))
+    r = json.load(open(out, encoding='utf8'))
+    return r['statusCode'], json.loads(r.get('body') or 'null')
+
+
+
+def upload_png(user):
+    """Upload 1 ảnh PNG nhỏ qua presigned POST rồi gọi kiểm duyệt (Rekognition) — tin đăng bắt buộc có ảnh."""
+    raw = b''.join(b'\x00' + b'\x80\x80\x80' * 64 for _ in range(64))
+    ch = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    png = b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', 64, 64, 8, 2, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw)) + ch(b'IEND', b'')
+    _, t = call('POST', '/uploads/presign', user, {'contentType': 'image/png'})
+    crlf, b = '\r\n', '----' + uuid.uuid4().hex
+    parts = [f'--{b}{crlf}Content-Disposition: form-data; name="{k}"{crlf}{crlf}{v}{crlf}'.encode() for k, v in t['fields'].items()]
+    parts.append(f'--{b}{crlf}Content-Disposition: form-data; name="file"; filename="a.png"{crlf}Content-Type: image/png{crlf}{crlf}'.encode() + png + crlf.encode())
+    parts.append(f'--{b}--{crlf}'.encode())
+    req = urllib.request.Request(t['url'], data=b''.join(parts), headers={'Content-Type': 'multipart/form-data; boundary=' + b}, method='POST')
+    urllib.request.urlopen(req)
+    s, r = call('POST', '/uploads/moderate', user, {'key': t['key']})
+    check('upload + moderate image (Rekognition)', s == 200 and r['allowed'], r)
+    return t['key']
+
+def check(name, cond, extra=''):
+    print(('PASS ' if cond else 'FAIL ') + name + (f'  [{extra}]' if extra and not cond else ''))
+    if not cond:
+        check.failed = True
+check.failed = False
+
+terms = call('GET', '/me', OWNER)[1]['currentTermsVersion']
+for u in (OWNER, PARTNER):
+    call('POST', '/me/accept-terms', u, {'version': terms})
+s, b = call('POST', '/partners/apply', PARTNER, {'tier': 'BUSINESS', 'businessType': 'ENTERPRISE', 'businessName': f'[TEST] Smoke {RUN}',
+                                                   'licenseNo': '0000000000', 'contactEmail': f'smoke-{RUN}@example.com'})
+check('apply partner (tier 2)', s == 200, b)
+s, br = call('POST', '/partners/me/branches', PARTNER, {
+    'name': '[TEST] Chi nhánh', 'location': {**SEA, 'address': 'test'}, 'radiusKm': 5,
+    'categories': ['LAPTOP'], 'conditions': ['NOT_WORKING'], 'handoverMethods': ['DROP_OFF']})
+check('add branch', s == 201, br)
+s, b = call('POST', '/partners/me/rules', PARTNER, {'branchId': br['branchId'], 'category': 'LAPTOP', 'conditions': ['NOT_WORKING'],
+                                                    'unit': 'PER_DEVICE', 'minPrice': 100000, 'maxPrice': 200000})
+check('add rule', s == 201, b)
+s, b = call('GET', '/admin/partners', ADMIN, groups=['Admins'])
+check('admin pending queue (GSI1 status)', s == 200 and any(p['partnerId'] == PARTNER for p in b['items']), b)
+s, b = call('POST', f'/admin/partners/{PARTNER}/review', ADMIN, {'approve': True}, groups=['Admins'])
+check('approve partner', s == 200 and b['status'] == 'APPROVED', b)
+
+# Chỉ đối tác đã duyệt mới đăng tin (QĐ-34): người bán đăng ký cấp 1
+s, b = call('POST', '/listings', OWNER, {}, idem=True)
+check('non-partner cannot post', s == 403 and b['code'] == 'PARTNER_REQUIRED', b)
+s, b = call('POST', '/partners/apply', OWNER, {'tier': 'INDIVIDUAL', 'businessName': f'[TEST] Seller {RUN}', 'contactEmail': f'seller-{RUN}@example.com'})
+check('apply partner (tier 1, no license)', s == 200 and b['tier'] == 'INDIVIDUAL', b)
+s, b = call('POST', f'/admin/partners/{OWNER}/review', ADMIN, {'approve': True}, groups=['Admins'])
+check('approve tier-1 partner without branch', s == 200 and b['status'] == 'APPROVED', b)
+
+IMG = upload_png(OWNER)
+s, lst = call('POST', '/listings', OWNER, {
+    'title': '[TEST] smoke laptop', 'category': 'LAPTOP', 'condition': 'NOT_WORKING', 'unit': 'PER_DEVICE', 'quantity': 1, 'description': 'smoke test cleanup',
+    'handoverMethods': ['DROP_OFF'], 'location': {'lat': SEA['lat'] + 0.01, 'lng': SEA['lng'], 'address': 'test'}, 'area': 'Test',
+    'imageKeys': [IMG]}, idem=True)
+check('create listing + matching (GSI1 geo)', s == 201 and lst['matchCount'] >= 1 and lst['quoteCount'] >= 1, lst)
+lid = lst.get('listingId')
+BUYER = f'smoke-buyer-{RUN}'
+s, feed = call('GET', '/feed', BUYER)
+check('feed shows new listing (public, no location, partner contact)', s == 200 and any(i['listing']['listingId'] == lid and 'location' not in i['listing'] and i['seller']['contact']['email'] == f'seller-{RUN}@example.com' for i in feed['items']), feed)
+s, bconv = call('POST', f'/listings/{lid}/conversations', BUYER, {})
+check('any buyer can message seller from feed', s == 200 and bconv['ownerId'] == OWNER, bconv)
+s, b = call('GET', '/listings/mine', OWNER)
+check('my listings (GSI1 owner)', s == 200 and b['items'] and b['items'][0]['listingId'] == lid, b)
+s, b = call('GET', '/partners/me/requests', PARTNER)
+check('partner requests', s == 200 and len(b['items']) == 1, b)
+s, conv = call('POST', f'/listings/{lid}/conversations', PARTNER, {})
+check('open chat (partner)', s == 200 and conv['ownerId'] == OWNER, conv)
+cid = conv['conversationId']
+call('POST', f'/conversations/{cid}/messages', PARTNER, {'text': 'Máy còn sạc không?'})
+s, m = call('POST', f'/conversations/{cid}/messages', OWNER, {'text': 'Còn nhé'})
+check('send chat messages', s == 201, m)
+s, msgs = call('GET', f'/conversations/{cid}/messages', OWNER)
+check('read chat in order', s == 200 and [x['text'] for x in msgs['items']] == ['Máy còn sạc không?', 'Còn nhé'], msgs)
+s, d = call('GET', f'/listings/{lid}', OWNER)
+qid = next(q['quoteId'] for q in d['quotes'] if q['partnerId'] == PARTNER)  # có thể còn đối tác test khác trong vùng
+call('POST', f'/listings/{lid}/quotes/{qid}/request-confirmation', OWNER)
+s, b = call('POST', f'/listings/{lid}/quotes/{qid}/confirm', PARTNER, {'price': 150000})
+check('confirm quote', s == 200 and b['status'] == 'CONFIRMED_OFFER', b)
+s, tx = call('POST', '/transactions', OWNER, {'listingId': lid, 'quoteId': qid}, idem=True)
+check('select offer -> transaction', s == 201 and tx['status'] == 'HANDOVER_PENDING', tx)
+s, b = call('POST', f"/transactions/{tx['transactionId']}/cancel", OWNER, {'reason': 'smoke test cleanup'})
+check('cancel transaction -> listing reopens', s == 200 and b['status'] == 'CANCELLED', b)
+s, b = call('GET', '/notifications/unread-count', PARTNER)
+check('notifications', s == 200 and b['count'] >= 3, b)
+
+# Dọn: hủy tin, tạm ngừng đối tác test
+s, b = call('POST', f'/listings/{lid}/cancel', OWNER)
+check('cleanup: cancel listing', s == 200, b)
+subprocess.run(['aws', 's3api', 'delete-object', '--bucket', 'reloop-device-images', '--key', IMG], capture_output=True, shell=(os.name == 'nt'))
+s, b = call('POST', f'/admin/partners/{PARTNER}/suspend', ADMIN, {'note': 'smoke test'}, groups=['Admins'])
+check('cleanup: suspend test partner', s == 200, b)
+s, b = call('POST', f'/admin/partners/{OWNER}/suspend', ADMIN, {'note': 'smoke test'}, groups=['Admins'])
+check('cleanup: suspend test seller', s == 200, b)
+print('RUN', RUN, 'FAILED' if check.failed else 'ALL PASS')
+sys.exit(1 if check.failed else 0)

@@ -47,7 +47,11 @@ export class MemoryTable implements Table {
       if (!op.condition) return;
       const current = this.items.get(keys[i]!);
       const ok =
-        op.condition.kind === 'notExists' ? !current : current !== undefined && current.version === op.condition.version;
+        op.condition.kind === 'notExists'
+          ? !current
+          : op.condition.kind === 'versionMissing'
+            ? current !== undefined && current.version === undefined
+            : current !== undefined && current.version === op.condition.version;
       if (!ok) failed.push(keys[i]!.replace('\u0000', ' | '));
     });
     if (failed.length) throw new ConditionFailedError(failed);

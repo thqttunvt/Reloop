@@ -6,31 +6,20 @@ import { MAX_TRANSACT_OPS, putNew, putVersioned, type Item, type Table, type Wri
 
 /**
  * Sổ cái ví (QĐ-30, TL-02).
- *  available   — khả dụng: thanh toán hoặc rút
+ *  available   — khả dụng: dùng để thanh toán
  *  held        — đang giữ cho giao dịch
- *  withdrawing — đã tạo lệnh rút, chờ chuyển
- *  unallocated — chỉ ví SYSTEM: tiền vào/ra TK ngân hàng chưa gắn được cho ai (chờ đối soát)
+ * Nạp / rút tiền qua ngân hàng đã tạm bỏ (2026-10-16); khi nối ngân hàng cho đối tác chuyển tiền
+ * thì tiền vào/ra đi qua bankDelta.
  *
  * Bất biến: tổng mọi bucket của mọi ví = số dư TK ngân hàng ReLoop (bankBalance).
  * Mỗi bút toán thỏa: tổng delta các dòng = bankDelta.
  */
-export type Bucket = 'available' | 'held' | 'withdrawing' | 'unallocated';
-export const BUCKETS: Bucket[] = ['available', 'held', 'withdrawing', 'unallocated'];
-export const SYSTEM_OWNER = 'SYSTEM';
+export type Bucket = 'available' | 'held';
+export const BUCKETS: Bucket[] = ['available', 'held'];
 /** Ví doanh thu của ReLoop (hoa hồng + phí đăng bài, QĐ-02). */
 export const REVENUE_OWNER = 'REVENUE';
 
-export type JournalType =
-  | 'TOPUP'
-  | 'UNALLOCATED_IN'
-  | 'UNALLOCATED_OUT'
-  | 'HOLD'
-  | 'SETTLE'
-  | 'LISTING_FEE'
-  | 'LISTING_FEE_REFUND'
-  | 'WITHDRAW_REQUEST'
-  | 'WITHDRAW_PAID'
-  | 'WITHDRAW_FAILED';
+export type JournalType = 'HOLD' | 'SETTLE' | 'LISTING_FEE' | 'LISTING_FEE_REFUND';
 
 export interface JournalLine {
   ownerId: string;
@@ -58,7 +47,7 @@ export interface PostingPlan {
   lines: JournalLine[];
   bankDelta: number;
   ref?: Record<string, string>;
-  /** Ghi kèm trong CÙNG transaction (vd đổi trạng thái lệnh nạp). Phải có điều kiện version. */
+  /** Ghi kèm trong CÙNG transaction (vd đổi trạng thái khoản giữ). Phải có điều kiện version. */
   extraOps?: WriteOp[];
 }
 
@@ -67,10 +56,7 @@ export interface PostResult {
   alreadyPosted: boolean;
 }
 
-const emptyBalances = (): Record<Bucket, number> => ({ available: 0, held: 0, withdrawing: 0, unallocated: 0 });
-
-/** Bucket duy nhất được phép âm: chênh lệch tiền ra không rõ nguồn, chờ Admin đối soát. */
-const mayGoNegative = (ownerId: string, bucket: Bucket) => ownerId === SYSTEM_OWNER && bucket === 'unallocated';
+const emptyBalances = (): Record<Bucket, number> => ({ available: 0, held: 0 });
 
 export class Ledger {
   constructor(
@@ -120,7 +106,7 @@ export class Ledger {
         const balances = { ...wallet.balances };
         for (const bucket of BUCKETS) {
           balances[bucket] += delta[bucket];
-          if (balances[bucket] < 0 && !mayGoNegative(ownerId, bucket)) {
+          if (balances[bucket] < 0) {
             throw conflict('INSUFFICIENT_FUNDS', 'Số dư không đủ', {
               ownerId,
               bucket,
@@ -179,8 +165,8 @@ export class Ledger {
     const negative: { ownerId: string; bucket: Bucket; balance: number }[] = [];
     for (const w of wallets) {
       for (const bucket of BUCKETS) {
-        totals[bucket] += w.balances[bucket];
-        if (w.balances[bucket] < 0 && !mayGoNegative(w.ownerId, bucket)) {
+        totals[bucket] += w.balances[bucket] ?? 0;
+        if ((w.balances[bucket] ?? 0) < 0) {
           negative.push({ ownerId: w.ownerId, bucket, balance: w.balances[bucket] });
         }
       }

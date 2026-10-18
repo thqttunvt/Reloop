@@ -1,27 +1,3 @@
-import { HOUR_MS } from '../../shared/clock';
-
-export interface BankAccountInfo {
-  /** Mã BIN ngân hàng theo chuẩn Napas/VietQR (MB Bank = 970422). */
-  bankBin: string;
-  accountNo: string;
-  accountName: string;
-}
-
-/** Hạn mức ví (QĐ-30) — chỉnh bằng cấu hình, không sửa code. */
-export interface WalletLimits {
-  minTopUp: number;
-  maxBalance: number;
-  minWithdrawal: number;
-  topUpTtlMs: number;
-}
-
-export const DEFAULT_LIMITS: WalletLimits = {
-  minTopUp: 10_000,
-  maxBalance: 20_000_000,
-  minWithdrawal: 50_000,
-  topUpTtlMs: 24 * HOUR_MS,
-};
-
 /** Phí của ReLoop (QĐ-32, QĐ-33) — chỉnh bằng cấu hình, không sửa code. */
 export interface FeePolicy {
   /** Hoa hồng theo phần vạn: 1000 = 10%. */
@@ -57,19 +33,3 @@ export const maxPayeeFor = (holdAmount: number, fees: FeePolicy): number => {
   }
   return lo;
 };
-
-/** Ảnh QR theo dịch vụ công khai img.vietqr.io; ngân hàng nào hỗ trợ VietQR cũng quét được. */
-export const vietQrImageUrl = (to: BankAccountInfo, amount: number, content: string): string =>
-  `https://img.vietqr.io/image/${to.bankBin}-${to.accountNo}-compact2.png` +
-  `?amount=${amount}&addInfo=${encodeURIComponent(content)}&accountName=${encodeURIComponent(to.accountName)}`;
-
-/** Chuẩn hóa tên để so khớp tên chủ TK với tên đăng ký: bỏ dấu, in hoa, gộp khoảng trắng. */
-export const normalizeName = (name: string): string =>
-  name
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toUpperCase()
-    .replace(/\s+/g, ' ')
-    .trim();

@@ -2,9 +2,10 @@
  * Cổng lưu trữ single-table, cố ý chỉ dùng những gì DynamoDB làm được:
  *  - get / query theo partition key (+ tiền tố sort key), hoặc theo GSI1
  *  - transact: tối đa 100 thao tác, nguyên tử, mỗi thao tác có thể kèm điều kiện
- * Điều kiện chỉ có 2 loại để ánh xạ 1-1 sang ConditionExpression:
- *  - notExists      → attribute_not_exists(pk)
- *  - versionEquals  → #version = :v   (optimistic locking)
+ * Điều kiện ánh xạ 1-1 sang ConditionExpression:
+ *  - notExists       → attribute_not_exists(pk)
+ *  - versionEquals   → #version = :v   (optimistic locking)
+ *  - versionMissing  → item đã có nhưng chưa có version (bản ghi do hệ thống khác tạo, vd Lambda Cognito)
  */
 export interface Item {
   pk: string;
@@ -15,7 +16,7 @@ export interface Item {
   [key: string]: unknown;
 }
 
-export type Condition = { kind: 'notExists' } | { kind: 'versionEquals'; version: number };
+export type Condition = { kind: 'notExists' } | { kind: 'versionEquals'; version: number } | { kind: 'versionMissing' };
 
 export type WriteOp =
   | { type: 'put'; item: Item; condition?: Condition }

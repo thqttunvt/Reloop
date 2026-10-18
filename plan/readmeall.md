@@ -1,7 +1,7 @@
 # ReLoop — Bàn giao ngữ cảnh (đọc file này đầu tiên)
 
 > **Mục đích:** lưu toàn bộ ngữ cảnh dự án để khi mở lại máy, Claude (hoặc thành viên mới) đọc là biết đã làm tới đâu.
-> **Cập nhật lần cuối:** 2026-10-12 (phiên 2)
+> **Cập nhật lần cuối:** 2026-10-18
 > **Quy tắc:** mỗi khi xong một phần việc hoặc chốt quyết định mới, cập nhật mục 6 (Trạng thái), mục 7 (Việc tiếp theo) và mục 9 (Nhật ký).
 
 ---
@@ -24,7 +24,7 @@ Tiền đi qua **ví nội bộ**: bên trả nạp tiền vào ví, tiền đư
 | File | Nội dung | Mức ưu tiên |
 |---|---|---|
 | `readmeall.md` | File này: tổng hợp ngữ cảnh và tiến độ | Đọc đầu tiên |
-| `quyetdinh.txt` | **33 quyết định đã chốt** (QĐ-xx, TL-xx). Ghi đè mọi tài liệu khác | **Cao nhất** |
+| `quyetdinh.txt` | **34 quyết định đã chốt** (QĐ-xx, TL-xx). Ghi đè mọi tài liệu khác | **Cao nhất** |
 | `task.txt` | Danh sách task theo 12 tuần, phân vai FE / BE-CORE / BE-PAY / OPS | Kế hoạch làm việc |
 | `giaiphap.txt` | Đề xuất giải pháp cho từng điểm bất cập; áp dụng cho những gì quyetdinh.txt chưa nói | Tham khảo |
 | `baton.txt` | 58 điểm bất cập của spec gốc | Tham khảo |
@@ -63,6 +63,10 @@ Thứ tự tin cậy: **quyetdinh.txt > task.txt > giaiphap.txt > spec gốc > p
 - **Phí đăng bài 20.000đ/bài:** bài đầu tiên miễn phí. Hoàn phí nếu sau 7 ngày không có báo giá nào được xác nhận. Owner tự hủy tin thì không hoàn.
 - Mọi khoản phí vào ví `REVENUE`.
 
+**Đối tác 2 cấp (QĐ-34 — chốt 2026-10-18)**
+- Chỉ đối tác đã được Admin duyệt mới đăng tin. Cấp 1 = khách lẻ (tên + email); cấp 2 = doanh nghiệp / hộ kinh doanh (+ loại hình, GPKD; chi nhánh, bảng giá, thu mua).
+- Email liên hệ bắt buộc cả 2 cấp; SĐT không bắt buộc (khai ở Hồ sơ). Tên đối tác + email + SĐT hiện công khai trên tin.
+
 **Khác**
 - **Đánh giá hai chiều (QĐ-22).**
 - **Bắt buộc đồng ý điều khoản khi đăng ký (QĐ-28).**
@@ -70,100 +74,62 @@ Thứ tự tin cậy: **quyetdinh.txt > task.txt > giaiphap.txt > spec gốc > p
 
 ## 4. Kiến trúc code hiện tại
 
-```
-projecmeo/
-  README.md                 hướng dẫn chạy code
-  package.json              npm workspaces: backend, frontend
-  plan/                     tài liệu kế hoạch (xem mục 2)
-  backend/                  TypeScript, viết theo dạng Lambda handler
-    src/app.ts              lắp adapter theo STAGE (local/aws) + loadConfig()
-    src/lambda.ts           entry point Lambda
-    src/local/server.ts     server dev (cổng 3001), gọi CÙNG handler với Lambda, đọc backend/.env
-    src/http/router.ts      router, xác thực, Idempotency-Key (giành khóa trước khi chạy), lọc pk/sk khỏi response
-    src/http/routes.ts      toàn bộ route (API + /dev/* chỉ bật khi STAGE=local)
-    src/auth/auth.ts        LocalAuthProvider (header x-dev-user / x-dev-groups) · CognitoAuthProvider
-    src/bank/bankProvider.ts  interface BankProvider + FakeBankProvider (header x-webhook-secret)
-    src/store/table.ts      interface Table kiểu DynamoDB (get/query/transact, notExists/versionEquals)
-    src/store/memoryTable.ts  bản giả lập trong bộ nhớ, lưu ra backend/.data/db.json
-    src/store/keys.ts       mọi khóa single-table + GSI1
-    src/domain/stateMachines.ts  Listing / Quote / Transaction / TopUp / Withdrawal
-    src/modules/users/      hồ sơ, xác minh SĐT
-    src/modules/wallet/
-      ledger.ts             sổ cái bút toán kép, id bút toán = khóa chống trùng, reconcile()
-      walletService.ts      nạp, webhook vào/ra, giữ tiền, kết thúc (có hoa hồng), phí đăng bài
-      payoutService.ts      tài khoản ngân hàng, lệnh rút, Admin xử lý
-      walletConfig.ts       hạn mức ví + DEFAULT_FEES (mức phí) + VietQR + chuẩn hóa tên
-    test/                   vitest: 43 test (state machine, MemoryTable, ví, phí, API)
-  frontend/                 React 18 + TS + Vite 5.4.21, proxy /api → :3001
-    src/pages/              LoginPage (đăng nhập dev), ProfilePage, WalletPage, AdminPage
-    src/lib/                api.ts, session.ts, format.ts
-```
+Xem cây thư mục chi tiết trong [README.md](../README.md#cấu-trúc). Tóm tắt:
+- **backend/** TypeScript, 1 Lambda `reloop-dev-api` phục vụ 3 loại sự kiện: request API Gateway, worker AI (Lambda tự gọi async), job định kỳ (EventBridge 15 phút).
+- Adapter theo môi trường: `Table` (MemoryTable ↔ DynamoTable), `AuthProvider` (header dev ↔ Cognito JWT), `ImageStore` (tắt ↔ S3), `Analyzer` (tắt ↔ Bedrock Claude Haiku 4.5).
+- **frontend/** React + Vite; Leaflet/OSM; đăng nhập Cognito Hosted UI (OAuth code + PKCE); polling thông báo 30s.
+- **infra/** Terraform (state S3 `reloop-tfstate-926583575243`); tài nguyên nhóm dựng tay được đọc qua `data`, không quản lý.
+- **scripts/** `smoke-aws.py` (integration test trên AWS), `make-admin.sh`, `loadtest.mjs`.
 
-**Nguyên tắc code (phải giữ):**
-- Tiền là số nguyên VND. Mọi thay đổi số dư phải qua `Ledger.post(journalId, plan)`.
-- Bất biến luôn đúng: **tổng mọi ví (kể cả SYSTEM và REVENUE) = số dư tài khoản ngân hàng ReLoop**.
-- Ví đặc biệt:
-  - `SYSTEM.unallocated`: tiền vào/ra không khớp được với lệnh nào, chờ Admin đối soát. Được phép âm.
-  - `REVENUE`: doanh thu của ReLoop.
-- Đổi trạng thái phải qua `stateMachines.ts`.
-- Nghiệp vụ không gọi dịch vụ AWS trực tiếp, chỉ đi qua adapter.
-- API tạo tiền (nạp, rút) bắt buộc header `Idempotency-Key`.
+**Nguyên tắc code (phải giữ):** đổi trạng thái qua `stateMachines.ts`; ghi có điều kiện version; việc nền idempotent; nghiệp vụ không gọi AWS trực tiếp; API tạo dữ liệu quan trọng bắt buộc `Idempotency-Key`; tiền là số nguyên VND qua `Ledger.post()`.
 
 ## 5. Môi trường máy
 
-- Windows 10, Node 22.12, npm 10.9, Git 2.47.
-- **Chưa có:** Docker, Java (nên không chạy được DynamoDB Local), AWS CLI, Terraform, thư mục `~/.aws`.
-- **Đã là git repo** (nhánh `main`, commit đầu `3da3ba7`). Remote: `https://github.com/thqttunvt/Reloop` (đã push). `.gitattributes` ép xuống dòng LF.
-- **Chạy local:**
-  - `npm install`
-  - `cp backend/.env.example backend/.env` (file `.env` đã có sẵn)
-  - `npm run dev:be` và `npm run dev:fe`
-  - `npm test`
+- Windows 11, Node 26, AWS CLI 2.37, Terraform 1.16, Git Bash. Chưa có Docker.
+- AWS: profile `reloop` (đăng nhập `aws login --profile reloop`, user IAM `TRUNG`, account `926583575243`, region `ap-southeast-1`). Terraform cần `eval "$(aws configure export-credentials --profile reloop --format env)"` (deploy.sh tự làm).
+- Profile mặc định trên máy trỏ account KHÁC (`880207438282`, user `vscode-claude-agent`) — **không dùng** cho ReLoop.
+- Git Bash đổi đường dẫn bắt đầu bằng `/` → dùng `MSYS_NO_PATHCONV=1` cho lệnh AWS có tham số dạng `/aws/...`.
 
-## 6. Trạng thái hiện tại (2026-10-12)
+## 6. Trạng thái hiện tại (2026-10-16)
 
-**Đã xong và đã kiểm tra**
-- Tài liệu kế hoạch: baton, giaiphap, quyetdinh (33 QĐ), task.
-- Khung monorepo, backend và frontend.
-- **Toàn bộ lõi ví:** nạp, webhook vào/ra, giữ tiền, kết thúc giao dịch kèm hoa hồng, đóng băng, phí đăng bài và hoàn phí, tài khoản ngân hàng, rút tiền, đối soát.
-- API Admin: duyệt tài khoản ngân hàng (có gợi ý tên khớp), hàng đợi lệnh rút kèm QR, đối soát kèm doanh thu.
-- Frontend: đăng nhập dev, hồ sơ, ví (nạp QR tự cập nhật, lịch sử, rút), trang Admin.
-- **GitHub Issues:** 13 issue cho GĐ 0 (#1–#13, milestone "GĐ 0 — Nền tảng (tuần 1–2)", label FE/BE-CORE/BE-PAY/OPS/P0/P1/không-code); #13 đã đóng. Chưa gán người làm. Máy đã có `gh` 2.102.0, đăng nhập `thqttunvt`.
-- **Git + CI:** đã commit đầu tiên; .github/workflows/ci.yml chạy typecheck, test, build frontend khi push lên main hoặc mở PR.
-- **Kết quả kiểm tra:** 43/43 test pass, typecheck sạch cả hai bên, frontend build được. Đã chạy thật ở local bằng curl (nạp → giữ → kết thúc → đối soát khớp) và gọi qua proxy frontend.
+**Đã xong, có test, đã deploy lên AWS dev** (89 unit/API test + `scripts/smoke-aws.py` trên AWS thật đều pass)
+- EPIC 1: Cognito (pool mới, xác minh email), hồ sơ, điều khoản QĐ-28 (bắt buộc trước khi đăng tin / đăng ký đối tác / chọn offer), landing page, script cấp Admin. **Đã bỏ xác thực SĐT** — SĐT trong hồ sơ không bắt buộc (SĐT doanh nghiệp khi đăng ký đối tác vẫn bắt buộc).
+- EPIC 2: địa điểm đã lưu + mặc định, geohash 4 + Haversine, khoảng cách làm tròn 0,5 km, Partner chỉ thấy khu vực trước khi có giao dịch.
+- EPIC 3: đăng ký đối tác, chi nhánh (1–5 km, danh mục, tình trạng, bàn giao, bật/tắt), Admin duyệt / từ chối / tạm ngừng / mở lại.
+- EPIC 4: đăng tin (theo cái / kg) **bắt buộc đủ thông tin**: mô tả ≥ 10 ký tự + ít nhất 1 ảnh (hãng/model tùy chọn); upload ảnh S3 presigned POST (≤ 5 MB, ≤ 6 ảnh, frontend thu nhỏ ≤ 1600 px); **kiểm duyệt ảnh nhạy cảm bằng Amazon Rekognition** (`POST /uploads/moderate`, ảnh vi phạm bị xóa, ảnh dùng được phải có tag `moderation=passed`); hủy tin.
+- EPIC 5: AI phân tích ảnh chạy nền (202 + polling), Claude Haiku 4.5 qua Bedrock, JSON có schema + validate lại, giới hạn 20 lượt/ngày, lỗi → nhập tay. Đã chạy thật trên Bedrock (kiểm tra 2026-10-16).
+- EPIC 6–7: matching đồng bộ trong request (≤ 9 query GSI), báo giá dự kiến + Rule Snapshot, yêu cầu xác nhận (24h), xác nhận khác khoảng dự kiến có cảnh báo, từ chối, rút, offer thủ công (72h), Matching Requests của Partner.
+- EPIC 9: chọn offer (2 request đồng thời → 1 thành công), mở liên lạc, lịch bàn giao đề xuất–chấp nhận, điều chỉnh giảm giá (≤ 2 lần, cần ảnh), xác nhận 2 bên, 48h tự hoàn tất, hủy / thất bại (mã lý do), tranh chấp khi giá cuối lệch, lịch sử sự kiện. **Thanh toán offline** (không qua ví).
+- EPIC 10: timer theo ngăn giờ + EventBridge 15 phút: hết hạn tin 7 ngày, nhắc 24h, tự hoàn tất 48h.
+- EPIC 11: thông báo (chuông, polling 30s, đánh dấu đã đọc).
+- **Chợ (trang chính, ngoài kế hoạch gốc — người dùng yêu cầu 2026-10-16):** bảng tin kiểu Facebook cho mọi người đã đăng nhập (chỉ khu vực, không giá, không vị trí chính xác), con trỏ `FEED#<tháng>`. Thẻ tin có "💬 Gửi tin nhắn" → cột phải: thông tin người bán (tên, ngày tham gia, uy tín) + chat.
+- **Chat người bán ↔ người mua** theo từng tin (`modules/chat`): mọi người mua nhắn được người bán; chủ tin nhắn được đối tác đã match; polling 5s; khóa khi tin kết thúc. Trang "Tin nhắn".
+- EPIC 12: đánh giá 2 chiều (14 ngày), nhãn VERIFIED / ADMIN_RESOLVED / FAILED, uy tín (rating khi ≥ 3 review, tỉ lệ hoàn tất / hủy khi ≥ 5 giao dịch).
+- EPIC 13–14: tranh chấp + Admin kết luận, báo cáo vi phạm + gỡ tin, thống kê Admin.
+- GĐ 3: Terraform, CloudWatch dashboard + 7 alarm + metric từ log (cả ảnh bị chặn), throttle API, IAM tối thiểu, PITR, smoke test trên AWS, script load test.
+- Lưu trữ QĐ-27: DynamoDB TTL `ttl` (thông báo 90 ngày); S3 Lifecycle `infra/storage.tf` (ảnh chưa gắn tin 1 ngày, ảnh tin 120 ngày).
 
-**Đang tạm dùng bản dev (chưa có bản thật)**
-- OTP: thay bằng `/dev/verify-phone`.
-- Đăng nhập: header dev thay cho Cognito.
-- Webhook ngân hàng: `FakeBankProvider` và `/dev/bank-events`.
-- Giữ / kết thúc tiền: `/dev/transactions/{id}/hold|settle`, vì chưa có module giao dịch.
-- Phí đăng bài: `/dev/listings/{id}/fee|fee-refund`, vì chưa có module tin đăng.
+**Đã bỏ theo yêu cầu (2026-10-16):** nạp tiền, rút tiền, khai STK, webhook ngân hàng, đối soát ngân hàng. Code sổ cái / giữ tiền / hoa hồng / phí đăng bài vẫn giữ (có test) để nối lại sau.
 
-**Chưa làm**
-- Module địa điểm, tin đăng, ảnh, AI, matching, báo giá, giao dịch, lịch tác vụ, thông báo, đánh giá, tranh chấp đầy đủ, Partner onboarding.
-- `DynamoTable`, Terraform, CD (tự deploy lên AWS), đóng gói Lambda, đăng nhập Cognito ở frontend.
+**Chưa làm / cần người dùng quyết**
+- T8.15 thu phí đăng bài, QĐ-32 hoa hồng: chưa thu vì không còn cách nạp tiền vào ví.
+- QĐ-13 matching chạy nền: đang chạy đồng bộ trong request (nhanh, < 1s); chuyển sang worker khi cần.
+- CI/CD tự deploy (T15.2): cần quyền tạo IAM OIDC provider cho GitHub Actions; hiện deploy bằng `infra/deploy.sh`.
+- Môi trường prod (T15.1), WAF (T15.5), load test thật (T15.9 — script có sẵn, cần token), Well-Architected Review, tài liệu cuối kỳ (GĐ 4).
+- Sửa / phản hồi đánh giá (T12.2), upload bằng chứng tranh chấp (T13.2), ảnh giấy phép kinh doanh khi đăng ký đối tác, chiều BÁN TÁI CHẾ (M1).
+
+**Đã làm 2026-10-18 (chưa deploy):** QĐ-34 đối tác 2 cấp — backend + frontend + 5 test mới (94 test pass), smoke-aws.py cập nhật.
+**Bàn AI 2026-10-18 (tạm gác):** người dùng nói credits AWS không trừ cho Claude trên Bedrock (chưa kiểm tra được Billing). Tạm giữ Claude Haiku. Đã xem xét: Amazon Nova Lite/Pro (model của Amazon, thường trừ credits); tinh chỉnh Nova khi có dữ liệu do người thật gán nhãn; Rekognition Custom Labels; SageMaker (loại vì GPU tính theo giờ). Không tự train Claude được; không dùng output Claude để train model khác (điều khoản Anthropic).
+**Máy hiện tại (Windows 10, Node 22) chưa có AWS CLI / Terraform / ~/.aws** → chưa deploy được, chờ người dùng cho cài + `aws login`.
+**Chốt 2026-10-18:** GIỮ nguyên form đăng ký Cognito (ô SĐT/địa chỉ là thuộc tính bắt buộc của pool, bỏ thì phải tạo pool mới → người dùng chọn không đổi). SĐT trong app vẫn không bắt buộc.
 
 ## 7. Việc tiếp theo
 
-**Đang chờ người dùng:** repo vẫn **Public** (đã bỏ Template), cân nhắc chuyển sang Private; CI lần đầu đã pass. Gán người làm cho issue #1–#12 khi thành viên đã nhận lời mời. Bật branch protection cho `main` (bắt buộc CI pass). Vẫn còn treo câu hỏi: "Bắt đầu viết `DynamoTable` không?"
-
-**Claude làm được ngay (không cần AWS)**
-1. `DynamoTable`: dùng AWS SDK v3, `TransactWriteItems` + `ConditionExpression`, **đọc số dư bằng `ConsistentRead: true`**.
-2. Terraform: bảng DynamoDB (bật PITR), Cognito (nhóm `admin` và `admin_finance`), Lambda, API Gateway HTTP API có JWT authorizer (riêng `/webhooks/bank` để công khai, có throttle), SSM Parameter Store, S3 + CloudFront, log 30 ngày, Budgets.
-3. Đóng gói Lambda bằng esbuild.
-4. Đăng nhập Cognito ở frontend.
-5. Các module nghiệp vụ theo `task.txt`: địa điểm → tin đăng (gắn thu phí, T8.15) → AI → matching → báo giá → **giao dịch (Epic 9, nối vào holdForTransaction/settleTransaction)**.
-
-**Người dùng phải tự làm**
-- Tạo tài khoản AWS: bật MFA cho root, tạo người dùng qua IAM Identity Center, chọn region (đề xuất `ap-southeast-1`), bật Budgets.
-- **Xin quyền dùng model Bedrock** (Claude Haiku).
-- Cài AWS CLI v2 và Terraform, chạy `aws configure sso`. Lệnh `terraform apply` do người dùng chạy.
-- Chọn tài khoản ngân hàng làm tài khoản ReLoop; đăng ký dịch vụ webhook (SePay/payOS/Casso).
-- **Gửi tài liệu API MB Bank** (người dùng đã hứa gửi). Lưu ý:
-  - Nếu đó là thư viện không chính thức (đăng nhập internet banking bằng mật khẩu) thì phải cảnh báo, vì vi phạm điều khoản ngân hàng.
-  - Không bao giờ nhận key hay mật khẩu qua chat.
-- Chuyển repo GitHub sang Private, thêm thành viên nhóm, bật branch protection.
-- Trả lời có thêm chatbot FAQ (Bedrock) vào phần mở rộng không.
+1. **Commit + push code** — toàn bộ việc từ 2026-10-16 CHƯA commit (kiểm tra `git status`).
+2. Người dùng: thử trọn luồng trên web (tài khoản `trung02` đã có group Admins + FinanceAdmins).
+3. Người dùng / nhóm: báo đồng đội tắt hoặc thêm xác thực cho API `reloop-generate-presigned-url` (đang công khai); thống nhất bỏ pool Cognito cũ.
+4. Gợi ý tiếp cho Chợ: lọc theo khoảng cách / loại thiết bị, ô tìm kiếm; chat realtime (WebSocket — M5).
+5. Tiếp các mục "Chưa làm" ở trên theo thứ tự ưu tiên của nhóm.
 
 ## 8. Rủi ro đang theo dõi
 
@@ -182,3 +148,13 @@ projecmeo/
 | 2026-10-12 | (phiên 2) Người dùng chọn đưa lên GitHub kèm CI. Thêm .github/workflows/ci.yml và .gitattributes, kiểm tra lại (typecheck, 43 test, build đều pass), commit đầu 3da3ba7. Chờ người dùng tạo repo và push. |
 | 2026-10-12 | (phiên 2) Người dùng đã push lên 	hqttunvt/Reloop. Repo đang Public template; đã khuyên chuyển sang Private. |
 | 2026-10-12 | (phiên 2) Cài gh CLI. Tạo label, milestone GĐ 0 và 13 issue từ task.txt (T0.1–T0.13); đóng #13. CI lần đầu pass. |
+| 2026-10-16 | Viết `DynamoTable` (backend/src/store/dynamoTable.ts) + nối vào app.ts khi STAGE=aws (bắt buộc TABLE_NAME). 9 test mới (52 tổng), typecheck sạch. Máy đã có AWS CLI 2.37 + Terraform 1.16. |
+| 2026-10-16 | Lên AWS account 926583575243 (ap-southeast-1, profile `reloop` qua `aws login`, user TRUNG). Theo hạ tầng nhóm dựng sẵn: DynamoTable đổi khóa sang PK/SK/GSI1, UserService nhận hồ sơ do Lambda post-confirmation tạo, group Cognito Admins/FinanceAdmins. Chạy test hợp đồng trên bảng thật (pass). Terraform (infra/, data source cho tài nguyên có sẵn): đã tạo S3 web + CloudFront d1cjl1tvcp0r6q.cloudfront.net, API Gateway 2tslnzyaga + JWT authorizer, log group. Tạo group FinanceAdmins, bật PITR. Web đã upload. **Kẹt:** IAM role cho Lambda (TRUNG thiếu iam:TagRole) và callback URL Cognito chưa cập nhật — chờ người dùng. |
+| 2026-10-16 | Admin cấp thêm quyền IAM/Lambda (policy ReLoopDeployExtra) cho TRUNG. Terraform tạo nốt IAM role + Lambda `reloop-dev-api` + route API. Sửa CORS preflight (route OPTIONS không JWT, Lambda trả 204). Kiểm tra: Lambda đọc DynamoDB thật OK, JWT chặn đúng, CORS đúng origin. 56 test pass. **Còn chờ:** thêm callback/logout URL `https://d1cjl1tvcp0r6q.cloudfront.net/auth/callback` (và localhost) vào reloop-web-client. |
+| 2026-10-16 | Pool Cognito cũ xác minh qua SMS (account trong SMS sandbox → không nhận được mã) và TRUNG không có quyền UpdateUserPool. Tạo pool mới bằng Terraform `reloop-dev-user-pool` (ap-southeast-1_HttIDqEll), sao theo pool cũ nhưng chỉ xác minh email, domain `reloop-dev-auth`, client web `3fgdovrar5bgm7bm6ddpl6pkn0`, 4 group, vẫn dùng Lambda post-confirmation. API Gateway + frontend chuyển sang pool mới. User cũ (trung01, madlyham) phải đăng ký lại. |
+| 2026-10-16 | Bỏ nạp/rút tiền theo yêu cầu. Làm EPIC 1–7, 9–14 + giám sát: đối tác, chi nhánh, bảng giá, đăng tin + ảnh S3, AI Bedrock (chạy nền), matching geohash, báo giá, giao dịch offline, job nền EventBridge, thông báo, đánh giá + uy tín, tranh chấp, báo cáo vi phạm, điều khoản, địa điểm đã lưu, landing, CloudWatch dashboard + alarm. 78 test + smoke test AWS pass. AI Bedrock đã chạy thật. |
+| 2026-10-16 | Lưu trữ QĐ-27 (người dùng đồng ý sửa cấu hình của nhóm): bật DynamoDB TTL `ttl` trên reloop-core-table (thông báo 90 ngày); S3 Lifecycle `infra/storage.tf` cho prefix `listings/` — ảnh tag `state=pending` xóa sau 1 ngày, ảnh đã gắn tin xóa sau 120 ngày. Kiểm tra trên AWS: upload → pending, đăng tin → attached. |
+| 2026-10-16 | Kiểm duyệt ảnh nhạy cảm (M6) bằng Amazon Rekognition `DetectModerationLabels`: frontend gọi `POST /uploads/moderate` ngay sau upload; ảnh vi phạm (khỏa thân, bạo lực, ghê rợn, biểu tượng thù địch, ma túy…, độ tin cậy ≥ 70%) bị xóa + trả 422; ảnh sạch gắn tag `moderation=passed`. Đăng tin / AI / đề nghị giảm giá bắt buộc ảnh có tag này. Metric `ImagesRejected` trên dashboard. Đã kiểm tra trên AWS. |
+| 2026-10-16 | Theo yêu cầu: (1) đăng tin bắt buộc đủ thông tin — mô tả ≥ 10 ký tự + ít nhất 1 ảnh (khi có S3); (2) bỏ xác thực SĐT, SĐT trong hồ sơ không bắt buộc (bỏ /dev/verify-phone, bỏ biến enable_dev_routes); (3) chat người bán ↔ đơn vị thu mua theo từng tin (`modules/chat`, chỉ đối tác được match; thông báo ở tin đầu chưa đọc; khóa khi tin kết thúc; thứ tự theo version cuộc trò chuyện). 86 test + smoke test AWS (có chat) pass. |
+| 2026-10-16 | Trang "Chợ" kiểu Facebook (mặc định sau đăng nhập): mọi người đã đăng nhập xem tin đang mở (chỉ khu vực, không giá, không vị trí chính xác); thẻ tin có "💬 Gửi tin nhắn" → cột phải hiện thông tin người bán (tên, ngày tham gia, uy tín) + chat. Chat mở cho mọi người mua (không cần là đối tác); báo giá / chọn đối tác vẫn chỉ cho đối tác đã duyệt. Bảng tin dùng con trỏ `FEED#<tháng>` (không Scan). Trang chi tiết tin có chế độ VIEWER. 89 test + smoke AWS pass. |
+| 2026-10-18 | Đọc lại toàn bộ code (89 test pass). QĐ-34: chia đối tác cấp 1 (khách lẻ) / cấp 2 (doanh nghiệp, hộ KD); chỉ đối tác đã duyệt mới đăng tin; email liên hệ bắt buộc, SĐT không bắt buộc ở Hồ sơ; liên hệ đối tác hiện công khai trên tin; trang Đăng tin + menu làm nổi bật yêu cầu làm đối tác; PATCH /partners/me/contact cho hồ sơ cũ thiếu email; điều khoản 2026-10-18. 94 test pass, build web OK. Chưa deploy. |

@@ -1,16 +1,16 @@
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 import { buildApp, loadConfig } from '../src/app';
 import { ManualClock } from '../src/shared/clock';
+import { keys } from '../src/store/keys';
 import { MemoryTable } from '../src/store/memoryTable';
+import { putVersioned } from '../src/store/table';
 
 process.env.LOG_SILENT = '1';
-
-export const WEBHOOK_SECRET = 'test-secret';
 
 export function makeTestApp() {
   const clock = new ManualClock();
   const table = new MemoryTable();
-  const config = { ...loadConfig({ STAGE: 'local', BANK_WEBHOOK_SECRET: WEBHOOK_SECRET }), dataFile: undefined };
+  const config = { ...loadConfig({ STAGE: 'local' }), dataFile: undefined };
   const app = buildApp(config, { table, clock });
 
   const call = async (
@@ -34,25 +34,21 @@ export function makeTestApp() {
     return { status: res.statusCode, body: JSON.parse(res.body ?? 'null') };
   };
 
-  /** Người dùng đã khai và xác minh SĐT — đủ điều kiện nạp tiền. */
-  const verifiedUser = async (userId: string) => {
-    await call('PATCH', '/me', { user: userId, body: { fullName: 'Nguyễn Văn An', phone: '0901234567' } });
-    await call('POST', '/dev/verify-phone', { user: userId });
+  /**
+   * Nạp tiền đã tạm bỏ khỏi sản phẩm → test giữ tiền nạp số dư thẳng vào bảng
+   * (mô phỏng tiền vào TK ngân hàng: cộng cả ví lẫn số dư ngân hàng để bất biến đối soát vẫn đúng).
+   */
+  const fund = async (userId: string, amount: number) => {
+    const wk = keys.wallet(userId);
+    const bk = keys.bankBalance();
+    const wallet = await table.get<any>(wk.pk, wk.sk);
+    const bank = await table.get<any>(bk.pk, bk.sk);
+    const balances = wallet?.balances ?? { available: 0, held: 0 };
+    await table.transact([
+      putVersioned({ ...wk, ownerId: userId, balances: { ...balances, available: balances.available + amount }, gsi1pk: 'WALLETS', gsi1sk: userId }, wallet?.version ?? 0),
+      putVersioned({ ...bk, balance: (bank?.balance ?? 0) + amount }, bank?.version ?? 0),
+    ]);
   };
 
-  /** Nạp tiền trọn vòng: tạo lệnh nạp → ngân hàng báo tiền vào đúng mã. */
-  const topUp = async (userId: string, amount: number) => {
-    const created = await call('POST', '/wallet/topups', {
-      user: userId,
-      body: { amount },
-      headers: { 'idempotency-key': `topup-${userId}-${amount}-${Math.random()}` },
-    });
-    const content = `CK ${created.body.topUp.code} nap vi`;
-    return bankEvent({ direction: 'IN', amount, content, bankTxnId: `in-${created.body.topUp.code}` });
-  };
-
-  const bankEvent = (payload: Record<string, unknown>) =>
-    call('POST', '/webhooks/bank', { body: payload, headers: { 'x-webhook-secret': WEBHOOK_SECRET } });
-
-  return { app, clock, table, call, verifiedUser, topUp, bankEvent, services: app.services };
+  return { app, clock, table, call, fund, services: app.services };
 }

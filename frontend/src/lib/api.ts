@@ -1,3 +1,4 @@
+import { freshIdToken } from './cognito';
 import { loadSession } from './session';
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api';
@@ -19,7 +20,10 @@ export async function api<T>(
 ): Promise<T> {
   const session = loadSession();
   const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (session) {
+  if (session?.kind === 'cognito') {
+    const token = await freshIdToken(session);
+    if (token) headers.authorization = `Bearer ${token}`;
+  } else if (session) {
     headers['x-dev-user'] = session.userId;
     if (session.groups.length) headers['x-dev-groups'] = session.groups.join(',');
   }
@@ -39,38 +43,19 @@ export async function api<T>(
 export const newIdempotencyKey = () => crypto.randomUUID();
 
 // ---- Kiểu dữ liệu trả về (khớp backend) ----
-export type Bucket = 'available' | 'held' | 'withdrawing' | 'unallocated';
+export type Bucket = 'available' | 'held';
 
 export interface Profile {
   userId: string;
   email?: string;
   fullName?: string;
   phone?: string;
-  phoneVerified: boolean;
   roles: string[];
 }
 
 export interface Wallet {
   ownerId: string;
   balances: Record<Bucket, number>;
-}
-
-export interface TopUp {
-  topUpId: string;
-  code: string;
-  amount: number;
-  status: 'CREATED' | 'CREDITED' | 'EXPIRED';
-  expiresAt: string;
-  creditedAmount?: number;
-}
-
-export interface PaymentInstruction {
-  bankBin: string;
-  accountNo: string;
-  accountName: string;
-  amount: number;
-  content: string;
-  qrImageUrl: string;
 }
 
 export interface LedgerLine {
@@ -81,25 +66,326 @@ export interface LedgerLine {
   at: string;
 }
 
-export interface BankAccount {
-  accountId: string;
-  userId: string;
-  bankBin: string;
-  accountNo: string;
-  accountName: string;
-  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED';
-  registeredName?: string;
-  nameMatches?: boolean;
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+  address: string;
 }
 
-export interface Withdrawal {
-  withdrawalId: string;
-  userId: string;
-  code: string;
-  amount: number;
-  status: 'REQUESTED' | 'PROCESSING' | 'PAID' | 'FAILED';
-  destination: { bankBin: string; accountNo: string; accountName: string };
+export type ListingStatus = 'ACTIVE' | 'MATCHED' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED';
+export type QuoteStatus =
+  | 'ESTIMATED'
+  | 'CONFIRMATION_REQUESTED'
+  | 'CONFIRMED_OFFER'
+  | 'SELECTED'
+  | 'REJECTED'
+  | 'WITHDRAWN'
+  | 'EXPIRED'
+  | 'INVALIDATED';
+
+export interface Listing {
+  listingId: string;
+  ownerId: string;
+  title: string;
+  category: string;
+  brand?: string;
+  model?: string;
+  condition: string;
+  description: string;
+  unit: 'PER_DEVICE' | 'PER_KG';
+  quantity: number;
+  weightKg?: number;
+  handoverMethods: string[];
+  location?: GeoPoint;
+  area: string;
+  imageKeys: string[];
+  status: ListingStatus;
+  matchingStatus: 'PENDING' | 'DONE';
+  matchCount: number;
+  quoteCount: number;
   createdAt: string;
-  failReason?: string;
-  transferQrImageUrl?: string;
+  expiresAt: string;
+}
+
+export interface Match {
+  listingId: string;
+  branchId: string;
+  partnerId: string;
+  partnerName: string;
+  branchName: string;
+  distanceKm: number;
+  handoverMethods: string[];
+}
+
+export interface Quote {
+  quoteId: string;
+  listingId: string;
+  partnerId: string;
+  branchId: string;
+  partnerName: string;
+  branchName: string;
+  distanceKm: number;
+  kind: 'AUTO' | 'MANUAL';
+  status: QuoteStatus;
+  estimate?: { unit: string; unitMin: number; unitMax: number; quantity?: number; totalMin?: number; totalMax?: number };
+  offer?: { price: number; note?: string; validUntil: string; at: string; differsFromEstimate: boolean };
+  responseDeadline?: string;
+  rejectNote?: string;
+}
+
+export interface Contact {
+  email?: string;
+  phone?: string;
+}
+
+export interface Seller {
+  /** Tên trong hồ sơ đối tác (người bán là đối tác đã duyệt — QĐ-34) */
+  displayName: string;
+  memberSince?: string;
+  tier?: PartnerTier;
+  contact?: Contact;
+}
+
+export interface ListingDetail {
+  /** VIEWER = người xem từ bảng tin (không phải chủ tin, không được match) */
+  role: 'OWNER' | 'PARTNER' | 'VIEWER';
+  listing: Listing & { activeTransactionId?: string };
+  images: string[];
+  seller: Seller;
+  matches: Match[];
+  quotes: Quote[];
+  /** Uy tín đối tác theo partnerId (chỉ Owner) */
+  reputation: Record<string, Reputation>;
+  /** Uy tín người bán (người xem / đối tác) */
+  sellerReputation?: Reputation;
+}
+
+export interface FeedItem {
+  listing: Listing;
+  seller: Seller;
+  images: string[];
+  isMine: boolean;
+}
+
+export type PartnerStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+/** INDIVIDUAL = cấp 1 (khách lẻ), BUSINESS = cấp 2 (doanh nghiệp / hộ kinh doanh) */
+export type PartnerTier = 'INDIVIDUAL' | 'BUSINESS';
+
+export interface Partner {
+  partnerId: string;
+  /** Hồ sơ cũ không có → cấp 2 */
+  tier?: PartnerTier;
+  businessType?: 'ENTERPRISE' | 'HOUSEHOLD';
+  businessName: string;
+  licenseNo?: string;
+  contactEmail?: string;
+  phone?: string;
+  status: PartnerStatus;
+  reviewNote?: string;
+  createdAt: string;
+}
+
+export interface Branch {
+  branchId: string;
+  name: string;
+  location: GeoPoint;
+  radiusKm: number;
+  categories: string[];
+  conditions: string[];
+  handoverMethods: string[];
+  active: boolean;
+}
+
+export interface PricingRule {
+  ruleId: string;
+  branchId: string;
+  category: string;
+  conditions: string[];
+  unit: 'PER_DEVICE' | 'PER_KG';
+  minPrice: number;
+  maxPrice: number;
+  minQuantity: number;
+  active: boolean;
+}
+
+export interface PartnerRequest {
+  listingId: string;
+  branchId: string;
+  branchName: string;
+  distanceKm: number;
+  title: string;
+  category: string;
+  condition: string;
+  unit: 'PER_DEVICE' | 'PER_KG';
+  quantity: number;
+  weightKg?: number;
+  area: string;
+  createdAt: string;
+  expiresAt: string;
+  listingStatus: ListingStatus;
+  quotes: Quote[];
+}
+
+export interface UploadTicket {
+  key: string;
+  url: string;
+  fields: Record<string, string>;
+}
+
+/** Thu nhỏ ảnh về cạnh dài ≤ 1600 px (JPEG) trước khi upload (giaiphap E6) — nhẹ hơn và hợp giới hạn ảnh của AI. */
+async function shrink(file: File, maxSide = 1600): Promise<Blob> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    if (scale === 1 && file.size < 1.5 * 1024 * 1024) return file;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext('2d')!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('resize'))), 'image/jpeg', 0.85));
+  } catch {
+    return file; // trình duyệt không hỗ trợ → gửi ảnh gốc
+  }
+}
+
+/** Upload ảnh thẳng lên S3 bằng presigned POST. */
+export async function uploadImage(original: File): Promise<string> {
+  const file = await shrink(original);
+  const ticket = await api<UploadTicket>('POST', '/uploads/presign', { body: { contentType: file.type || original.type } });
+  const form = new FormData();
+  Object.entries(ticket.fields).forEach(([k, v]) => form.append(k, v));
+  form.append('file', file);
+  const res = await fetch(ticket.url, { method: 'POST', body: form });
+  if (!res.ok) throw new ApiError(res.status, 'UPLOAD_FAILED', 'Upload ảnh thất bại (tối đa 5 MB, JPEG/PNG/WebP)');
+  // Kiểm duyệt ảnh nhạy cảm (Rekognition); ảnh vi phạm bị xóa và trả lỗi IMAGE_REJECTED
+  await api('POST', '/uploads/moderate', { body: { key: ticket.key } });
+  return ticket.key;
+}
+
+export type TransactionStatus =
+  | 'AWAITING_PAYMENT'
+  | 'HANDOVER_PENDING'
+  | 'PRICE_ADJUSTMENT_PENDING'
+  | 'AWAITING_COUNTERPARTY'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'FAILED'
+  | 'DISPUTED';
+
+export type Party = 'OWNER' | 'PARTNER';
+
+export interface Transaction {
+  transactionId: string;
+  listingId: string;
+  ownerId: string;
+  partnerId: string;
+  status: TransactionStatus;
+  listingTitle: string;
+  partnerName: string;
+  branchName: string;
+  originalPrice: number;
+  agreedPrice: number;
+  finalPrice?: number;
+  priceAdjustments: { price: number; reason: string; at: string; outcome?: 'ACCEPTED' | 'REJECTED' }[];
+  handoverPlan?: { method: string; time: string; place: string; note?: string; proposedBy: Party; status: 'PROPOSED' | 'AGREED' };
+  completion: Partial<Record<Party, { at: string; finalPrice: number }>>;
+  counterpartyDeadline?: string;
+  cancel?: { by: Party; reason: string; at: string };
+  failure?: { by: Party; reason: string; note?: string; at: string };
+  dispute?: { by: Party; reason: string; at: string; resolution?: { outcome: string; note: string; at: string } };
+  createdAt: string;
+  closedAt?: string;
+}
+
+export interface TransactionDetail {
+  role: Party | 'ADMIN';
+  transaction: Transaction;
+  contacts: {
+    owner: { fullName?: string; email?: string; phone?: string; address?: string };
+    partner: { businessName?: string; email?: string; phone?: string; branchName?: string; address?: string };
+  };
+  events: { type: string; actor: string; at: string; data?: Record<string, unknown> }[];
+  reviews: { by: Party; rating: number; comment?: string; createdAt: string }[];
+  adjustmentImages: string[];
+  canReview: boolean;
+}
+
+export interface Reputation {
+  averageRating: number | null;
+  reviewCount: number;
+  completedCount: number;
+  completionRate: number | null;
+  cancellationRate: number | null;
+}
+
+export interface Notification {
+  notificationId: string;
+  type: string;
+  title: string;
+  body?: string;
+  link?: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface Features {
+  images: boolean;
+  ai: boolean;
+}
+
+export interface AiAnalysis {
+  analysisId: string;
+  status: 'PENDING' | 'COMPLETED' | 'FAILED';
+  error?: string;
+  result?: {
+    isElectronicDevice: boolean;
+    isInappropriate: boolean;
+    category: string;
+    brand: string | null;
+    model: string | null;
+    condition: string;
+    visibleDamage: string[];
+    suggestedTitle: string;
+    suggestedDescription: string;
+    confidence: 'low' | 'medium' | 'high';
+  };
+}
+
+export interface SavedLocation {
+  locationId: string;
+  name: string;
+  location: GeoPoint;
+  area: string;
+  isDefault: boolean;
+}
+
+export interface Report {
+  reportId: string;
+  reporterId: string;
+  targetType: string;
+  targetId: string;
+  reason: string;
+  createdAt: string;
+}
+
+export interface Conversation {
+  conversationId: string;
+  listingId: string;
+  listingTitle: string;
+  ownerId: string;
+  partnerId: string;
+  partnerName: string;
+  lastMessage?: string;
+  lastMessageAt?: string;
+  createdAt: string;
+  myRole?: 'OWNER' | 'PARTNER';
+  myUnread: number;
+}
+
+export interface ChatMessage {
+  messageId: string;
+  senderId: string;
+  senderRole: 'OWNER' | 'PARTNER';
+  text: string;
+  at: string;
 }

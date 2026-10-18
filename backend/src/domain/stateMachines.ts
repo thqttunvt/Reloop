@@ -88,19 +88,3 @@ export const transactionMachine = createMachine<TransactionStatus>('Transaction'
   { from: 'DISPUTED', to: 'COMPLETED', actors: ['ADMIN'] },
   { from: 'DISPUTED', to: 'FAILED', actors: ['ADMIN'] },
 ]);
-
-// ---------------------------------------------------------------- Lệnh nạp / rút (quyetdinh mục 5)
-export type TopUpStatus = 'CREATED' | 'CREDITED' | 'EXPIRED';
-export const topUpMachine = createMachine<TopUpStatus>('TopUp', [
-  { from: 'CREATED', to: 'CREDITED', actors: ['SYSTEM'] },
-  { from: 'CREATED', to: 'EXPIRED', actors: ['SYSTEM'] },
-  { from: 'EXPIRED', to: 'CREDITED', actors: ['SYSTEM'] }, // tiền về trễ vẫn cộng
-]);
-
-export type WithdrawalStatus = 'REQUESTED' | 'PROCESSING' | 'PAID' | 'FAILED';
-export const withdrawalMachine = createMachine<WithdrawalStatus>('Withdrawal', [
-  { from: 'REQUESTED', to: 'PROCESSING', actors: ['ADMIN'] },
-  // webhook tiền ra khớp; nhận cả REQUESTED vì Admin có thể chuyển mà quên bấm "đang chuyển"
-  ...edges<WithdrawalStatus>(['REQUESTED', 'PROCESSING'], 'PAID', ['SYSTEM']),
-  ...edges<WithdrawalStatus>(['REQUESTED', 'PROCESSING'], 'FAILED', ['ADMIN', 'SYSTEM']),
-]);
