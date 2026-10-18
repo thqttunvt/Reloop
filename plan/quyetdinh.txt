@@ -130,9 +130,10 @@ QĐ-33  PHÍ ĐĂNG BÀI: 20.000đ/bài, Owner trả, trừ từ ví khi bấm �
        • Owner tự hủy tin: KHÔNG hoàn phí.
 
 QĐ-34  ĐỐI TÁC 2 CẤP — chỉ đối tác đã duyệt mới đăng tin (chốt 2026-10-18, thay §4.1 "ai cũng đăng tin")
-       • Cấp 1 — KHÁCH LẺ: họ tên hiển thị + email liên hệ. Không cần GPKD, không có chi nhánh.
-         Được đăng tin bán; KHÔNG thu mua (không được matching, không báo giá).
-       • Cấp 2 — DOANH NGHIỆP / HỘ KINH DOANH: loại hình + tên + GPKD/MST + email liên hệ.
+       • Cả 2 cấp khai đủ 4 ô bắt buộc: loại hình, tên đối tác, số giấy tờ, email liên hệ.
+       • Cấp 1 — KHÁCH LẺ: loại hình Cá nhân (mặc định) / Hộ kinh doanh / Doanh nghiệp; cá nhân khai
+         MST cá nhân / số CCCD. Không có chi nhánh. Được đăng tin bán; KHÔNG thu mua (không matching, không báo giá).
+       • Cấp 2 — loại hình chỉ Doanh nghiệp / Hộ kinh doanh, khai GPKD/MST.
          Được đăng tin + chi nhánh, bảng giá, nhận tin phù hợp, báo giá (như Partner cũ). Duyệt cần ≥ 1 chi nhánh.
        • Cả 2 cấp: gửi yêu cầu → Admin duyệt. Chưa duyệt vẫn thấy trang Đăng tin nhưng nút Đăng bị khóa,
          yêu cầu làm đối tác được làm nổi bật (trang Đăng tin + menu "Làm đối tác").

@@ -86,7 +86,7 @@ describe('Đăng tin phải đủ thông tin', () => {
     const app = buildApp({ ...loadConfig({ STAGE: 'local' }), dataFile: undefined }, { table: new MemoryTable(), clock: new ManualClock(), images });
     const listings = app.services.listings;
     await app.services.users.acceptTerms({ userId: 'owner', groups: [] }, TERMS_VERSION);
-    await app.services.partners.apply({ userId: 'owner', groups: [] }, { tier: 'INDIVIDUAL', businessName: 'Người bán', contactEmail: 'owner@mail.vn' });
+    await app.services.partners.apply({ userId: 'owner', groups: [] }, { tier: 'INDIVIDUAL', businessType: 'PERSONAL', businessName: 'Người bán', licenseNo: '001099012345', contactEmail: 'owner@mail.vn' });
     await app.services.partners.review('admin1', 'owner', true);
     await expect(listings.create({ userId: 'owner', groups: [] }, listingBody())).rejects.toMatchObject({ code: 'IMAGES_REQUIRED' });
     const ok = await listings.create({ userId: 'owner', groups: [] }, listingBody({ imageKeys: ['listings/owner/a.jpg'] }));

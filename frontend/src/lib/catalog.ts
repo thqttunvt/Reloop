@@ -58,7 +58,9 @@ export const PARTNER_TIER_LABEL: Record<string, string> = {
   BUSINESS: 'Đối tác cấp 2 — doanh nghiệp / hộ kinh doanh',
 };
 
-export const BUSINESS_TYPE_LABEL: Record<string, string> = { ENTERPRISE: 'Doanh nghiệp', HOUSEHOLD: 'Hộ kinh doanh' };
+export const BUSINESS_TYPE_LABEL: Record<string, string> = { PERSONAL: 'Cá nhân', HOUSEHOLD: 'Hộ kinh doanh', ENTERPRISE: 'Doanh nghiệp' };
+/** Cấp 2 bắt buộc là doanh nghiệp / hộ kinh doanh (QĐ-10); cấp 1 chọn được cả 3. */
+export const TIER2_BUSINESS_TYPES = ['ENTERPRISE', 'HOUSEHOLD'];
 
 /** Hồ sơ đối tác cũ (trước khi chia cấp) không có tier → cấp 2. */
 export const tierOf = (p: { tier?: string }) => p.tier ?? 'BUSINESS';

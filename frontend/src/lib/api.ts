@@ -170,12 +170,13 @@ export interface FeedItem {
 export type PartnerStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 /** INDIVIDUAL = cấp 1 (khách lẻ), BUSINESS = cấp 2 (doanh nghiệp / hộ kinh doanh) */
 export type PartnerTier = 'INDIVIDUAL' | 'BUSINESS';
+export type BusinessType = 'PERSONAL' | 'HOUSEHOLD' | 'ENTERPRISE';
 
 export interface Partner {
   partnerId: string;
   /** Hồ sơ cũ không có → cấp 2 */
   tier?: PartnerTier;
-  businessType?: 'ENTERPRISE' | 'HOUSEHOLD';
+  businessType?: BusinessType;
   businessName: string;
   licenseNo?: string;
   contactEmail?: string;

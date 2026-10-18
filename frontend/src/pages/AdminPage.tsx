@@ -74,7 +74,7 @@ function PartnersAdmin() {
             {p.businessType && <span className="muted"> · {BUSINESS_TYPE_LABEL[p.businessType]}</span>}
           </div>
           <div className="muted">
-            {business && `GPKD/MST ${p.licenseNo ?? '—'} · `}email liên hệ {p.contactEmail ?? '— chưa có'}
+            {p.businessType === 'PERSONAL' ? 'MST/CCCD' : 'GPKD/MST'} {p.licenseNo ?? '—'} · email liên hệ {p.contactEmail ?? '— chưa có'}
             {p.phone && ` · ${p.phone}`} · tài khoản {p.applicant.fullName ?? ''} {p.applicant.email ?? ''} · gửi {dateTime(p.createdAt)}
           </div>
           <ul className="plain">

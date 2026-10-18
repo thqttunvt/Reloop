@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckGroup } from '../components/CheckGroup';
 import { MapPicker, type LatLng } from '../components/MapPicker';
-import { api, type Branch, type Partner, type PartnerRequest, type PricingRule } from '../lib/api';
+import { api, type Branch, type BusinessType, type Partner, type PartnerRequest, type PricingRule } from '../lib/api';
 import {
   BUSINESS_TYPE_LABEL,
+  TIER2_BUSINESS_TYPES,
   CATEGORY_LABEL,
   CONDITION_LABEL,
   HANDOVER_LABEL,
@@ -102,12 +103,19 @@ function ApplyCard({
   onUpdateEmail: (email: string) => Promise<void>;
 }) {
   const [tier, setTier] = useState<Tier>(partner ? (tierOf(partner) as Tier) : 'INDIVIDUAL');
-  const [businessType, setBusinessType] = useState(partner?.businessType ?? 'ENTERPRISE');
+  const [businessType, setBusinessType] = useState<BusinessType>(partner?.businessType ?? (partner && tierOf(partner) === 'BUSINESS' ? 'ENTERPRISE' : 'PERSONAL'));
   const [businessName, setBusinessName] = useState(partner?.businessName ?? '');
   const [licenseNo, setLicenseNo] = useState(partner?.licenseNo ?? '');
   const [contactEmail, setContactEmail] = useState(partner?.contactEmail ?? '');
   const editable = !partner || partner.status === 'PENDING' || partner.status === 'REJECTED';
   const business = tier === 'BUSINESS';
+  const typeOptions = Object.keys(BUSINESS_TYPE_LABEL).filter((k) => !business || TIER2_BUSINESS_TYPES.includes(k));
+  const personal = businessType === 'PERSONAL';
+  // Đổi cấp → loại hình về mặc định hợp lệ của cấp đó
+  const chooseTier = (t: Tier) => {
+    setTier(t);
+    setBusinessType(t === 'BUSINESS' ? 'ENTERPRISE' : 'PERSONAL');
+  };
 
   return (
     <section className={`card ${partner ? '' : 'cta'}`}>
@@ -136,13 +144,13 @@ function ApplyCard({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void onSubmit(business ? { tier, businessType, businessName, licenseNo, contactEmail } : { tier, businessName, contactEmail });
+            void onSubmit({ tier, businessType, businessName, licenseNo, contactEmail });
           }}
         >
           <div className="tier-choice">
             {(['INDIVIDUAL', 'BUSINESS'] as Tier[]).map((t) => (
               <label key={t} className={tier === t ? 'selected' : ''}>
-                <input type="radio" name="tier" checked={tier === t} onChange={() => setTier(t)} />
+                <input type="radio" name="tier" checked={tier === t} onChange={() => chooseTier(t)} />
                 <span>
                   <strong>{PARTNER_TIER_LABEL[t]}</strong>
                   <small>{t === 'INDIVIDUAL' ? 'Cá nhân muốn đăng bán đồ điện tử cũ, hỏng.' : 'Có giấy phép kinh doanh; đăng tin + thu mua theo chi nhánh, bảng giá.'}</small>
@@ -151,28 +159,24 @@ function ApplyCard({
             ))}
           </div>
           <div className="grid2">
-            {business && (
-              <label>
-                Loại hình
-                <select value={businessType} onChange={(e) => setBusinessType(e.target.value as 'ENTERPRISE' | 'HOUSEHOLD')}>
-                  {Object.entries(BUSINESS_TYPE_LABEL).map(([k, v]) => (
-                    <option key={k} value={k}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
             <label>
-              {business ? 'Tên doanh nghiệp / cơ sở' : 'Tên đối tác (họ tên hiển thị khi đăng tin)'}
+              Loại hình *
+              <select value={businessType} onChange={(e) => setBusinessType(e.target.value as BusinessType)}>
+                {typeOptions.map((k) => (
+                  <option key={k} value={k}>
+                    {BUSINESS_TYPE_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {personal ? 'Tên đối tác (họ tên hiển thị khi đăng tin) *' : 'Tên doanh nghiệp / cơ sở *'}
               <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} required minLength={2} />
             </label>
-            {business && (
-              <label>
-                Số giấy phép kinh doanh / mã số thuế
-                <input value={licenseNo} onChange={(e) => setLicenseNo(e.target.value)} required minLength={5} />
-              </label>
-            )}
+            <label>
+              {personal ? 'Mã số thuế cá nhân / số CCCD *' : 'Số giấy phép kinh doanh / mã số thuế *'}
+              <input value={licenseNo} onChange={(e) => setLicenseNo(e.target.value)} required minLength={5} maxLength={30} />
+            </label>
             <label>
               Email liên hệ *
               <input type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="lienhe@vidu.vn" required />
@@ -189,7 +193,7 @@ function ApplyCard({
           <p>
             <strong>{partner!.businessName}</strong> · {PARTNER_TIER_LABEL[tierOf(partner!)]}
             {partner!.businessType && ` (${BUSINESS_TYPE_LABEL[partner!.businessType]})`}
-            {partner!.licenseNo && ` · GPKD ${partner!.licenseNo}`}
+            {partner!.licenseNo && ` · ${partner!.businessType === 'PERSONAL' ? 'MST/CCCD' : 'GPKD/MST'} ${partner!.licenseNo}`}
           </p>
           {!partner!.contactEmail && <p className="warn-text">Hồ sơ chưa có email liên hệ — bắt buộc bổ sung để khách liên lạc được.</p>}
           <form

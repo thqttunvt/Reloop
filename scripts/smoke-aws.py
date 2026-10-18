@@ -78,8 +78,8 @@ check('approve partner', s == 200 and b['status'] == 'APPROVED', b)
 # Chỉ đối tác đã duyệt mới đăng tin (QĐ-34): người bán đăng ký cấp 1
 s, b = call('POST', '/listings', OWNER, {}, idem=True)
 check('non-partner cannot post', s == 403 and b['code'] == 'PARTNER_REQUIRED', b)
-s, b = call('POST', '/partners/apply', OWNER, {'tier': 'INDIVIDUAL', 'businessName': f'[TEST] Seller {RUN}', 'contactEmail': f'seller-{RUN}@example.com'})
-check('apply partner (tier 1, no license)', s == 200 and b['tier'] == 'INDIVIDUAL', b)
+s, b = call('POST', '/partners/apply', OWNER, {'tier': 'INDIVIDUAL', 'businessType': 'PERSONAL', 'businessName': f'[TEST] Seller {RUN}', 'licenseNo': '000000000000', 'contactEmail': f'seller-{RUN}@example.com'})
+check('apply partner (tier 1, personal)', s == 200 and b['tier'] == 'INDIVIDUAL', b)
 s, b = call('POST', f'/admin/partners/{OWNER}/review', ADMIN, {'approve': True}, groups=['Admins'])
 check('approve tier-1 partner without branch', s == 200 and b['status'] == 'APPROVED', b)
 

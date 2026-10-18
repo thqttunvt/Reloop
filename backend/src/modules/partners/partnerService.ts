@@ -32,18 +32,20 @@ export type PartnerStatus = (typeof PARTNER_STATUSES)[number];
  */
 export const PARTNER_TIERS = ['INDIVIDUAL', 'BUSINESS'] as const;
 export type PartnerTier = (typeof PARTNER_TIERS)[number];
-export const BUSINESS_TYPES = ['ENTERPRISE', 'HOUSEHOLD'] as const;
+/** Loại hình: cấp 1 chọn được cả 3 (mặc định cá nhân); cấp 2 bắt buộc là doanh nghiệp / hộ kinh doanh (QĐ-10). */
+export const BUSINESS_TYPES = ['PERSONAL', 'HOUSEHOLD', 'ENTERPRISE'] as const;
 export type BusinessType = (typeof BUSINESS_TYPES)[number];
+const TIER2_TYPES: BusinessType[] = ['HOUSEHOLD', 'ENTERPRISE'];
 
 export interface Partner extends Item {
   partnerId: string;
   /** Hồ sơ cũ (trước QĐ-34) không có tier → coi là cấp 2. Đọc qua partnerTier(). */
   tier?: PartnerTier;
-  /** Cấp 2: doanh nghiệp hay hộ kinh doanh. */
+  /** Loại hình (cả 2 cấp; hồ sơ cũ có thể thiếu). */
   businessType?: BusinessType;
   /** Tên hiển thị của đối tác: họ tên (cấp 1) hoặc tên doanh nghiệp / cơ sở (cấp 2). */
   businessName: string;
-  /** Số giấy phép kinh doanh / mã số thuế (QĐ-10) — chỉ cấp 2. */
+  /** Số giấy phép kinh doanh / mã số thuế (QĐ-10); cá nhân: MST cá nhân / số CCCD. Bắt buộc cả 2 cấp. */
   licenseNo?: string;
   /** Email liên hệ, bắt buộc cả 2 cấp (hồ sơ cũ có thể thiếu). */
   contactEmail?: string;
@@ -119,13 +121,8 @@ export class PartnerService {
     const tier = oneOf(input.tier ?? 'BUSINESS', PARTNER_TIERS, 'tier');
     const businessName = str(input.businessName, 'businessName', { min: 2, max: 200 })!;
     const contactEmail = parseEmail(input.contactEmail);
-    const business =
-      tier === 'BUSINESS'
-        ? {
-            businessType: oneOf(input.businessType, BUSINESS_TYPES, 'businessType'),
-            licenseNo: str(input.licenseNo, 'licenseNo', { min: 5, max: 30 }),
-          }
-        : {};
+    const businessType = oneOf(input.businessType, tier === 'BUSINESS' ? TIER2_TYPES : BUSINESS_TYPES, 'businessType');
+    const licenseNo = str(input.licenseNo, 'licenseNo', { min: 5, max: 30 });
     await this.users.requireTerms(principal);
 
     const partnerId = principal.userId;
@@ -141,8 +138,9 @@ export class PartnerService {
         ...gsi1.byStatus('PARTNER', 'PENDING', current?.createdAt ?? now),
         partnerId,
         tier,
-        ...business,
+        businessType,
         businessName,
+        licenseNo,
         contactEmail,
         status: 'PENDING',
         createdAt: current?.createdAt ?? now,

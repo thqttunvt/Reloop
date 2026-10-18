@@ -48,7 +48,7 @@ export async function approvedSeller(t: T, user: string) {
   done.add(user);
   if ((await t.call('GET', '/partners/me', { user })).body.partner) return;
   await acceptTerms(t, user);
-  await t.call('POST', '/partners/apply', { user, body: { tier: 'INDIVIDUAL', businessName: `Người bán ${user}`, contactEmail: `${user}@mail.vn` } });
+  await t.call('POST', '/partners/apply', { user, body: { tier: 'INDIVIDUAL', businessType: 'PERSONAL', businessName: `Người bán ${user}`, licenseNo: '001099012345', contactEmail: `${user}@mail.vn` } });
   await t.call('POST', `/admin/partners/${user}/review`, { ...ADMIN, body: { approve: true } });
 }
 

@@ -4,28 +4,29 @@ import { makeTestApp } from './helpers';
 
 const individual = (id: string, extra: Record<string, unknown> = {}) => ({
   tier: 'INDIVIDUAL',
+  businessType: 'PERSONAL',
   businessName: `Khách ${id}`,
+  licenseNo: '001099012345',
   contactEmail: `${id}@mail.vn`,
   ...extra,
 });
 
 describe('Đối tác cấp 1 / cấp 2 (QĐ-34)', () => {
-  it('chỉ đối tác đã duyệt mới đăng tin; cấp 1 không cần GPKD / chi nhánh, chờ Admin duyệt', async () => {
+  it('chỉ đối tác đã duyệt mới đăng tin; cấp 1 không cần chi nhánh, chờ Admin duyệt', async () => {
     const t = makeTestApp();
     await acceptTerms(t, 'u1');
     const postListing = () => t.call('POST', '/listings', { user: 'u1', body: listingBody(), headers: { 'idempotency-key': `k${Math.random()}` } });
 
     expect((await postListing()).body.code).toBe('PARTNER_REQUIRED');
     const applied = await t.call('POST', '/partners/apply', { user: 'u1', body: individual('u1') });
-    expect(applied.body).toMatchObject({ tier: 'INDIVIDUAL', status: 'PENDING', contactEmail: 'u1@mail.vn' });
-    expect(applied.body.licenseNo).toBeUndefined();
+    expect(applied.body).toMatchObject({ tier: 'INDIVIDUAL', businessType: 'PERSONAL', licenseNo: '001099012345', status: 'PENDING', contactEmail: 'u1@mail.vn' });
     expect((await postListing()).body.code).toBe('PARTNER_REQUIRED'); // đang chờ duyệt
 
     expect((await t.call('POST', '/admin/partners/u1/review', { ...ADMIN, body: { approve: true } })).body.status).toBe('APPROVED');
     expect((await postListing()).status).toBe(201);
   });
 
-  it('email liên hệ bắt buộc cả 2 cấp; cấp 2 bắt buộc loại hình + GPKD', async () => {
+  it('cả 2 cấp bắt buộc loại hình, số giấy tờ, email liên hệ; cấp 2 không được chọn "cá nhân"', async () => {
     const t = makeTestApp();
     await acceptTerms(t, 'u1');
     const apply = (body: Record<string, unknown>) => t.call('POST', '/partners/apply', { user: 'u1', body });
@@ -34,6 +35,10 @@ describe('Đối tác cấp 1 / cấp 2 (QĐ-34)', () => {
     expect((await apply({ ...businessApply('u1'), contactEmail: '' })).body.code).toBe('INVALID_CONTACT_EMAIL');
     expect((await apply({ ...businessApply('u1'), licenseNo: undefined })).body.code).toBe('INVALID_LICENSE_NO');
     expect((await apply({ ...businessApply('u1'), businessType: 'XYZ' })).body.code).toBe('INVALID_BUSINESS_TYPE');
+    expect((await apply({ ...businessApply('u1'), businessType: 'PERSONAL' })).body.code).toBe('INVALID_BUSINESS_TYPE');
+    expect((await apply(individual('u1', { licenseNo: undefined }))).body.code).toBe('INVALID_LICENSE_NO');
+    expect((await apply(individual('u1', { businessType: undefined }))).body.code).toBe('INVALID_BUSINESS_TYPE');
+    expect((await apply(individual('u1', { businessType: 'HOUSEHOLD' }))).body).toMatchObject({ tier: 'INDIVIDUAL', businessType: 'HOUSEHOLD' });
     const ok = await apply({ ...businessApply('u1'), businessType: 'HOUSEHOLD', contactEmail: 'Lien.He@ThuMua.vn' });
     expect(ok.body).toMatchObject({ tier: 'BUSINESS', businessType: 'HOUSEHOLD', contactEmail: 'lien.he@thumua.vn' });
   });
