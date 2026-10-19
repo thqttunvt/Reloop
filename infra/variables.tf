@@ -22,9 +22,15 @@ variable "image_bucket" {
 }
 
 variable "ai_model_id" {
-  description = "Inference profile Bedrock cho AI phân tích ảnh (Claude Haiku 4.5, giaiphap E7). Để rỗng = tắt AI."
+  description = "Inference profile Bedrock cho AI phân tích ảnh. Amazon Nova Pro: model của AWS, trừ được credits, tính theo request. Để rỗng = tắt AI."
   type        = string
-  default     = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+  default     = "apac.amazon.nova-pro-v1:0"
+}
+
+variable "ai_guardrail_enabled" {
+  description = "Bật Bedrock Guardrail cho mỗi lần gọi AI (lọc nội dung ảnh/chữ không phù hợp, prompt attack ở phần chữ)"
+  type        = bool
+  default     = true
 }
 
 variable "local_dev_origin" {

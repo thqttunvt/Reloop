@@ -17,6 +17,8 @@ export interface Analysis extends Item {
   userId: string;
   imageKeys: string[];
   status: 'PENDING' | 'COMPLETED' | 'FAILED';
+  /** Model đã phân tích (vd apac.amazon.nova-pro-v1:0) — để so sánh khi đổi model. */
+  modelId?: string;
   result?: AiResult;
   error?: string;
   createdAt: string;
@@ -75,7 +77,7 @@ export class AiService {
     try {
       const imgs = await Promise.all(a.imageKeys.map((key) => this.images.read(key)));
       const result = await this.analyzer.analyze(imgs);
-      next = { ...a, status: 'COMPLETED', result, completedAt: this.clock.now().toISOString() };
+      next = { ...a, status: 'COMPLETED', modelId: this.analyzer.modelId, result, completedAt: this.clock.now().toISOString() };
     } catch (err) {
       log('error', 'ai_analysis_failed', { analysisId, error: err instanceof Error ? err.message : String(err) });
       next = { ...a, status: 'FAILED', error: 'Không phân tích được ảnh — hãy nhập thông tin thủ công', completedAt: this.clock.now().toISOString() };

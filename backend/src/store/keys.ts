@@ -67,6 +67,9 @@ export const keys = {
   // AI phân tích ảnh
   aiAnalysis: (userId: string, analysisId: string) => ({ pk: `USER#${userId}`, sk: `AI#${analysisId}` }),
   aiQuota: (userId: string, day: string) => ({ pk: `USER#${userId}`, sk: `AIQUOTA#${day}` }),
+  /** Bộ dữ liệu nhãn: AI gợi ý ↔ thông tin người đăng chốt khi bấm Đăng; chia ngăn theo tháng để xuất ra không cần Scan. */
+  aiLabel: (month: string, at: string, listingId: string) => ({ pk: `AILABEL#${month}`, sk: `${at}#${listingId}` }),
+  aiLabelPk: (month: string) => `AILABEL#${month}`,
 
   // Thông báo
   notification: (userId: string, at: string, id: string) => ({ pk: `USER#${userId}`, sk: `NOTIF#${at}#${id}` }),

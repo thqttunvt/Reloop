@@ -144,6 +144,17 @@ QĐ-34  ĐỐI TÁC 2 CẤP — chỉ đối tác đã duyệt mới đăng tin 
          (nới QĐ-20 cho đối tác; địa chỉ / vị trí chính xác vẫn chỉ mở khi có giao dịch).
        • Điều khoản đổi nội dung → TERMS_VERSION 2026-10-18, mọi người đồng ý lại (QĐ-28).
 
+QĐ-35  AI PHÂN TÍCH ẢNH: AMAZON NOVA PRO (chốt 2026-10-19, thay Claude Haiku — credits AWS không trừ cho Claude)
+       • Một dịch vụ duy nhất: ảnh trên S3 → Bedrock Converse → apac.amazon.nova-pro-v1:0. Model của AWS,
+         trừ được credits, tính theo request (để không = 0đ). Không train model, không xâu chuỗi nhiều dịch vụ.
+       • toolConfig + toolChoice ép trả JSON theo schema (loại, hãng, model, tình trạng, hư hỏng thấy được…);
+         backend vẫn validate lại; kết quả lưu ở bản ghi AI# trên reloop-core-table.
+       • Chỉ gửi ảnh + chỉ dẫn cố định, không có chữ người dùng nhập. Bedrock Guardrail bật cho mỗi lần gọi
+         (lọc nội dung ảnh/chữ; PROMPT_ATTACK chỉ áp cho phần chữ). Rekognition vẫn kiểm duyệt ảnh khi upload.
+       • Bộ dữ liệu nhãn: khi đăng tin có dùng AI, lưu "AI gợi ý ↔ người đăng chốt" + các trường đã sửa
+         (AILABEL#<tháng>) để sau MVP cân nhắc tinh chỉnh model. Ảnh vẫn theo vòng đời 120 ngày (QĐ-27).
+       • Đổi lại model khác (vd Claude) chỉ cần đổi biến ai_model_id — cùng Converse API.
+
 
 =====================================================================
 3. GIAO DỊCH & GIÁ

@@ -18,13 +18,13 @@ backend/    API serverless (TypeScript) — chạy local bằng Node, lên AWS b
     auth/               LocalAuthProvider (dev) · CognitoAuthProvider (JWT claims, group Admins/FinanceAdmins)
     store/              interface Table · MemoryTable (dev/test) · DynamoTable (AWS, khóa PK/SK/GSI1)
     storage/            ImageStore: S3 presigned POST/GET (≤ 5 MB, JPEG/PNG/WebP, prefix theo user) · kiểm duyệt ảnh nhạy cảm bằng Amazon Rekognition
-    ai/                 Analyzer: Claude Haiku 4.5 trên Amazon Bedrock (tool use → JSON có cấu trúc)
+    ai/                 Analyzer: Amazon Nova Pro trên Bedrock (Converse API + toolChoice → JSON có cấu trúc, Guardrail)
     domain/             state machine Listing / Quote / Transaction · danh mục, tình trạng, bàn giao
     modules/users       hồ sơ (SĐT không bắt buộc), điều khoản (QĐ-28)
     modules/locations   địa điểm đã lưu, mặc định
     modules/partners    đăng ký đối tác, Admin duyệt / tạm ngừng, chi nhánh (1–5 km), bảng giá
     modules/listings    đăng tin, bảng tin "Chợ" (mọi người đã đăng nhập), matching geohash + Haversine, báo giá dự kiến, xác nhận / từ chối / rút, offer thủ công
-    modules/ai          AI phân tích ảnh chạy nền + giới hạn 20 lượt/ngày
+    modules/ai          AI phân tích ảnh chạy nền + giới hạn 20 lượt/ngày; tin đăng lưu nhãn "AI gợi ý ↔ người đăng chốt" (AILABEL#<tháng>)
     modules/transactions chọn offer, bàn giao, điều chỉnh giá, xác nhận 2 bên (48h tự hoàn tất), hủy / thất bại / tranh chấp, đánh giá
     modules/reputation  điểm uy tín (rating, tỉ lệ hoàn tất / hủy)
     modules/notifications thông báo (polling)
@@ -98,7 +98,7 @@ AWS_PROFILE=reloop bash scripts/make-admin.sh <email> --finance            # c�
 | Tài nguyên | Ghi chú |
 |---|---|
 | Cognito `reloop-dev-user-pool` (`ap-southeast-1_HttIDqEll`) | chỉ xác minh email; domain `reloop-dev-auth`; web client `3fgdovrar5bgm7bm6ddpl6pkn0`; group `Admins`, `FinanceAdmins`, `Partners`, `Owners` |
-| Lambda `reloop-dev-api` (Node 22, arm64) + IAM role | quyền tối thiểu: bảng core, prefix ảnh, Bedrock Haiku, Rekognition kiểm duyệt ảnh, tự gọi async, log |
+| Lambda `reloop-dev-api` (Node 22, arm64) + IAM role | quyền tối thiểu: bảng core, prefix ảnh, Bedrock Nova Pro + Guardrail, Rekognition kiểm duyệt ảnh, tự gọi async, log |
 | API Gateway HTTP API `2tslnzyaga` | JWT Cognito cho mọi route; `OPTIONS` không JWT (CORS); throttle 20 req/s |
 | EventBridge `reloop-dev-sweep` | 15 phút/lần: hết hạn tin, nhắc 24h, tự hoàn tất 48h |
 | S3 + CloudFront | web tĩnh, bucket private (OAC) |

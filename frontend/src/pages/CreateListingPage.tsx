@@ -30,6 +30,8 @@ export function CreateListingPage() {
   const [features, setFeatures] = useState<Features>({ images: true, ai: false });
   const [aiState, setAiState] = useState<'idle' | 'running' | 'done' | 'failed'>('idle');
   const [aiNote, setAiNote] = useState('');
+  /** Lượt AI đã điền form — gửi kèm khi đăng để lưu "AI gợi ý ↔ bạn chốt" làm dữ liệu cải thiện AI. */
+  const [aiAnalysisId, setAiAnalysisId] = useState<string>();
 
   /** undefined = đang tải; null = chưa đăng ký đối tác. Chỉ đối tác đã duyệt mới đăng tin (QĐ-34). */
   const [partner, setPartner] = useState<Partner | null | undefined>(undefined);
@@ -74,6 +76,7 @@ export function CreateListingPage() {
   const analyze = async () => {
     setAiState('running');
     setAiNote('');
+    setAiAnalysisId(undefined);
     try {
       const job = await api<AiAnalysis>('POST', '/ai/analyses', { body: { imageKeys: imageKeys.slice(0, 3) } });
       let a = job;
@@ -95,6 +98,7 @@ export function CreateListingPage() {
       if (!title && r.suggestedTitle) setTitle(r.suggestedTitle);
       const damage = r.visibleDamage.length ? `Hư hỏng thấy được: ${r.visibleDamage.join(', ')}.\n` : '';
       if (!description) setDescription(`${damage}${r.suggestedDescription}`.trim());
+      setAiAnalysisId(a.analysisId);
       setAiState('done');
       setAiNote(`AI đã điền gợi ý (độ tin cậy: ${r.confidence === 'high' ? 'cao' : r.confidence === 'medium' ? 'trung bình' : 'thấp'}). Hãy kiểm tra lại trước khi đăng — AI không khẳng định máy còn chạy.`);
     } catch (e) {
@@ -146,6 +150,7 @@ export function CreateListingPage() {
           location: { ...point, address },
           area,
           imageKeys,
+          aiAnalysisId,
         },
       });
       if (saveLocation) {

@@ -55,6 +55,13 @@ resource "aws_iam_role_policy" "api" {
         ]
       },
       {
+        # Guardrail áp cho mỗi lần gọi AI (Converse + guardrailConfig cần quyền ApplyGuardrail)
+        Sid      = "Guardrail"
+        Effect   = "Allow"
+        Action   = ["bedrock:ApplyGuardrail"]
+        Resource = "arn:aws:bedrock:${var.region}:${local.account_id}:guardrail/*"
+      },
+      {
         # Kiểm duyệt ảnh nhạy cảm (M6). Rekognition đọc ảnh S3 bằng quyền s3:GetObject ở trên.
         Sid      = "Moderation"
         Effect   = "Allow"
@@ -101,6 +108,8 @@ resource "aws_lambda_function" "api" {
       TABLE_NAME        = data.aws_dynamodb_table.core.name
       IMAGE_BUCKET      = var.image_bucket
       AI_MODEL_ID       = var.ai_model_id
+      AI_GUARDRAIL_ID      = var.ai_guardrail_enabled ? aws_bedrock_guardrail.ai[0].guardrail_id : ""
+      AI_GUARDRAIL_VERSION = var.ai_guardrail_enabled ? aws_bedrock_guardrail_version.ai[0].version : ""
       NODE_OPTIONS      = "--enable-source-maps"
     }
   }

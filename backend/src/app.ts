@@ -31,8 +31,10 @@ export interface AppConfig {
   tableName?: string;
   /** Bucket ảnh thiết bị. Không có → tắt upload ảnh (dev local không có AWS). */
   imageBucket?: string;
-  /** Model Bedrock cho AI phân tích ảnh. Không có → tắt AI, người dùng nhập tay. */
+  /** Model Bedrock cho AI phân tích ảnh (mặc định Amazon Nova Pro). Không có → tắt AI, người dùng nhập tay. */
   aiModelId?: string;
+  /** Bedrock Guardrail áp cho mỗi lần gọi AI (không bắt buộc). */
+  aiGuardrail?: { id: string; version: string };
   awsRegion: string;
   /** Chỉ dùng với MemoryTable khi dev local. */
   dataFile?: string;
@@ -50,6 +52,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tableName: env.TABLE_NAME,
     imageBucket: env.IMAGE_BUCKET || undefined,
     aiModelId: env.AI_MODEL_ID || undefined,
+    aiGuardrail: env.AI_GUARDRAIL_ID ? { id: env.AI_GUARDRAIL_ID, version: env.AI_GUARDRAIL_VERSION || 'DRAFT' } : undefined,
     awsRegion: env.AWS_REGION ?? 'ap-southeast-1',
     dataFile: env.DATA_FILE ?? '.data/db.json',
   };
@@ -75,7 +78,7 @@ export function buildApp(
   const listings = new ListingService(table, clock, users, partners, images, notifications);
   const transactions = new TransactionService(table, clock, users, partners, listings, notifications, images);
   const reputation = new ReputationService(table, clock);
-  const analyzer = overrides.analyzer ?? (config.aiModelId ? new BedrockAnalyzer(config.aiModelId, config.awsRegion) : new DisabledAnalyzer());
+  const analyzer = overrides.analyzer ?? (config.aiModelId ? new BedrockAnalyzer(config.aiModelId, config.awsRegion, config.aiGuardrail) : new DisabledAnalyzer());
   const ai = new AiService(table, clock, analyzer, images);
   const locations = new LocationService(table, clock);
   const reports = new ReportService(table, clock, listings, notifications);

@@ -20,6 +20,7 @@ import { gsi1, keys } from '../../store/keys';
 import { withOptimisticRetry } from '../../store/retry';
 import { putNew, putVersioned, type Item, type Table, type WriteOp } from '../../store/table';
 import { timerOp } from '../jobs/timers';
+import type { Analysis } from '../ai/aiService';
 import type { NotificationService } from '../notifications/notificationService';
 import { partnerTier, type Branch, type Partner, type PartnerService, type PricingRule } from '../partners/partnerService';
 import type { UserService } from '../users/userService';
@@ -189,13 +190,42 @@ export class ListingService {
     // TODO(T8.15): thu phí đăng bài khi đã có cách nạp tiền vào ví.
     await this.images.assertModerated(listing.imageKeys); // ảnh phải qua kiểm duyệt Rekognition
     await this.images.markAttached(listing.imageKeys); // ảnh có chủ → không bị xóa như ảnh rác (QĐ-27)
+    const label = await this.aiLabelOp(principal.userId, input.aiAnalysisId, listing);
     await this.table.transact([
       putVersioned(listing, 0),
       timerOp('LISTING_EXPIRE', listingId, listing.expiresAt),
       putNew({ ...keys.feedItem(createdAt.slice(0, 7), createdAt, listingId), listingId }),
+      ...(label ? [label] : []),
     ]);
     // TODO(QĐ-13): chuyển matching sang Lambda chạy nền; hiện chạy ngay trong request (≤ 9 query).
     return this.runMatching({ ...listing, version: 1 });
+  }
+
+  /**
+   * Bộ dữ liệu nhãn để sau này huấn luyện / đánh giá model: AI gợi ý gì ↔ người đăng chốt gì khi bấm Đăng.
+   * Chỉ ghi khi tin dùng một lượt phân tích AI thành công của chính người đăng; sai / thiếu thì bỏ qua, không chặn đăng tin.
+   */
+  private async aiLabelOp(userId: string, rawAnalysisId: unknown, listing: Listing): Promise<WriteOp | undefined> {
+    if (typeof rawAnalysisId !== 'string' || !/^[a-f0-9]{32}$/.test(rawAnalysisId)) return undefined;
+    const k = keys.aiAnalysis(userId, rawAnalysisId);
+    const analysis = await this.table.get<Analysis>(k.pk, k.sk);
+    if (analysis?.status !== 'COMPLETED' || !analysis.result) return undefined;
+    const ai = analysis.result;
+    const final = { category: listing.category, brand: listing.brand ?? null, model: listing.model ?? null, condition: listing.condition };
+    const same = (a: string | null, b: string | null) => (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
+    const changed = (Object.keys(final) as (keyof typeof final)[]).filter((f) => !same(ai[f], final[f]));
+    return putNew({
+      ...keys.aiLabel(listing.createdAt.slice(0, 7), listing.createdAt, listing.listingId),
+      listingId: listing.listingId,
+      userId,
+      analysisId: analysis.analysisId,
+      modelId: analysis.modelId,
+      imageKeys: analysis.imageKeys,
+      ai: { category: ai.category, brand: ai.brand, model: ai.model, condition: ai.condition, visibleDamage: ai.visibleDamage, confidence: ai.confidence },
+      final: { ...final, title: listing.title, description: listing.description },
+      changed,
+      createdAt: listing.createdAt,
+    });
   }
 
   // ------------------------------------------------------------------ Matching + Auto-Quote (T6.1, T7.2)
