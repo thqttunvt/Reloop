@@ -1,7 +1,7 @@
 RELOOP — DEV DOC & PHÂN CHIA CÔNG VIỆC
 =====================================================================
 Cập nhật: 2026-10-19 (tuần 2 / 12) · Dành cho: 5 thành viên nhóm phát triển
-Nhánh code mới nhất: feature/doi-tac-2-cap (chưa gộp vào main, chưa deploy)
+Nhánh code mới nhất: feature/doi-tac-2-cap (chưa gộp vào main; đã deploy lên dev 19/10)
 
 Cách dùng file này:
   • Điền tên 5 thành viên vào bảng THÀNH VIÊN ở mục 5, rồi thay [Tên người làm] ở mỗi task.
@@ -66,7 +66,7 @@ Làm việc với AWS (chỉ người có quyền, xem vai trò OPS):
   AWS_PROFILE=reloop bash scripts/make-admin.sh <email> --finance
   ⚠ Không dùng profile mặc định của máy cho ReLoop. Không commit .env, khóa AWS.
 
-Web dev: https://d1cjl1tvcp0r6q.cloudfront.net (đang là bản 16/10 — chưa có các thay đổi mới)
+Web dev: https://d1cjl1tvcp0r6q.cloudfront.net (đã deploy bản nhánh feature/doi-tac-2-cap ngày 19/10)
 
 
 =====================================================================
@@ -193,7 +193,7 @@ Review chéo PR (mỗi PR cần 1 người duyệt):
 ---------------------------------------------------------------------
 5.4 #4 OPS — Hạ tầng, triển khai, giám sát       Phụ trách chính: [Tên người làm]
 ---------------------------------------------------------------------
-  O1  [P0] T3   Cài AWS CLI + Terraform, deploy nhánh feature/doi-tac-2-cap lên dev,
+  O1  [P0] T3 ✔ (19/10) Cài AWS CLI + Terraform, deploy nhánh feature/doi-tac-2-cap lên dev,
                 chạy smoke-aws.py. Kiểm tra trên account:
                 • Amazon Nova Pro (apac.amazon.nova-pro-v1:0) đã bật cho account.
                 • Guardrail lọc ẢNH có ở ap-southeast-1 (không có: ai_guardrail_enabled=false).
@@ -327,4 +327,13 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
          thay hoa hồng 10% và phí đăng bài.
          Người làm: [Tên người làm]   Kiểm chứng: 107 test (billing.test.ts) · commit 2f830cc
 
-  ⚠ Các mục 18/10 – 19/10 nằm trên nhánh feature/doi-tac-2-cap, CHƯA deploy lên web dev (task O1).
+  19/10  DEPLOY lên AWS dev (task O1 ✔): Terraform thêm Guardrail (tier Standard, đa ngôn ngữ) + metric /
+         alarm, cập nhật Lambda + web. Kiểm thử trên AWS thật:
+         • smoke-aws.py: 25/25 bước PASS (đối tác 2 cấp, đăng tin, matching, chat, giao dịch…).
+         • Nova Pro đọc ảnh tem nhãn → DELL / Latitude 5490 / Laptop, độ tin cậy cao, JSON đúng schema.
+         • Guardrail: bắt câu lệnh tấn công tiếng Anh và tiếng Việt có dấu; tem nhãn thật không bị bắt nhầm.
+         • HẠN CHẾ phát hiện: Rekognition DetectText đọc sai dấu tiếng Việt → câu lệnh tiếng Việt in trong
+           ảnh chưa bị gắn cờ (tiếng Anh thì có). Đang đề xuất hướng sửa (xem plan/readmeall.md).
+         Người làm: [Tên người làm]   Kiểm chứng: terraform apply · smoke-aws.py RUN f8b55c ALL PASS
+
+  ⚠ Các mục 18/10 – 19/10 nằm trên nhánh feature/doi-tac-2-cap (đã deploy dev, chưa gộp vào main).

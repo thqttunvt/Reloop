@@ -59,7 +59,10 @@ resource "aws_iam_role_policy" "api" {
         Sid      = "Guardrail"
         Effect   = "Allow"
         Action   = ["bedrock:ApplyGuardrail"]
-        Resource = "arn:aws:bedrock:${var.region}:${local.account_id}:guardrail/*"
+        Resource = [
+          "arn:aws:bedrock:${var.region}:${local.account_id}:guardrail/*",
+          "arn:aws:bedrock:*:${local.account_id}:guardrail-profile/*", # tier Standard chạy liên vùng
+        ]
       },
       {
         # Kiểm duyệt ảnh nhạy cảm (M6). Rekognition đọc ảnh S3 bằng quyền s3:GetObject ở trên.
