@@ -129,7 +129,16 @@ export function ListingDetailPage() {
             <Link to={`/transactions/${l.activeTransactionId}`}>→ Xem giao dịch đang thực hiện</Link>
           </p>
         )}
-        {role === 'OWNER' && l.status === 'ACTIVE' && (
+        {role === 'OWNER' && l.status === 'PENDING_REVIEW' && (
+          <div className="notice warn">
+            <strong>⏳ Tin đang chờ Admin duyệt (thường 1–3 ngày).</strong> Ảnh có chữ bất thường nên tin chưa hiện trên Chợ và chưa gửi tới đơn vị thu
+            mua. Khi được duyệt, tin mở 7 ngày tính từ lúc duyệt.
+          </div>
+        )}
+        {role === 'OWNER' && l.status === 'CANCELLED' && l.moderated && (
+          <div className="notice bad">Admin {l.review?.decision ? 'từ chối' : 'gỡ'} tin này{l.moderated.note ? `: ${l.moderated.note}` : '.'}</div>
+        )}
+        {role === 'OWNER' && (l.status === 'ACTIVE' || l.status === 'PENDING_REVIEW') && (
           <div className="row">
             <button className="danger" onClick={() => confirm('Hủy tin này?') && void act(`${base}/cancel`)}>
               Hủy tin

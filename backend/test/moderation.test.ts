@@ -25,7 +25,7 @@ describe('Kiểm duyệt ảnh (Rekognition, M6)', () => {
   it('ảnh sạch → gắn tag đã kiểm duyệt', async () => {
     const { images, moderator, calls } = fakes(true);
     const res = await moderateUpload(images, moderator, 'u1', 'listings/u1/a.jpg', () => undefined);
-    expect(res).toEqual({ key: 'listings/u1/a.jpg', allowed: true });
+    expect(res).toEqual({ key: 'listings/u1/a.jpg', allowed: true, flagged: false });
     expect(calls).toEqual(['moderated:listings/u1/a.jpg']);
   });
 

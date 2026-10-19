@@ -20,6 +20,7 @@ import { systemClock, type Clock } from './shared/clock';
 import { DynamoTable } from './store/dynamoTable';
 import { DisabledImageStore, S3ImageStore, type ImageStore } from './storage/imageStore';
 import { DisabledModerator, RekognitionModerator, type ImageModerator } from './storage/moderator';
+import { DisabledTextScreener, RekognitionGuardrailScreener, type TextScreener } from './storage/textScreener';
 import { MemoryTable } from './store/memoryTable';
 import type { Table } from './store/table';
 
@@ -61,7 +62,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 /** Lắp các adapter theo môi trường. Test truyền overrides (bảng trong bộ nhớ, đồng hồ giả). */
 export function buildApp(
   config: AppConfig,
-  overrides: { table?: Table; clock?: Clock; images?: ImageStore; analyzer?: Analyzer; moderator?: ImageModerator } = {},
+  overrides: { table?: Table; clock?: Clock; images?: ImageStore; analyzer?: Analyzer; moderator?: ImageModerator; screener?: TextScreener } = {},
 ) {
   const clock = overrides.clock ?? systemClock;
   const table =
@@ -70,6 +71,12 @@ export function buildApp(
   const auth: AuthProvider = config.authMode === 'cognito' ? new CognitoAuthProvider() : new LocalAuthProvider();
   const images = overrides.images ?? (config.imageBucket ? new S3ImageStore(config.imageBucket) : new DisabledImageStore());
   const moderator = overrides.moderator ?? (config.imageBucket ? new RekognitionModerator(config.imageBucket) : new DisabledModerator());
+  // QĐ-36: đọc chữ trong ảnh + Guardrail để gắn cờ — cần cả bucket ảnh lẫn Guardrail
+  const screener =
+    overrides.screener ??
+    (config.imageBucket && config.aiGuardrail
+      ? new RekognitionGuardrailScreener(config.imageBucket, config.aiGuardrail, config.awsRegion)
+      : new DisabledTextScreener());
 
   const users = new UserService(table, clock);
   const wallet = new WalletService(table, clock, new Ledger(table, clock), config.fees);
@@ -83,7 +90,7 @@ export function buildApp(
   const locations = new LocationService(table, clock);
   const reports = new ReportService(table, clock, listings, notifications);
   const chat = new ChatService(table, clock, listings, partners, users, notifications);
-  const services: Services = { users, wallet, partners, listings, images, moderator, notifications, transactions, reputation, ai, locations, reports, chat };
+  const services: Services = { users, wallet, partners, listings, images, moderator, screener, notifications, transactions, reputation, ai, locations, reports, chat };
   const sweeper = new TimerSweeper(table, clock, {
     LISTING_EXPIRE: (t) => listings.expireIfDue(t.targetId),
     TX_REMIND: (t) => transactions.remindIfWaiting(t.targetId),

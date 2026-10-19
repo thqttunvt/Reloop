@@ -7,11 +7,11 @@ import { putVersioned } from '../src/store/table';
 
 process.env.LOG_SILENT = '1';
 
-export function makeTestApp() {
+export function makeTestApp(overrides: Omit<NonNullable<Parameters<typeof buildApp>[1]>, 'table' | 'clock'> = {}) {
   const clock = new ManualClock();
   const table = new MemoryTable();
   const config = { ...loadConfig({ STAGE: 'local' }), dataFile: undefined };
-  const app = buildApp(config, { table, clock });
+  const app = buildApp(config, { table, clock, ...overrides });
 
   const call = async (
     method: string,

@@ -2,7 +2,9 @@ import { DeleteObjectCommand, GetObjectCommand, GetObjectTaggingCommand, PutObje
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { AppError, badRequest } from '../shared/errors';
+import { log } from '../http/log';
 import { newId } from '../shared/ids';
+import type { TextScreener } from './textScreener';
 
 /**
  * Vòng đời ảnh (QĐ-27) do S3 Lifecycle xử lý theo tag "state":
@@ -152,17 +154,22 @@ export class DisabledImageStore implements ImageStore {
   }
 }
 
-/** Kiểm duyệt ảnh ngay sau khi trình duyệt upload xong (Rekognition). Ảnh vi phạm bị xóa ngay. */
+/**
+ * Kiểm duyệt ảnh ngay sau khi trình duyệt upload xong:
+ *  1. Rekognition: hình nhạy cảm → xóa ảnh, trả 422.
+ *  2. (QĐ-36) Chữ trong ảnh giống câu lệnh tấn công → GẮN CỜ, không chặn: tin dùng ảnh này phải chờ Admin duyệt.
+ */
 export async function moderateUpload(
   images: ImageStore,
   moderator: import('./moderator').ImageModerator,
   userId: string,
   rawKey: unknown,
   onRejected: (key: string, labels: { name: string; confidence: number }[]) => void,
+  textCheck?: { screener: TextScreener; onFlagged: (key: string, text: string) => Promise<void> },
 ) {
   const [key] = assertOwnImageKeys(userId, [rawKey]);
   if (!key) throw badRequest('INVALID_IMAGE_KEYS', 'Ảnh không hợp lệ');
-  if (!images.enabled) return { key, allowed: true };
+  if (!images.enabled) return { key, allowed: true, flagged: false };
   const result = await moderator.check(key);
   if (!result.allowed) {
     await images.remove(key);
@@ -172,5 +179,17 @@ export async function moderateUpload(
     });
   }
   await images.markModerated(key);
-  return { key, allowed: true };
+
+  let flagged = false;
+  if (textCheck?.screener.enabled) {
+    try {
+      const screen = await textCheck.screener.check(key);
+      flagged = screen.flagged;
+      if (flagged) await textCheck.onFlagged(key, screen.text);
+    } catch (err) {
+      // Lỗi OCR / Guardrail không được chặn người dùng upload ảnh
+      log('error', 'image_text_check_failed', { key, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return { key, allowed: true, flagged };
 }

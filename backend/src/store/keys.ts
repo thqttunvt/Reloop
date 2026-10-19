@@ -31,6 +31,11 @@ export const keys = {
   /** Bảng tin chung: con trỏ tới tin, chia "ngăn" theo tháng tạo tin, mới nhất trước. */
   feedItem: (month: string, at: string, listingId: string) => ({ pk: `FEED#${month}`, sk: `${at}#${listingId}` }),
   feedPk: (month: string) => `FEED#${month}`,
+  /** Hàng đợi tin chờ Admin duyệt (QĐ-36), cũ nhất trước. Xóa khi Admin quyết hoặc chủ tin hủy. */
+  listingReview: (at: string, listingId: string) => ({ pk: 'REVIEWQ#LISTING', sk: `${at}#${listingId}` }),
+  listingReviewPk: () => 'REVIEWQ#LISTING',
+  /** Ảnh có chữ bị gắn cờ lúc upload (QĐ-36); tự xóa sau vài ngày (TTL). */
+  imageFlag: (userId: string, imageKey: string) => ({ pk: `USER#${userId}`, sk: `IMGFLAG#${imageKey}` }),
   match: (listingId: string, branchId: string) => ({ pk: `LISTING#${listingId}`, sk: `MATCH#${branchId}` }),
   quote: (listingId: string, quoteId: string) => ({ pk: `LISTING#${listingId}`, sk: `QUOTE#${quoteId}` }),
 

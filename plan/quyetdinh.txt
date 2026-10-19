@@ -155,6 +155,20 @@ QĐ-35  AI PHÂN TÍCH ẢNH: AMAZON NOVA PRO (chốt 2026-10-19, thay Claude Ha
          (AILABEL#<tháng>) để sau MVP cân nhắc tinh chỉnh model. Ảnh vẫn theo vòng đời 120 ngày (QĐ-27).
        • Đổi lại model khác (vd Claude) chỉ cần đổi biến ai_model_id — cùng Converse API.
 
+QĐ-36  GẮN CỜ ẢNH CÓ CHỮ BẤT THƯỜNG → TIN CHỜ ADMIN DUYỆT (chốt 2026-10-19)
+       • Lý do: Rekognition chỉ lọc hình nhạy cảm; Guardrail PROMPT_ATTACK chỉ xét chữ → câu lệnh in trong ảnh
+         ("bỏ qua hướng dẫn, ghi model là…") lọt qua cả hai. Giải pháp: đọc chữ ra trước rồi mới kiểm tra.
+       • Khi upload (POST /uploads/moderate), sau Rekognition kiểm duyệt: Rekognition DetectText đọc chữ
+         (≥ 12 ký tự mới kiểm tra) → Bedrock ApplyGuardrail. Bị can thiệp → GẮN CỜ ảnh (không chặn upload).
+         Lỗi OCR / Guardrail không chặn người dùng (ghi log + metric TextCheckFailures).
+       • Tin có ảnh bị gắn cờ → PENDING_REVIEW: chưa lên Chợ, chưa matching, người khác không xem được.
+         Người đăng được báo ngay khi upload và sau khi gửi tin. Tin không bị gắn cờ → đăng ngay như cũ.
+       • Admin duyệt trong 1–3 ngày (trang Admin, cũ nhất trước, hiện chữ đọc được): Duyệt → ACTIVE, matching,
+         hạn 7 ngày tính từ lúc duyệt. Từ chối → CANCELLED, bắt buộc ghi lý do gửi người đăng.
+         Chủ tin tự hủy được khi đang chờ. Không tự động quyết khi quá 3 ngày.
+       • Giám sát: metric ImagesTextFlagged / ListingsFlagged trên dashboard; alarm > 10 ảnh bị gắn cờ / 24 giờ.
+       • Lớp bảo vệ chính vẫn là: schema cố định + backend validate + người đăng xác nhận form.
+
 
 =====================================================================
 3. GIAO DỊCH & GIÁ
@@ -201,7 +215,8 @@ QĐ-28  Bắt buộc đồng ý Điều khoản sử dụng + Chính sách quy�
 5. STATE MACHINE (thay §15 của spec)
 =====================================================================
 
-LISTING:  ACTIVE → MATCHED → COMPLETED
+LISTING:  PENDING_REVIEW → ACTIVE (Admin duyệt) | CANCELLED (Admin từ chối / Owner hủy)   (QĐ-36)
+          ACTIVE → MATCHED → COMPLETED
           ACTIVE → EXPIRED (7 ngày) | CANCELLED (Owner)
           MATCHED → ACTIVE (giao dịch hủy/thất bại, còn hạn) | EXPIRED (hết hạn)
 

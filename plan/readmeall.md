@@ -24,7 +24,7 @@ Tiền đi qua **ví nội bộ**: bên trả nạp tiền vào ví, tiền đư
 | File | Nội dung | Mức ưu tiên |
 |---|---|---|
 | `readmeall.md` | File này: tổng hợp ngữ cảnh và tiến độ | Đọc đầu tiên |
-| `quyetdinh.txt` | **35 quyết định đã chốt** (QĐ-xx, TL-xx). Ghi đè mọi tài liệu khác | **Cao nhất** |
+| `quyetdinh.txt` | **36 quyết định đã chốt** (QĐ-xx, TL-xx). Ghi đè mọi tài liệu khác | **Cao nhất** |
 | `task.txt` | Danh sách task theo 12 tuần, phân vai FE / BE-CORE / BE-PAY / OPS | Kế hoạch làm việc |
 | `giaiphap.txt` | Đề xuất giải pháp cho từng điểm bất cập; áp dụng cho những gì quyetdinh.txt chưa nói | Tham khảo |
 | `baton.txt` | 58 điểm bất cập của spec gốc | Tham khảo |
@@ -159,3 +159,4 @@ Xem cây thư mục chi tiết trong [README.md](../README.md#cấu-trúc). Tóm
 | 2026-10-16 | Trang "Chợ" kiểu Facebook (mặc định sau đăng nhập): mọi người đã đăng nhập xem tin đang mở (chỉ khu vực, không giá, không vị trí chính xác); thẻ tin có "💬 Gửi tin nhắn" → cột phải hiện thông tin người bán (tên, ngày tham gia, uy tín) + chat. Chat mở cho mọi người mua (không cần là đối tác); báo giá / chọn đối tác vẫn chỉ cho đối tác đã duyệt. Bảng tin dùng con trỏ `FEED#<tháng>` (không Scan). Trang chi tiết tin có chế độ VIEWER. 89 test + smoke AWS pass. |
 | 2026-10-18 | Đọc lại toàn bộ code (89 test pass). QĐ-34: chia đối tác cấp 1 (khách lẻ) / cấp 2 (doanh nghiệp, hộ KD); chỉ đối tác đã duyệt mới đăng tin; email liên hệ bắt buộc, SĐT không bắt buộc ở Hồ sơ; liên hệ đối tác hiện công khai trên tin; trang Đăng tin + menu làm nổi bật yêu cầu làm đối tác; PATCH /partners/me/contact cho hồ sơ cũ thiếu email; điều khoản 2026-10-18. 94 test pass, build web OK. Chưa deploy. |
 | 2026-10-19 | QĐ-35: AI đổi sang Amazon Nova Pro (apac.amazon.nova-pro-v1:0) qua Bedrock Converse API (toolChoice → JSON), bỏ SDK Anthropic; Bedrock Guardrail (Terraform infra/ai.tf, bật mặc định); lưu bộ dữ liệu nhãn AI gợi ý ↔ người đăng chốt (AILABEL#<tháng>). Cấp 1 cũng khai loại hình (thêm Cá nhân) + số giấy tờ. 97 test pass. Chưa deploy, chưa chạy terraform validate (máy chưa có Terraform). |
+| 2026-10-19 | QĐ-36: gắn cờ ảnh có chữ bất thường (Rekognition DetectText → Bedrock ApplyGuardrail) khi upload; tin có ảnh bị gắn cờ → PENDING_REVIEW chờ Admin duyệt 1–3 ngày (hàng đợi REVIEWQ#LISTING, trang Admin "Tin chờ duyệt"); metric + alarm. 101 test pass, build web OK. Chưa deploy. |

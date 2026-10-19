@@ -17,7 +17,7 @@ backend/    API serverless (TypeScript) — chạy local bằng Node, lên AWS b
     http/               router (xác thực, Idempotency-Key, CORS preflight), routes
     auth/               LocalAuthProvider (dev) · CognitoAuthProvider (JWT claims, group Admins/FinanceAdmins)
     store/              interface Table · MemoryTable (dev/test) · DynamoTable (AWS, khóa PK/SK/GSI1)
-    storage/            ImageStore: S3 presigned POST/GET (≤ 5 MB, JPEG/PNG/WebP, prefix theo user) · kiểm duyệt ảnh nhạy cảm bằng Amazon Rekognition
+    storage/            ImageStore: S3 presigned POST/GET (≤ 5 MB, JPEG/PNG/WebP, prefix theo user) · kiểm duyệt ảnh nhạy cảm bằng Amazon Rekognition · đọc chữ trong ảnh + Guardrail để gắn cờ (tin chờ Admin duyệt)
     ai/                 Analyzer: Amazon Nova Pro trên Bedrock (Converse API + toolChoice → JSON có cấu trúc, Guardrail)
     domain/             state machine Listing / Quote / Transaction · danh mục, tình trạng, bàn giao
     modules/users       hồ sơ (SĐT không bắt buộc), điều khoản (QĐ-28)

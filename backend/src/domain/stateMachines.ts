@@ -34,9 +34,12 @@ function createMachine<S extends string>(name: string, transitions: Transition<S
 const edges = <S extends string>(froms: S[], to: S, actors: Actor[]): Transition<S>[] =>
   froms.map((from) => ({ from, to, actors }));
 
-// ---------------------------------------------------------------- Listing (QĐ-12)
-export type ListingStatus = 'ACTIVE' | 'MATCHED' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED';
+// ---------------------------------------------------------------- Listing (QĐ-12, QĐ-36)
+export type ListingStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'MATCHED' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED';
 export const listingMachine = createMachine<ListingStatus>('Listing', [
+  // Ảnh bị gắn cờ → chờ Admin duyệt (QĐ-36)
+  { from: 'PENDING_REVIEW', to: 'ACTIVE', actors: ['ADMIN'] },
+  { from: 'PENDING_REVIEW', to: 'CANCELLED', actors: ['ADMIN', 'OWNER'] },
   { from: 'ACTIVE', to: 'MATCHED', actors: ['SYSTEM'] },
   { from: 'ACTIVE', to: 'EXPIRED', actors: ['SYSTEM'] },
   { from: 'ACTIVE', to: 'CANCELLED', actors: ['OWNER', 'ADMIN'] },

@@ -158,3 +158,6 @@ nav a.nav-cta { background: var(--primary); color: var(--primary-text); border-r
 .tier-choice label.selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, var(--surface)); }
 .tier-choice small { display: block; color: var(--muted); margin-top: 4px; }
 label.grow { flex: 1; margin-bottom: 0; }
+.notice { border-radius: 8px; padding: 10px 12px; margin: 8px 0; line-height: 1.5; border: 1px solid var(--border); }
+.notice.warn { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--surface)); }
+.notice.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--surface)); }

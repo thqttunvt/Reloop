@@ -24,6 +24,8 @@ export function CreateListingPage() {
   const [address, setAddress] = useState('');
   const [area, setArea] = useState('');
   const [imageKeys, setImageKeys] = useState<string[]>([]);
+  /** Ảnh có chữ bất thường (QĐ-36) → tin sẽ chờ Admin duyệt */
+  const [flaggedKeys, setFlaggedKeys] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [imagesOff, setImagesOff] = useState(false);
   const [idemKey] = useState(newIdempotencyKey);
@@ -115,8 +117,9 @@ export function CreateListingPage() {
     setError('');
     try {
       for (const f of Array.from(files).slice(0, MAX_IMAGES - imageKeys.length)) {
-        const key = await uploadImage(f);
+        const { key, flagged } = await uploadImage(f);
         setImageKeys((ks) => [...ks, key]);
+        if (flagged) setFlaggedKeys((ks) => [...ks, key]);
       }
     } catch (e) {
       if (e instanceof ApiError && e.code === 'IMAGES_DISABLED') setImagesOff(true);
@@ -255,6 +258,13 @@ export function CreateListingPage() {
         </label>
       )}
       {uploading && <p className="muted">Đang tải ảnh lên…</p>}
+      {flaggedKeys.length > 0 && (
+        <div className="notice warn">
+          <strong>⚠ {flaggedKeys.length} ảnh có chữ bất thường.</strong> Hệ thống phát hiện chữ trong ảnh giống câu lệnh hoặc nội dung không phù hợp.
+          Bạn vẫn đăng được, nhưng tin sẽ <strong>chờ Admin duyệt (1–3 ngày)</strong> trước khi hiện trên Chợ. Nếu đó chỉ là tem nhãn bình thường,
+          Admin sẽ duyệt. Muốn đăng ngay, hãy tải lại trang và dùng ảnh khác.
+        </div>
+      )}
       {features.ai && imageKeys.length > 0 && (
         <div className="row">
           <button type="button" className="secondary" onClick={() => void analyze()} disabled={aiState === 'running' || uploading}>
@@ -302,7 +312,7 @@ export function CreateListingPage() {
       {error && <p className="error">{error}</p>}
       <div className="row">
         <button type="submit" disabled={!canPost || busy || uploading || handover.length === 0 || !point || (!imagesOff && imageKeys.length === 0)}>
-          {busy ? 'Đang đăng…' : 'Đăng tin'}
+          {busy ? 'Đang đăng…' : flaggedKeys.length > 0 ? 'Gửi tin để Admin duyệt' : 'Đăng tin'}
         </button>
         {partner !== undefined && !canPost && <span className="muted">Cần được duyệt làm đối tác trước khi đăng.</span>}
       </div>

@@ -13,6 +13,7 @@ import { listingMachine, quoteMachine, type ListingStatus, type QuoteStatus } fr
 import { HOUR_MS, type Clock } from '../../shared/clock';
 import { badRequest, conflict, notFound } from '../../shared/errors';
 import { geohashCellsAround, geohashEncode, haversineKm, roundDistanceKm } from '../../shared/geo';
+import { log } from '../../http/log';
 import { newId } from '../../shared/ids';
 import { geoPoint, int, listOf, oneOf, optionalNum, str, type GeoPoint } from '../../shared/validate';
 import { assertOwnImageKeys, type ImageStore } from '../../storage/imageStore';
@@ -57,6 +58,13 @@ export interface Listing extends Item {
   activeTransactionId?: string;
   /** Admin gỡ tin vi phạm. */
   moderated?: { note?: string; at: string };
+  /** Ảnh có chữ bị gắn cờ (QĐ-36) → tin chờ Admin duyệt trước khi lên Chợ. */
+  review?: {
+    reason: 'IMAGE_TEXT_FLAGGED';
+    images: { key: string; text: string }[];
+    at: string;
+    decision?: { approved: boolean; note?: string; by: string; at: string };
+  };
   matchingStatus: 'PENDING' | 'DONE';
   matchCount: number;
   quoteCount: number;
@@ -191,6 +199,26 @@ export class ListingService {
     await this.images.assertModerated(listing.imageKeys); // ảnh phải qua kiểm duyệt Rekognition
     await this.images.markAttached(listing.imageKeys); // ảnh có chủ → không bị xóa như ảnh rác (QĐ-27)
     const label = await this.aiLabelOp(principal.userId, input.aiAnalysisId, listing);
+
+    // QĐ-36: có ảnh bị gắn cờ → chưa lên Chợ, chưa matching; chờ Admin duyệt
+    const flagged = await this.flaggedImages(principal.userId, listing.imageKeys);
+    if (flagged.length > 0) {
+      const pending: Listing = { ...listing, status: 'PENDING_REVIEW', review: { reason: 'IMAGE_TEXT_FLAGGED', images: flagged, at: createdAt } };
+      await this.table.transact([
+        putVersioned(pending, 0),
+        putNew({ ...keys.listingReview(createdAt, listingId), listingId }),
+        ...(label ? [label] : []),
+      ]);
+      log('warn', 'listing_flagged', { listingId, ownerId: principal.userId, images: flagged.length });
+      await this.notifications.notify(principal.userId, {
+        type: 'LISTING_PENDING_REVIEW',
+        title: 'Tin đăng đang chờ Admin duyệt (1–3 ngày)',
+        body: `${listing.title} — ảnh có chữ bất thường cần kiểm tra`,
+        link: `/listings/${listingId}`,
+      });
+      return { ...pending, version: 1 };
+    }
+
     await this.table.transact([
       putVersioned(listing, 0),
       timerOp('LISTING_EXPIRE', listingId, listing.expiresAt),
@@ -226,6 +254,73 @@ export class ListingService {
       changed,
       createdAt: listing.createdAt,
     });
+  }
+
+  // ------------------------------------------------------------------ Duyệt tin bị gắn cờ (QĐ-36)
+
+  /** Ghi nhận ảnh có chữ bị gắn cờ lúc upload; giữ 3 ngày (đủ để đăng tin), sau đó DynamoDB TTL tự xóa. */
+  async recordImageFlag(userId: string, imageKey: string, text: string) {
+    const at = this.clock.now();
+    await this.table.transact([
+      { type: 'put', item: { ...keys.imageFlag(userId, imageKey), imageKey, text: text.slice(0, 2000), at: at.toISOString(), ttl: Math.floor(at.getTime() / 1000) + 3 * 86_400 } },
+    ]);
+  }
+
+  private async flaggedImages(userId: string, imageKeys: string[]) {
+    if (imageKeys.length === 0) return [];
+    const flags = await this.table.query<Item & { imageKey: string; text: string }>(keys.userPk(userId), { skPrefix: 'IMGFLAG#' });
+    return flags.filter((f) => imageKeys.includes(f.imageKey)).map((f) => ({ key: f.imageKey, text: f.text }));
+  }
+
+  /** Hàng đợi duyệt cho Admin, cũ nhất trước — kèm ảnh, chữ đọc được và người đăng. */
+  async listPendingReview() {
+    const refs = await this.table.query<Item & { listingId: string }>(keys.listingReviewPk(), { limit: 100 });
+    const items = await Promise.all(
+      refs.map(async (r) => {
+        const k = keys.listing(r.listingId);
+        const listing = await this.table.get<Listing>(k.pk, k.sk);
+        if (!listing || listing.status !== 'PENDING_REVIEW') return undefined;
+        const [seller, images] = await Promise.all([this.sellerOf(listing.ownerId), this.imageUrls(listing)]);
+        const { location: _location, geohash: _geohash, ...rest } = listing;
+        return { listing: rest, seller, images };
+      }),
+    );
+    return items.filter((x) => !!x);
+  }
+
+  /**
+   * Admin duyệt: tin lên Chợ, chạy matching, hạn 7 ngày tính từ lúc duyệt.
+   * Từ chối: tin CANCELLED kèm lý do. Cả hai đều báo cho chủ tin.
+   */
+  async reviewListing(adminId: string, listingId: string, approve: boolean, note?: string) {
+    const decided = await withOptimisticRetry(async () => {
+      const listing = await this.load(listingId);
+      if (listing.status !== 'PENDING_REVIEW') throw conflict('LISTING_NOT_PENDING_REVIEW', `Tin đang ở trạng thái ${listing.status}`);
+      const to: ListingStatus = approve ? 'ACTIVE' : 'CANCELLED';
+      listingMachine.assertTransition('PENDING_REVIEW', to, 'ADMIN');
+      const now = this.clock.now();
+      const at = now.toISOString();
+      const decision = { approved: approve, note, by: adminId, at };
+      const next: Listing = approve
+        ? { ...listing, status: 'ACTIVE', expiresAt: new Date(now.getTime() + LISTING_TTL_MS).toISOString(), review: { ...listing.review!, decision }, updatedAt: at }
+        : { ...listing, status: 'CANCELLED', moderated: { note, at }, review: { ...listing.review!, decision }, updatedAt: at };
+      const ops: WriteOp[] = [
+        putVersioned(next, listing.version ?? 1),
+        { type: 'delete', ...keys.listingReview(listing.review?.at ?? listing.createdAt, listingId) },
+      ];
+      if (approve) {
+        ops.push(timerOp('LISTING_EXPIRE', listingId, next.expiresAt), putNew({ ...keys.feedItem(at.slice(0, 7), at, listingId), listingId }));
+      }
+      await this.table.transact(ops);
+      return { ...next, version: (listing.version ?? 1) + 1 };
+    });
+    await this.notifications.notify(decided.ownerId, {
+      type: approve ? 'LISTING_APPROVED' : 'LISTING_REJECTED',
+      title: approve ? 'Tin đăng đã được Admin duyệt và đang hiện trên Chợ' : 'Tin đăng bị Admin từ chối',
+      body: note ?? decided.title,
+      link: `/listings/${listingId}`,
+    });
+    return approve ? this.runMatching(decided) : decided;
   }
 
   // ------------------------------------------------------------------ Matching + Auto-Quote (T6.1, T7.2)
@@ -487,15 +582,18 @@ export class ListingService {
     return withOptimisticRetry(async () => {
       const listing = await this.load(listingId);
       if (listing.ownerId !== ownerId) throw notFound('tin đăng');
-      this.requireOpenListing(listing);
-      listingMachine.assertTransition('ACTIVE', 'CANCELLED', 'OWNER');
+      // Chủ tin hủy được cả khi tin còn chờ Admin duyệt (QĐ-36)
+      const pendingReview = listing.status === 'PENDING_REVIEW';
+      if (!pendingReview) this.requireOpenListing(listing);
+      listingMachine.assertTransition(pendingReview ? 'PENDING_REVIEW' : 'ACTIVE', 'CANCELLED', 'OWNER');
       const now = this.clock.now().toISOString();
       const next: Listing = { ...listing, status: 'CANCELLED', updatedAt: now };
       const quoteOps: WriteOp[] = (await this.quotesOf(listingId))
         .filter((q) => OPEN_QUOTE.includes(q.status))
         .slice(0, 98)
         .map((q) => putVersioned({ ...q, status: 'EXPIRED', updatedAt: now }, q.version ?? 1));
-      await this.table.transact([putVersioned(next, listing.version ?? 1), ...quoteOps]);
+      const reviewOps: WriteOp[] = pendingReview ? [{ type: 'delete', ...keys.listingReview(listing.review?.at ?? listing.createdAt, listingId) }] : [];
+      await this.table.transact([putVersioned(next, listing.version ?? 1), ...quoteOps, ...reviewOps]);
       return { ...next, version: (listing.version ?? 1) + 1 };
     });
   }

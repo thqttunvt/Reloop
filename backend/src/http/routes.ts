@@ -15,6 +15,7 @@ import type { WalletService } from '../modules/wallet/walletService';
 import { log } from './log';
 import { moderateUpload, type ImageStore } from '../storage/imageStore';
 import type { ImageModerator } from '../storage/moderator';
+import type { TextScreener } from '../storage/textScreener';
 import type { Route } from './router';
 
 export interface Services {
@@ -24,6 +25,7 @@ export interface Services {
   listings: ListingService;
   images: ImageStore;
   moderator: ImageModerator;
+  screener: TextScreener;
   notifications: NotificationService;
   transactions: TransactionService;
   reputation: ReputationService;
@@ -159,8 +161,20 @@ export function apiRoutes(s: Services): Route[] {
       path: '/uploads/moderate',
       auth: 'required',
       handle: async (c) => ({
-        body: await moderateUpload(s.images, s.moderator, c.principal.userId, c.body.key, (key, labels) =>
-          log('warn', 'image_rejected', { userId: c.principal.userId, key, labels }),
+        body: await moderateUpload(
+          s.images,
+          s.moderator,
+          c.principal.userId,
+          c.body.key,
+          (key, labels) => log('warn', 'image_rejected', { userId: c.principal.userId, key, labels }),
+          {
+            // Chữ trong ảnh giống câu lệnh → gắn cờ, tin dùng ảnh này chờ Admin duyệt (QĐ-36)
+            screener: s.screener,
+            onFlagged: async (key, text) => {
+              log('warn', 'image_text_flagged', { userId: c.principal.userId, key });
+              await s.listings.recordImageFlag(c.principal.userId, key, text);
+            },
+          },
         ),
       }),
     },
@@ -169,7 +183,7 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/features',
       auth: 'required',
-      handle: async () => ({ body: { images: s.images.enabled, ai: s.ai.enabled } }),
+      handle: async () => ({ body: { images: s.images.enabled, ai: s.ai.enabled, textCheck: s.screener.enabled } }),
     },
 
     // ------------------------------------------------------------ AI phân tích ảnh (Epic 5)
@@ -485,6 +499,28 @@ export function apiRoutes(s: Services): Route[] {
       },
     },
     {
+      // Tin có ảnh bị gắn cờ chờ duyệt (QĐ-36)
+      method: 'GET',
+      path: '/admin/listings/review',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: { items: await s.listings.listPendingReview() } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/listings/{id}/review',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        if (typeof c.body.approve !== 'boolean') throw badRequest('INVALID_BODY', 'approve phải là true/false');
+        const note = typeof c.body.note === 'string' && c.body.note.trim() ? c.body.note.trim().slice(0, 1000) : undefined;
+        if (!c.body.approve && !note) throw badRequest('INVALID_NOTE', 'Từ chối cần ghi lý do cho người đăng');
+        return { body: await s.listings.reviewListing(c.principal.userId, c.params.id!, c.body.approve, note) };
+      },
+    },
+    {
       method: 'GET',
       path: '/admin/reports',
       auth: 'required',
@@ -512,8 +548,8 @@ export function apiRoutes(s: Services): Route[] {
         const partnerCounts = Object.fromEntries(
           await Promise.all(PARTNER_STATUSES.map(async (st) => [st, (await s.partners.listByStatus(st)).length] as const)),
         );
-        const [disputes, reports] = await Promise.all([s.transactions.listDisputed(), s.reports.listOpen()]);
-        return { body: { partners: partnerCounts, openDisputes: disputes.length, openReports: reports.length } };
+        const [disputes, reports, pendingListings] = await Promise.all([s.transactions.listDisputed(), s.reports.listOpen(), s.listings.listPendingReview()]);
+        return { body: { partners: partnerCounts, openDisputes: disputes.length, openReports: reports.length, pendingListings: pendingListings.length } };
       },
     },
     {

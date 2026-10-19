@@ -72,7 +72,7 @@ export interface GeoPoint {
   address: string;
 }
 
-export type ListingStatus = 'ACTIVE' | 'MATCHED' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED';
+export type ListingStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'MATCHED' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED';
 export type QuoteStatus =
   | 'ESTIMATED'
   | 'CONFIRMATION_REQUESTED'
@@ -99,6 +99,14 @@ export interface Listing {
   location?: GeoPoint;
   area: string;
   imageKeys: string[];
+  /** Ảnh có chữ bị gắn cờ → chờ Admin duyệt (QĐ-36) */
+  review?: {
+    reason: string;
+    images: { key: string; text: string }[];
+    at: string;
+    decision?: { approved: boolean; note?: string; at: string };
+  };
+  moderated?: { note?: string; at: string };
   status: ListingStatus;
   matchingStatus: 'PENDING' | 'DONE';
   matchCount: number;
@@ -249,8 +257,11 @@ async function shrink(file: File, maxSide = 1600): Promise<Blob> {
   }
 }
 
-/** Upload ảnh thẳng lên S3 bằng presigned POST. */
-export async function uploadImage(original: File): Promise<string> {
+/**
+ * Upload ảnh thẳng lên S3 bằng presigned POST, rồi kiểm duyệt.
+ * flagged = ảnh có chữ bất thường (QĐ-36): vẫn dùng được nhưng tin đăng phải chờ Admin duyệt.
+ */
+export async function uploadImage(original: File): Promise<{ key: string; flagged: boolean }> {
   const file = await shrink(original);
   const ticket = await api<UploadTicket>('POST', '/uploads/presign', { body: { contentType: file.type || original.type } });
   const form = new FormData();
@@ -259,8 +270,8 @@ export async function uploadImage(original: File): Promise<string> {
   const res = await fetch(ticket.url, { method: 'POST', body: form });
   if (!res.ok) throw new ApiError(res.status, 'UPLOAD_FAILED', 'Upload ảnh thất bại (tối đa 5 MB, JPEG/PNG/WebP)');
   // Kiểm duyệt ảnh nhạy cảm (Rekognition); ảnh vi phạm bị xóa và trả lỗi IMAGE_REJECTED
-  await api('POST', '/uploads/moderate', { body: { key: ticket.key } });
-  return ticket.key;
+  const checked = await api<{ flagged?: boolean }>('POST', '/uploads/moderate', { body: { key: ticket.key } });
+  return { key: ticket.key, flagged: checked.flagged === true };
 }
 
 export type TransactionStatus =
@@ -332,6 +343,8 @@ export interface Notification {
 export interface Features {
   images: boolean;
   ai: boolean;
+  /** Kiểm tra chữ trong ảnh (QĐ-36) */
+  textCheck?: boolean;
 }
 
 export interface AiAnalysis {

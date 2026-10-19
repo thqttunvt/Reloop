@@ -65,7 +65,7 @@ resource "aws_iam_role_policy" "api" {
         # Kiểm duyệt ảnh nhạy cảm (M6). Rekognition đọc ảnh S3 bằng quyền s3:GetObject ở trên.
         Sid      = "Moderation"
         Effect   = "Allow"
-        Action   = ["rekognition:DetectModerationLabels"]
+        Action   = ["rekognition:DetectModerationLabels", "rekognition:DetectText"] # DetectText: đọc chữ trong ảnh (QĐ-36)
         Resource = "*"
       },
       {

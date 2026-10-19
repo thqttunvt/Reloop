@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, type Branch, type Partner, type PartnerStatus, type Report, type Transaction } from '../lib/api';
+import { api, type Branch, type Listing, type Partner, type Seller, type PartnerStatus, type Report, type Transaction } from '../lib/api';
 import { BUSINESS_TYPE_LABEL, CATEGORY_LABEL, PARTNER_STATUS_LABEL, PARTNER_TIER_LABEL, PARTY_LABEL, statusTone, tierOf } from '../lib/catalog';
 import { dateTime, errorText, vnd } from '../lib/format';
 
@@ -10,6 +10,7 @@ export function AdminPage() {
   return (
     <div className="stack">
       <StatsAdmin />
+      <ListingReviewAdmin />
       <PartnersAdmin />
       <DisputesAdmin />
       <ReportsAdmin />
@@ -183,7 +184,7 @@ function DisputesAdmin() {
 }
 
 function StatsAdmin() {
-  const [stats, setStats] = useState<{ partners: Record<string, number>; openDisputes: number; openReports: number } | null>(null);
+  const [stats, setStats] = useState<{ partners: Record<string, number>; openDisputes: number; openReports: number; pendingListings?: number } | null>(null);
   useEffect(() => {
     api<NonNullable<typeof stats>>('GET', '/admin/stats').then(setStats).catch(() => undefined);
   }, []);
@@ -199,6 +200,10 @@ function StatsAdmin() {
           </div>
         ))}
         <div className="tile">
+          <span className="muted">Tin chờ duyệt (ảnh bị gắn cờ)</span>
+          <strong>{stats.pendingListings ?? 0}</strong>
+        </div>
+        <div className="tile">
           <span className="muted">Tranh chấp đang mở</span>
           <strong>{stats.openDisputes}</strong>
         </div>
@@ -207,6 +212,87 @@ function StatsAdmin() {
           <strong>{stats.openReports}</strong>
         </div>
       </div>
+    </section>
+  );
+}
+
+type ReviewItem = { listing: Listing; seller: Seller; images: string[] };
+
+/**
+ * Tin có ảnh bị gắn cờ chữ bất thường (QĐ-36): Admin xem ảnh + chữ hệ thống đọc được, duyệt hoặc từ chối.
+ * Cam kết xử lý trong 1–3 ngày; tin chờ lâu nhất ở trên cùng.
+ */
+function ListingReviewAdmin() {
+  const [items, setItems] = useState<ReviewItem[]>([]);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    try {
+      setItems((await api<{ items: ReviewItem[] }>('GET', '/admin/listings/review')).items);
+      setError('');
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const decide = async (id: string, approve: boolean) => {
+    try {
+      await api('POST', `/admin/listings/${id}/review`, { body: { approve, note: notes[id] || undefined } });
+      await load();
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+  const waitedDays = (iso: string) => Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
+
+  return (
+    <section className="card">
+      <h2>Tin chờ duyệt — ảnh có chữ bất thường</h2>
+      {error && <p className="error">{error}</p>}
+      {items.length === 0 && <p className="muted">Không có tin nào chờ duyệt.</p>}
+      {items.map(({ listing: l, seller, images }) => {
+        const days = waitedDays(l.review?.at ?? l.createdAt);
+        return (
+          <div key={l.listingId} className="quote">
+            <div className="row between">
+              <strong>{l.title}</strong>
+              <span className={`badge ${days >= 3 ? 'bad' : 'warn'}`}>{days === 0 ? 'hôm nay' : `chờ ${days} ngày`}</span>
+            </div>
+            <span className="muted">
+              {seller.displayName} · {seller.contact?.email} · gửi {dateTime(l.createdAt)} · {l.area}
+            </span>
+            <span>{l.description}</span>
+            {l.review?.images.map((f) => (
+              <div key={f.key} className="notice warn">
+                Chữ đọc được trong ảnh: <em>“{f.text}”</em>
+              </div>
+            ))}
+            {images.length > 0 && (
+              <div className="gallery">
+                {images.map((src) => (
+                  <a key={src} href={src} target="_blank" rel="noreferrer">
+                    <img src={src} alt="" />
+                  </a>
+                ))}
+              </div>
+            )}
+            <div className="row">
+              <input
+                className="grow"
+                placeholder="Ghi chú (bắt buộc khi từ chối — gửi cho người đăng)"
+                value={notes[l.listingId] ?? ''}
+                onChange={(e) => setNotes({ ...notes, [l.listingId]: e.target.value })}
+              />
+              <button onClick={() => void decide(l.listingId, true)}>Duyệt — lên Chợ</button>
+              <button className="danger" onClick={() => void decide(l.listingId, false)} disabled={!notes[l.listingId]?.trim()}>
+                Từ chối
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 }

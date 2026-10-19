@@ -32,6 +32,10 @@ resource "aws_cloudwatch_log_metric_filter" "business" {
     AiFailures      = "{ $.msg = \"ai_analysis_failed\" }"
     NotifyFailures  = "{ $.msg = \"notify_failed\" }"
     ImagesRejected  = "{ $.msg = \"image_rejected\" }"
+    # QĐ-36: ảnh có chữ bị gắn cờ / tin phải chờ Admin duyệt
+    ImagesTextFlagged = "{ $.msg = \"image_text_flagged\" }"
+    ListingsFlagged   = "{ $.msg = \"listing_flagged\" }"
+    TextCheckFailures = "{ $.msg = \"image_text_check_failed\" }"
   }
   name           = "${local.name_prefix}-${each.key}"
   log_group_name = aws_cloudwatch_log_group.api.name
@@ -194,6 +198,8 @@ resource "aws_cloudwatch_dashboard" "main" {
             [".", "AiFailures"],
             [".", "NotifyFailures"],
             [".", "ImagesRejected"],
+            [".", "ImagesTextFlagged"],
+            [".", "ListingsFlagged"],
           ]
         }
       },
@@ -217,4 +223,19 @@ resource "aws_cloudwatch_dashboard" "main" {
 
 output "dashboard_url" {
   value = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
+}
+
+# Nhiều ảnh bị gắn cờ trong 1 ngày → có thể có người cố tình tấn công AI (QĐ-36)
+resource "aws_cloudwatch_metric_alarm" "text_flagged_spike" {
+  alarm_name          = "${local.name_prefix}-image-text-flagged-spike"
+  alarm_description   = "Hơn 10 ảnh bị gắn cờ chữ bất thường trong 24 giờ — kiểm tra hàng đợi duyệt tin ở trang Admin"
+  namespace           = local.metric_ns
+  metric_name         = "ImagesTextFlagged"
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 10
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
 }

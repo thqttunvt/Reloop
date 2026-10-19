@@ -28,6 +28,7 @@ export const HANDOVER_LABEL: Record<string, string> = {
 export const UNIT_LABEL: Record<string, string> = { PER_DEVICE: 'theo cái', PER_KG: 'theo kg' };
 
 export const LISTING_STATUS_LABEL: Record<string, string> = {
+  PENDING_REVIEW: 'Chờ Admin duyệt',
   ACTIVE: 'Đang mở',
   MATCHED: 'Đã chọn đối tác',
   COMPLETED: 'Hoàn tất',
@@ -70,7 +71,7 @@ export const keysOf = (labels: Record<string, string>) => Object.keys(labels);
 export const statusTone = (s: string) =>
   ['ACTIVE', 'APPROVED', 'CONFIRMED_OFFER', 'COMPLETED', 'SELECTED'].includes(s)
     ? 'ok'
-    : ['PENDING', 'CONFIRMATION_REQUESTED', 'ESTIMATED', 'MATCHED', 'HANDOVER_PENDING', 'PRICE_ADJUSTMENT_PENDING', 'AWAITING_COUNTERPARTY'].includes(s)
+    : ['PENDING', 'PENDING_REVIEW', 'CONFIRMATION_REQUESTED', 'ESTIMATED', 'MATCHED', 'HANDOVER_PENDING', 'PRICE_ADJUSTMENT_PENDING', 'AWAITING_COUNTERPARTY'].includes(s)
       ? 'warn'
       : 'bad';
 

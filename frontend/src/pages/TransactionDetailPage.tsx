@@ -245,7 +245,7 @@ function PriceCard({ d, act }: { d: TransactionDetail; act: Act }) {
                 const f = e.target.files?.[0];
                 if (!f) return;
                 try {
-                  const k = await uploadImage(f);
+                  const { key: k } = await uploadImage(f);
                   setKeys((ks) => [...ks, k]);
                 } catch (err) {
                   setImgError(err instanceof ApiError && err.code === 'IMAGES_DISABLED' ? 'Upload ảnh chưa bật ở môi trường này' : errorText(err));
