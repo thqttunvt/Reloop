@@ -284,3 +284,37 @@ Kịch bản demo (cập nhật theo QĐ-34 → QĐ-36):
   Q3  Bộ dữ liệu AI có giữ ẢNH lâu dài không? (cần sửa điều khoản để người dùng đồng ý; hiện ảnh
       tự xóa sau 120 ngày theo QĐ-27)
   Q4  Chatbot FAQ bằng AI (đã đề xuất trước đây) có làm không?
+
+
+=====================================================================
+8. NHẬT KÝ TIẾN ĐỘ (dành cho giảng viên đánh giá)
+=====================================================================
+Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · người làm · cách kiểm chứng
+(commit / PR, số test, link web). Mới nhất ở dưới cùng. Chi tiết kỹ thuật: plan/readmeall.md.
+
+  10/10  Phân tích spec gốc: 58 điểm bất cập (baton.txt), đề xuất giải pháp (giaiphap.txt),
+         chốt 33 quyết định (quyetdinh.txt), lập kế hoạch 12 tuần (task.txt).
+         Dựng monorepo, lõi ví / sổ cái + frontend khung.
+         Người làm: [Tên người làm]   Kiểm chứng: commit 3da3ba7 · 36 test
+  11/10  Mô hình doanh thu: hoa hồng 10% (tối thiểu 5.000đ) + phí đăng bài 20.000đ (QĐ-32, QĐ-33).
+         Người làm: [Tên người làm]   Kiểm chứng: 43 test
+  12/10  Đưa code lên GitHub + CI (typecheck, test, build); tạo issue GĐ 0.
+         Người làm: [Tên người làm]   Kiểm chứng: github.com/thqttunvt/Reloop · CI xanh
+  16/10  Lên AWS dev: Terraform (Cognito, API Gateway, Lambda, CloudFront, giám sát), DynamoDB adapter.
+         Làm EPIC 1–7, 9–14: đối tác, đăng tin + ảnh, AI Bedrock chạy nền, matching geohash, báo giá,
+         giao dịch, job nền, thông báo, đánh giá, tranh chấp, Admin; Chợ + chat; kiểm duyệt ảnh
+         Rekognition; lưu trữ QĐ-27.
+         Người làm: [Tên người làm]   Kiểm chứng: 89 test + smoke-aws.py trên AWS · commit 3bc262c
+  18/10  QĐ-34 đối tác 2 cấp: chỉ đối tác đã duyệt mới đăng tin; email liên hệ bắt buộc,
+         SĐT không bắt buộc; liên hệ đối tác hiện công khai; cấp 1 cũng khai loại hình + số giấy tờ.
+         Người làm: [Tên người làm]   Kiểm chứng: 94 test · commit 3bc262c, b34715f
+  19/10  QĐ-35 AI chuyển sang Amazon Nova Pro (Bedrock Converse, trả JSON theo schema) — dùng được
+         credits AWS; lưu bộ dữ liệu "AI gợi ý ↔ người đăng chốt" để cải thiện AI sau này.
+         Người làm: [Tên người làm]   Kiểm chứng: 97 test · commit 9960cde
+  19/10  QĐ-36 chống prompt injection qua ảnh: đọc chữ trong ảnh (Rekognition DetectText) + Bedrock
+         Guardrail → gắn cờ; tin có ảnh bị gắn cờ chờ Admin duyệt 1–3 ngày; metric + alarm.
+         Người làm: [Tên người làm]   Kiểm chứng: 101 test · commit 1acf50c
+  19/10  Dev doc + phân chia công việc 5 thành viên (file này).
+         Người làm: [Tên người làm]   Kiểm chứng: commit 276a96d
+
+  ⚠ Các mục 18/10 – 19/10 nằm trên nhánh feature/doi-tac-2-cap, CHƯA deploy lên web dev (task O1).
