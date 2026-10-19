@@ -325,6 +325,6 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
   19/10  QĐ-37 phí dịch vụ: 10.000đ / giao dịch hoàn tất, người bán trả, hóa đơn gộp theo tháng
          (giờ VN), Admin tài chính xác nhận đã thu, quá hạn 7 ngày khóa đăng tin / báo giá;
          thay hoa hồng 10% và phí đăng bài.
-         Người làm: [Tên người làm]   Kiểm chứng: 107 test (billing.test.ts) · commit (xem git log)
+         Người làm: [Tên người làm]   Kiểm chứng: 107 test (billing.test.ts) · commit 2f830cc
 
   ⚠ Các mục 18/10 – 19/10 nằm trên nhánh feature/doi-tac-2-cap, CHƯA deploy lên web dev (task O1).
