@@ -25,6 +25,7 @@ Tiền đi qua **ví nội bộ**: bên trả nạp tiền vào ví, tiền đư
 |---|---|---|
 | `readmeall.md` | File này: tổng hợp ngữ cảnh và tiến độ | Đọc đầu tiên |
 | `quyetdinh.txt` | **36 quyết định đã chốt** (QĐ-xx, TL-xx). Ghi đè mọi tài liệu khác | **Cao nhất** |
+| `devdocx.txt` | Dev doc cho thành viên: cài đặt, quy tắc code / git, phân việc OPS / BE-CORE / BE-AI / FE theo tuần (từ 2026-10-19) | Chia việc |
 | `task.txt` | Danh sách task theo 12 tuần, phân vai FE / BE-CORE / BE-PAY / OPS | Kế hoạch làm việc |
 | `giaiphap.txt` | Đề xuất giải pháp cho từng điểm bất cập; áp dụng cho những gì quyetdinh.txt chưa nói | Tham khảo |
 | `baton.txt` | 58 điểm bất cập của spec gốc | Tham khảo |

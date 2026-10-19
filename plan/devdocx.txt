@@ -1,0 +1,286 @@
+RELOOP — DEV DOC & PHÂN CHIA CÔNG VIỆC
+=====================================================================
+Cập nhật: 2026-10-19 (tuần 2 / 12) · Dành cho: 5 thành viên nhóm phát triển
+Nhánh code mới nhất: feature/doi-tac-2-cap (chưa gộp vào main, chưa deploy)
+
+Cách dùng file này:
+  • Điền tên 5 thành viên vào bảng THÀNH VIÊN ở mục 5, rồi thay [Tên người làm] ở mỗi task.
+  • Nhận task thì ghi tên + ngày bắt đầu; xong thì đánh dấu ✔ + link PR cạnh task đó.
+  • Quyết định nghiệp vụ: xem plan/quyetdinh.txt (ưu tiên cao nhất, hiện có QĐ-01 → QĐ-36).
+  • Trạng thái chi tiết + nhật ký: plan/readmeall.md. Danh sách task gốc 12 tuần: plan/task.txt.
+
+
+=====================================================================
+1. HỆ THỐNG ĐANG CÓ GÌ (đọc 5 phút)
+=====================================================================
+ReLoop: chợ đồ điện tử cũ, hỏng. Người bán đăng tin kèm ảnh → AI gợi ý thông tin →
+hệ thống tìm đơn vị thu mua trong 5 km → báo giá → giao dịch, bàn giao, đánh giá 2 chiều.
+
+Người dùng:
+  • Khách xem      : mọi người đã đăng nhập — lướt Chợ, nhắn tin người bán.
+  • Đối tác cấp 1  : khách lẻ (cá nhân / hộ KD / DN) — ĐƯỢC ĐĂNG TIN, không thu mua (QĐ-34).
+  • Đối tác cấp 2  : doanh nghiệp / hộ kinh doanh — đăng tin + chi nhánh, bảng giá, báo giá, thu mua.
+  • Admin          : duyệt đối tác, duyệt tin bị gắn cờ, tranh chấp, báo cáo vi phạm.
+
+Kiến trúc (serverless AWS, ap-southeast-1, account 926583575243):
+  Web React (S3 + CloudFront) → API Gateway HTTP API (JWT Cognito) → 1 Lambda Node 22
+  → DynamoDB single-table "reloop-core-table" (PK/SK + GSI1)
+  Phụ trợ: S3 ảnh (presigned POST) · Rekognition (kiểm duyệt ảnh + đọc chữ) ·
+           Bedrock Amazon Nova Pro (AI phân tích ảnh) + Guardrail · EventBridge 15 phút (job nền) ·
+           CloudWatch (dashboard, 8 alarm).
+  Thanh toán: OFFLINE (hai bên trả tiền khi gặp). Code ví / sổ cái / phí vẫn giữ, chưa nối.
+
+Bản đồ thư mục:
+  backend/src/app.ts            lắp adapter theo môi trường (local ↔ aws)
+  backend/src/http/routes.ts    TẤT CẢ API ở một file
+  backend/src/modules/*         nghiệp vụ: users, partners, listings, transactions, chat, ai,
+                                notifications, reputation, reports, locations, jobs, wallet
+  backend/src/store/keys.ts     TẤT CẢ khóa DynamoDB ở một file
+  backend/src/domain/           state machine Listing / Quote / Transaction, danh mục
+  backend/src/storage, ai/      S3, Rekognition, Bedrock (adapter — nghiệp vụ không gọi AWS trực tiếp)
+  backend/test/                 vitest (101 test)
+  frontend/src/pages, lib/      React; lib/api.ts = kiểu dữ liệu + gọi API; lib/catalog.ts = nhãn tiếng Việt
+  infra/*.tf                    Terraform; infra/deploy.sh = build + apply + upload web
+  scripts/                      smoke-aws.py (test trên AWS), make-admin.sh, loadtest.mjs
+
+
+=====================================================================
+2. CÀI ĐẶT & CHẠY
+=====================================================================
+Chạy local (không cần AWS, không có ảnh / AI):
+  npm install
+  cp backend/.env.example backend/.env
+  npm run dev:be        → API http://localhost:3001 (dữ liệu lưu backend/.data/db.json)
+  npm run dev:fe        → Web http://localhost:5173 — chọn Owner / Partner / Admin để đăng nhập giả
+  npm test              → test backend (phải xanh trước khi mở PR)
+  npm run typecheck     → typecheck backend + frontend
+
+Làm việc với AWS (chỉ người có quyền, xem vai trò OPS):
+  Cần: AWS CLI ≥ 2.32, Terraform ≥ 1.10, Node 22+.
+  aws login --profile reloop --region ap-southeast-1
+  AWS_PROFILE=reloop bash infra/deploy.sh             # build backend → terraform apply → upload web
+  AWS_PROFILE=reloop bash infra/deploy.sh frontend    # chỉ web
+  AWS_PROFILE=reloop AWS_REGION=ap-southeast-1 python scripts/smoke-aws.py
+  AWS_PROFILE=reloop bash scripts/make-admin.sh <email> --finance
+  ⚠ Không dùng profile mặc định của máy cho ReLoop. Không commit .env, khóa AWS.
+
+Web dev: https://d1cjl1tvcp0r6q.cloudfront.net (đang là bản 16/10 — chưa có các thay đổi mới)
+
+
+=====================================================================
+3. QUY TẮC LÀM VIỆC
+=====================================================================
+Git:
+  • Không commit thẳng vào main. Mỗi task 1 nhánh: feature/<mã-task>-<mô-tả-ngắn>
+    vd feature/B3-bang-chung-tranh-chap
+  • Mở Pull Request → CI (typecheck + test + build) phải xanh → ít nhất 1 người review → merge.
+  • Commit message: 1 dòng tóm tắt + đoạn giải thích vì sao (tiếng Anh hoặc tiếng Việt đều được).
+
+Nguyên tắc code (bắt buộc — reviewer kiểm tra):
+  1. Đổi trạng thái phải qua stateMachines.ts (assertTransition). Không gán status tay.
+  2. Ghi DynamoDB có điều kiện version (putVersioned) + withOptimisticRetry.
+  3. Không Scan. Khóa mới thêm vào store/keys.ts, có access pattern rõ ràng.
+  4. Nghiệp vụ không gọi AWS SDK trực tiếp → tạo interface + bản thật + bản tắt/giả (như ImageStore).
+  5. Việc nền phải idempotent: chạy trễ / chạy trùng không sai.
+  6. API tạo dữ liệu quan trọng bắt buộc Idempotency-Key (đăng tin, chọn offer, gửi offer).
+  7. Tiền là số nguyên VND; mọi thay đổi số dư qua Ledger.post().
+  8. Lỗi nghiệp vụ trả mã ổn định (AppError code) để frontend hiện đúng.
+  9. Không log token, mật khẩu, SĐT, STK đầy đủ.
+ 10. Quyết định nghiệp vụ mới → ghi QĐ-xx vào plan/quyetdinh.txt trước khi code.
+
+Definition of Done (mọi task):
+  □ PR được review, CI xanh, đã merge.
+  □ Có test cho quy tắc nghiệp vụ + test phân quyền (người khác / vai trò khác bị từ chối).
+  □ Hạ tầng mới nằm trong Terraform; đã deploy lên dev và tự thử trên web dev.
+  □ Có log có cấu trúc / metric cho thao tác chính.
+  □ Cập nhật plan/readmeall.md (mục Trạng thái + Nhật ký) nếu là mốc lớn.
+
+
+=====================================================================
+4. ĐÃ XONG (không cần làm lại)
+=====================================================================
+  ✔ EPIC 1–7, 9–14: hồ sơ, điều khoản, địa điểm, đối tác + chi nhánh + bảng giá, đăng tin + ảnh S3,
+    AI phân tích ảnh chạy nền, matching geohash, báo giá dự kiến / xác nhận / offer thủ công,
+    giao dịch offline (bàn giao, giảm giá, xác nhận 2 bên, 48h tự hoàn tất, hủy, thất bại, tranh chấp),
+    job nền, thông báo, đánh giá 2 chiều + uy tín, báo cáo vi phạm, Admin.
+  ✔ Chợ (bảng tin kiểu Facebook) + chat người bán ↔ người mua (polling 5s).
+  ✔ Kiểm duyệt ảnh nhạy cảm (Rekognition), lưu trữ QĐ-27 (TTL + S3 Lifecycle).
+  ✔ Hạ tầng dev bằng Terraform, CloudWatch dashboard + alarm, smoke test AWS.
+  ✔ (Nhánh mới, chưa deploy) QĐ-34 đối tác 2 cấp · QĐ-35 AI Amazon Nova Pro + bộ dữ liệu nhãn ·
+    QĐ-36 gắn cờ ảnh có chữ bất thường → tin chờ Admin duyệt.
+
+
+=====================================================================
+5. PHÂN CHIA CÔNG VIỆC (nhóm 5 người)
+=====================================================================
+Ký hiệu: [P0] bắt buộc trước demo · [P1] nên có · [MR] làm nếu còn thời gian
+Tuần: T3 = 24/10 · T4 = 31/10 · T5 = 7/11 · T6 = 14/11 · T7 = 21/11 · T8 = 28/11
+      T9 = 5/12 · T10 = 12/12 · T11 = 19/12 · T12 = 26/12 – 1/1/2027
+Mỗi task có ô "Làm:" — điền tên người nhận; task làm cặp thì ghi cả hai tên.
+
+THÀNH VIÊN
+  Vai trò                                                Tên                  Liên hệ
+  #1 BE-CORE  Backend nghiệp vụ + trưởng nhóm / PO        [Tên người làm]      [email / Zalo]
+  #2 FE       Frontend                                    [Tên người làm]      [email / Zalo]
+  #3 BE-AI    Backend AI, an toàn nội dung, dữ liệu       [Tên người làm]      [email / Zalo]
+  #4 OPS      Hạ tầng AWS, CI/CD, giám sát, chi phí       [Tên người làm]      [email / Zalo]
+  #5 QA-DOC   Kiểm thử, bằng chứng, tài liệu, demo;
+              hỗ trợ FE khi cần                           [Tên người làm]      [email / Zalo]
+
+Review chéo PR (mỗi PR cần 1 người duyệt):
+  BE-CORE ↔ BE-AI · FE ↔ QA-DOC · OPS ↔ BE-CORE (Terraform / IAM)
+
+---------------------------------------------------------------------
+5.1 #1 BE-CORE — Backend nghiệp vụ             Phụ trách chính: [Tên người làm]
+---------------------------------------------------------------------
+  B1  [P0] T3   Review + merge PR nhánh feature/doi-tac-2-cap vào main
+                (FE kiểm tra giao diện trước khi merge).                  Làm: [Tên người làm]
+  B2  [P0] T4   Đăng ký đối tác: upload ảnh giấy tờ (GPKD / CCCD) để Admin đối chiếu (QĐ-10);
+                prefix S3 riêng, chỉ chủ hồ sơ + Admin xem được.          Làm: [Tên người làm]
+  B3  [P0] T5   Tranh chấp: hai bên upload bằng chứng (ảnh + ghi chú),
+                Admin xem khi quyết. (T13.2)                              Làm: [Tên người làm]
+  B4  [P0] T6   Đánh giá: phản hồi, báo cáo đánh giá, sửa trong 7 ngày
+                (giữ bản cũ). (T12.2)                                     Làm: [Tên người làm]
+  B5  [P1] T6   Chợ: lọc theo loại thiết bị, tình trạng, khu vực; tìm theo tiêu đề
+                (thiết kế access pattern trước — không Scan).             Làm: [Tên người làm]
+  B6  [P1] T7   Matching ngược: chi nhánh mới duyệt / bật rule → nhận tin
+                đang mở phù hợp. (T6.4)                                   Làm: [Tên người làm]
+  B7  [P1] T8   Matching chạy nền (Lambda async như AI) thay vì trong request (QĐ-13).
+                                                                          Làm: [Tên người làm]
+  B8  [P1] T8   Tin chờ duyệt quá 3 ngày: nhắc Admin / tự xử lý — chờ quyết Q2 (mục 7).
+                                                                          Làm: [Tên người làm]
+  B9  [MR] T9+  Chiều BÁN TÁI CHẾ: đối tác cấp 2 đăng sản phẩm tân trang,
+                khách mua (M1, QĐ-29).                                    Làm: [Tên người làm]
+
+---------------------------------------------------------------------
+5.2 #2 FE — Frontend                            Phụ trách chính: [Tên người làm]
+---------------------------------------------------------------------
+  F1  [P0] T3   Sau khi O1 deploy: đi hết luồng mới trên web dev, ghi lỗi giao diện:
+                đối tác cấp 1 / cấp 2, email liên hệ, tin chờ duyệt, Admin duyệt tin.
+                                                                          Làm: [Tên người làm]
+  F2  [P0] T4   Trang Đăng tin: nút XÓA ảnh đã tải lên (hiện chưa có — không bỏ được ảnh
+                bị gắn cờ); hướng dẫn chụp ảnh (cùng A3).                 Làm: [Tên người làm]
+  F3  [P0] T4   UI upload giấy tờ khi đăng ký đối tác + Admin xem giấy tờ (cùng B2).
+                                                                          Làm: [Tên người làm]
+  F4  [P0] T5   UI bằng chứng tranh chấp (cùng B3).                       Làm: [Tên người làm]
+  F5  [P0] T6   UI phản hồi / sửa / báo cáo đánh giá (cùng B4).           Làm: [Tên người làm]
+  F6  [P1] T6   Bộ lọc + ô tìm kiếm trên Chợ (cùng B5).                   Làm: [Tên người làm]
+  F7  [P0] T9   Giao diện điện thoại (≥ 360 px); trạng thái tải / lỗi / trống ở mọi trang
+                (QA-DOC hỗ trợ rà soát).                                  Làm: [Tên người làm]
+  F8  [MR] T9+  Thông báo / chat realtime bằng WebSocket thay polling (M5). Làm: [Tên người làm]
+
+---------------------------------------------------------------------
+5.3 #3 BE-AI — AI, an toàn nội dung, dữ liệu    Phụ trách chính: [Tên người làm]
+---------------------------------------------------------------------
+  A1  [P0] T3–4 Đánh giá Nova Pro trên ẢNH THẬT: gom 20–30 ảnh đồ cũ / hỏng (tem nhãn, ảnh mờ,
+                linh kiện rời). Đo % đúng loại / hãng / model / tình trạng, thời gian, chi phí.
+                Ghi kết quả vào plan/ (dùng cho báo cáo).                 Làm: [Tên người làm]
+  A2  [P0] T4   Kiểm tra gắn cờ chữ (QĐ-36) trên AWS: tem nhãn thật KHÔNG bị gắn cờ nhầm,
+                ảnh in câu lệnh BỊ gắn cờ. Chỉnh MIN_TEXT_LENGTH
+                (backend/src/storage/textScreener.ts), mức lọc (infra/ai.tf).
+                                                                          Làm: [Tên người làm]
+  A3  [P0] T5   Cải thiện prompt AI theo kết quả A1; nội dung hướng dẫn chụp
+                "toàn bộ + mặt sau + tem nhãn" (FE làm giao diện, F2).    Làm: [Tên người làm]
+  A4  [P1] T5   Trần tổng lượt AI toàn hệ thống mỗi ngày (vd 300) chống lạm dụng chi phí.
+                                                                          Làm: [Tên người làm]
+  A5  [P1] T7   Script xuất bộ dữ liệu nhãn (AILABEL#<tháng>) ra JSONL / CSV + thống kê
+                % AI đúng theo tháng.                                     Làm: [Tên người làm]
+  A6  [MR]      Ví & phí: nối lại phí đăng bài (T8.15), hoa hồng (QĐ-32) — chờ quyết Q1.
+                                                                          Làm: [Tên người làm]
+
+---------------------------------------------------------------------
+5.4 #4 OPS — Hạ tầng, triển khai, giám sát       Phụ trách chính: [Tên người làm]
+---------------------------------------------------------------------
+  O1  [P0] T3   Cài AWS CLI + Terraform, deploy nhánh feature/doi-tac-2-cap lên dev,
+                chạy smoke-aws.py. Kiểm tra trên account:
+                • Amazon Nova Pro (apac.amazon.nova-pro-v1:0) đã bật cho account.
+                • Guardrail lọc ẢNH có ở ap-southeast-1 (không có: ai_guardrail_enabled=false).
+                • reloop-core-table ON-DEMAND hay PROVISIONED (provisioned tốn tiền khi để không).
+                • Credits có trừ cho Bedrock Nova không (Billing → Credits → Applicable products).
+                                                                          Làm: [Tên người làm]
+  O2  [P0] T3   AWS Budgets 50/80/100% của 20 USD; biến alarm_email nhận alarm. (T0.4)
+                                                                          Làm: [Tên người làm]
+  O3  [P0] T3   Báo nhóm hạ tầng: tắt / thêm xác thực API "reloop-generate-presigned-url"
+                (đang công khai); bỏ pool Cognito cũ ReLoop-user-pool.    Làm: [Tên người làm]
+  O4  [P0] T5   CI/CD: merge main → tự deploy dev (GitHub Actions + OIDC; cần quyền tạo
+                IAM OIDC provider). (T15.2)                               Làm: [Tên người làm]
+  O5  [P1] T8   Môi trường prod tách biệt; deploy prod cần duyệt tay. (T15.1)
+                                                                          Làm: [Tên người làm]
+  O6  [P0] T10  WAF trên CloudFront — chỉ bật khi demo (~5 USD/tháng). (T15.5)
+                                                                          Làm: [Tên người làm]
+  O7  [P0] T11  Báo cáo chi phí thực tế + ước tính khi mở rộng;
+                Well-Architected Review. (T15.10–11)                      Làm: [Tên người làm]
+  O8  [P0] T12  Deployment Workshop: dựng lại toàn bộ từ đầu bằng Terraform. (T16.6)
+                                                                          Làm: [Tên người làm]
+
+---------------------------------------------------------------------
+5.5 #5 QA-DOC — Kiểm thử, bằng chứng, tài liệu   Phụ trách chính: [Tên người làm]
+---------------------------------------------------------------------
+  Q-1 [P0] T3+  Checklist kiểm thử thủ công theo kịch bản demo (mục 6); chạy lại sau mỗi lần
+                deploy dev, ghi lỗi thành GitHub Issue.                   Làm: [Tên người làm]
+  Q-2 [P0] T4   Test phân quyền trên dev: người khác / vai trò khác bị từ chối (tin chờ duyệt,
+                giao dịch người khác, trang Admin, chi nhánh của cấp 1…). Làm: [Tên người làm]
+  Q-3 [P0] T10  Load test bằng scripts/loadtest.mjs (cùng OPS): 50 user, 20 req/s, 10 phút,
+                lỗi < 1%, p95 đọc < 500 ms / ghi < 1 s. (T15.9)          Làm: [Tên người làm]
+  Q-4 [P0] T11  Video độ tin cậy: 2 request chọn offer đồng thời → 1 thành công; tin tự hết hạn;
+                job chạy trùng không sai; 48h tự hoàn tất; ảnh có câu lệnh bị gắn cờ. (T15.8)
+                                                                          Làm: [Tên người làm]
+  Q-5 [P0] T11  Spec v1.1: gộp quyetdinh.txt (QĐ-01 → QĐ-36) vào spec. (T16.1)
+                                                                          Làm: [Tên người làm]
+  Q-6 [P0] T12  Sơ đồ kiến trúc AWS, data model (keys.ts), API, state machine. (T16.2)
+                                                                          Làm: [Tên người làm]
+
+---------------------------------------------------------------------
+5.6 CẢ NHÓM — Báo cáo & demo (tuần 12)
+---------------------------------------------------------------------
+  D1  [P0] Mục PHÁP LÝ: ví / giữ tiền cần giấy phép NHNN; dữ liệu cá nhân (NĐ 13/2023);
+           AI xử lý ảnh qua inference profile APAC (có thể chạy ở region khác). (T16.5)
+                                                                          Làm: [Tên người làm]
+  D2  [P0] Mục AI: vì sao chọn Nova Pro (credits, theo request); đã cân nhắc Claude Haiku /
+           SageMaker / Rekognition Custom Labels; kết quả A1; phòng thủ nhiều lớp với
+           prompt injection qua ảnh (QĐ-36).                              Làm: [Tên người làm]
+  D3  [P0] Final Report + diễn tập demo 2 lần. (T16.7)                    Làm: [Tên người làm]
+
+---------------------------------------------------------------------
+TẢI VIỆC THEO TUẦN (để không ai quá tải)
+---------------------------------------------------------------------
+           BE-CORE      FE           BE-AI        OPS          QA-DOC
+  T3       B1           F1           A1           O1 O2 O3     Q-1
+  T4       B2           F2 F3        A1 A2        hỗ trợ O1    Q-2
+  T5       B3           F4           A3 A4        O4           Q-1
+  T6       B4 B5        F5 F6        hỗ trợ BE    hỗ trợ       Q-1
+  T7       B6           sửa lỗi      A5           hỗ trợ       Q-1
+  T8       B7 B8        sửa lỗi      A6?          O5           Q-1
+  T9       B9?          F7 F8?       hỗ trợ       hỗ trợ       Q-1 + hỗ trợ F7
+  T10      sửa lỗi      sửa lỗi      sửa lỗi      O6           Q-3
+  T11      D1           sửa lỗi      D2           O7           Q-4 Q-5
+  T12      D3           D3           D3           O8 D3        Q-6 D3
+
+
+=====================================================================
+6. MỐC KIỂM TRA
+=====================================================================
+  Cuối T3  : nhánh mới đã deploy dev, smoke test xanh; Budgets + alarm email hoạt động.
+  Cuối T5  : kết quả đánh giá Nova Pro (A1) + kiểm tra gắn cờ (A2); CI/CD tự deploy.
+  Cuối T7  : giấy tờ đối tác, bằng chứng tranh chấp, sửa / phản hồi đánh giá chạy trên dev.
+  Cuối T9  : giao diện mobile ổn; tính năng P1 đã chọn xong.
+  Cuối T11 : load test, video độ tin cậy, báo cáo chi phí, Well-Architected.
+  T12      : tài liệu + demo.
+
+Kịch bản demo (cập nhật theo QĐ-34 → QĐ-36):
+  1. Người dùng đăng ký → gửi yêu cầu đối tác cấp 1 → Admin duyệt.
+  2. Đăng laptop hỏng → AI (Nova Pro) gợi ý → sửa lại → đăng (dữ liệu nhãn được lưu).
+  3. Đơn vị thu mua cấp 2 trong 5 km nhận tin, báo giá; chủ tin chọn → giao dịch → bàn giao →
+     xác nhận 2 bên → đánh giá.
+  4. Ảnh in câu lệnh → bị gắn cờ → tin chờ duyệt → Admin xem chữ đọc được → từ chối.
+  5. Cloud: dashboard, alarm, load test, chi phí, demo lỗi đồng thời.
+
+
+=====================================================================
+7. CHỜ PRODUCT OWNER QUYẾT (ảnh hưởng phân việc)
+=====================================================================
+  Q1  Thanh toán: giữ offline đến hết dự án, hay nối lại ví + nạp / rút (ảnh hưởng A6, demo)?
+  Q2  Tin chờ duyệt quá 3 ngày: chỉ nhắc Admin, hay tự động từ chối (B8)?
+  Q3  Bộ dữ liệu AI có giữ ẢNH lâu dài không? (cần sửa điều khoản để người dùng đồng ý; hiện ảnh
+      tự xóa sau 120 ngày theo QĐ-27)
+  Q4  Chatbot FAQ bằng AI (đã đề xuất trước đây) có làm không?
