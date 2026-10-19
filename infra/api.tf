@@ -108,6 +108,9 @@ resource "aws_lambda_function" "api" {
       TABLE_NAME        = data.aws_dynamodb_table.core.name
       IMAGE_BUCKET      = var.image_bucket
       AI_MODEL_ID       = var.ai_model_id
+      BILLING_BANK_NAME    = var.billing_bank.bank_name
+      BILLING_ACCOUNT_NO   = var.billing_bank.account_no
+      BILLING_ACCOUNT_NAME = var.billing_bank.account_name
       AI_GUARDRAIL_ID      = var.ai_guardrail_enabled ? aws_bedrock_guardrail.ai[0].guardrail_id : ""
       AI_GUARDRAIL_VERSION = var.ai_guardrail_enabled ? aws_bedrock_guardrail_version.ai[0].version : ""
       NODE_OPTIONS      = "--enable-source-maps"

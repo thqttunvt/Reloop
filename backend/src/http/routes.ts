@@ -1,6 +1,7 @@
 import { requireGroup } from '../auth/auth';
 import { badRequest } from '../shared/errors';
 import type { AiService } from '../modules/ai/aiService';
+import type { BillingService, InvoiceStatus } from '../modules/billing/billingService';
 import type { ChatService } from '../modules/chat/chatService';
 import type { ListingService } from '../modules/listings/listingService';
 import type { LocationService } from '../modules/locations/locationService';
@@ -21,6 +22,7 @@ import type { Route } from './router';
 export interface Services {
   users: UserService;
   wallet: WalletService;
+  billing: BillingService;
   partners: PartnerService;
   listings: ListingService;
   images: ImageStore;
@@ -129,16 +131,21 @@ export function apiRoutes(s: Services): Route[] {
       handle: async (c) => ({ body: await s.users.update(c.principal, { fullName: c.body.fullName, phone: c.body.phone }) }),
     },
 
-    // ------------------------------------------------------------ Phí (QĐ-32) & ví (chỉ xem; nạp/rút đã bỏ)
+    // ------------------------------------------------------------ Phí dịch vụ theo tháng (QĐ-37) & ví (chỉ xem)
     {
       method: 'GET',
       path: '/fees',
       auth: 'required',
-      handle: async (c) => {
-        const price = c.query.price === undefined ? 0 : Number(c.query.price);
-        if (!Number.isSafeInteger(price) || price < 0) throw badRequest('INVALID_QUERY', 'price phải là số nguyên VND ≥ 0');
-        return { body: s.wallet.feeQuote(price) };
-      },
+      handle: async () => ({
+        body: { feePerTransaction: s.billing.feePerTransaction, payer: 'SELLER', billing: 'MONTHLY', appliesTo: 'COMPLETED_TRANSACTIONS' },
+      }),
+    },
+    {
+      // Phí tháng này (tạm tính) + các hóa đơn của tôi
+      method: 'GET',
+      path: '/billing/me',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.billing.summaryFor(c.principal.userId) }),
     },
     { method: 'GET', path: '/wallet', auth: 'required', handle: async (c) => ({ body: await s.wallet.getWallet(c.principal.userId) }) },
     {
@@ -496,6 +503,39 @@ export function apiRoutes(s: Services): Route[] {
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
         return { body: await s.partners.setSuspended(c.principal.userId, c.params.id!, false) };
+      },
+    },
+    {
+      // Hóa đơn phí dịch vụ (QĐ-37) — xem: admin; thu tiền: admin_finance (TL-05)
+      method: 'GET',
+      path: '/admin/invoices',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const status = oneOf<InvoiceStatus>(c.query.status, ['ISSUED', 'PAID'], 'ISSUED');
+        const items = await s.billing.listByStatus(status);
+        const names = Object.fromEntries(await Promise.all(items.map(async (i) => [i.userId, (await s.partners.get(i.userId))?.businessName] as const)));
+        return { body: { items: items.map((i) => ({ ...i, partnerName: names[i.userId] })) } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/invoices/{userId}/{month}/paid',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        const note = typeof c.body.note === 'string' && c.body.note.trim() ? c.body.note.trim().slice(0, 500) : undefined;
+        return { body: await s.billing.markPaid(c.principal.userId, c.params.userId!, c.params.month!, note) };
+      },
+    },
+    {
+      // Lập hóa đơn tay cho một tháng đã kết thúc (job nền cũng tự chạy ngày 1 hằng tháng)
+      method: 'POST',
+      path: '/admin/billing/issue',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        return { body: await s.billing.issueMonth(String(c.body.month ?? '')) };
       },
     },
     {

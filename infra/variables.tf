@@ -27,6 +27,12 @@ variable "ai_model_id" {
   default     = "apac.amazon.nova-pro-v1:0"
 }
 
+variable "billing_bank" {
+  description = "Tài khoản nhận phí dịch vụ hiện trên hóa đơn tháng (QĐ-37). Để rỗng = hóa đơn ghi 'Admin gửi thông tin qua email'."
+  type        = object({ bank_name = string, account_no = string, account_name = string })
+  default     = { bank_name = "", account_no = "", account_name = "" }
+}
+
 variable "ai_guardrail_enabled" {
   description = "Bật Bedrock Guardrail cho mỗi lần gọi AI (lọc nội dung ảnh/chữ không phù hợp, prompt attack ở phần chữ)"
   type        = bool

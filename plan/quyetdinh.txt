@@ -115,7 +115,7 @@ QĐ-24  Partner khai STK doanh nghiệp khi đăng ký; tên chủ TK phải kh�
 QĐ-23  Cam kết xử lý lệnh rút trong 24 giờ. CloudWatch alarm khi lệnh quá 20 giờ chưa xử lý.
 
 
-QĐ-32  HOA HỒNG GIAO DỊCH: 10% giá cuối, tối thiểu 5.000đ (chỉnh bằng cấu hình).
+QĐ-32  [ĐÃ THAY BẰNG QĐ-37] HOA HỒNG GIAO DỊCH: 10% giá cuối, tối thiểu 5.000đ (chỉnh bằng cấu hình).
        • Bên TRẢ chịu, CỘNG THÊM vào: giá 200.000đ → Partner bị giữ 220.000đ,
          Owner nhận đủ 200.000đ, ReLoop thu 20.000đ.
        • Khi thanh toán: giữ = giá + hoa hồng(giá). Hàng theo kg: giá = ước tính × 1,2.
@@ -123,7 +123,7 @@ QĐ-32  HOA HỒNG GIAO DỊCH: 10% giá cuối, tối thiểu 5.000đ (chỉnh 
          phần phí giữ dư được hoàn cùng chênh lệch.
        • Giao dịch hủy / thất bại / Admin xử cho bên trả: không thu phí.
 
-QĐ-33  PHÍ ĐĂNG BÀI: 20.000đ/bài, Owner trả, trừ từ ví khi bấm Đăng.
+QĐ-33  [ĐÃ THAY BẰNG QĐ-37] PHÍ ĐĂNG BÀI: 20.000đ/bài, Owner trả, trừ từ ví khi bấm Đăng.
        • Bài đăng ĐẦU TIÊN của mỗi tài khoản miễn phí.
        • Không đủ số dư → hiện QR nạp phần còn thiếu.
        • Hoàn phí khi tin hết hạn 7 ngày mà KHÔNG có báo giá được Partner xác nhận nào.
@@ -168,6 +168,18 @@ QĐ-36  GẮN CỜ ẢNH CÓ CHỮ BẤT THƯỜNG → TIN CHỜ ADMIN DUYỆT (
          Chủ tin tự hủy được khi đang chờ. Không tự động quyết khi quá 3 ngày.
        • Giám sát: metric ImagesTextFlagged / ListingsFlagged trên dashboard; alarm > 10 ảnh bị gắn cờ / 24 giờ.
        • Lớp bảo vệ chính vẫn là: schema cố định + backend validate + người đăng xác nhận form.
+
+QĐ-37  PHÍ DỊCH VỤ 10.000đ / GIAO DỊCH HOÀN TẤT, TÍNH THEO THÁNG (chốt 2026-10-19 — THAY QĐ-32 và QĐ-33)
+       • Mỗi giao dịch COMPLETED (hai bên xác nhận, tự hoàn tất 48h, hoặc Admin kết luận hoàn tất) tính
+         10.000đ. Hủy / thất bại: không tính. Ghi phí cùng transaction đổi trạng thái → mỗi giao dịch 1 lần.
+       • NGƯỜI BÁN trả (người đăng tin — đối tác cấp 1 hoặc cấp 2). Bên thu mua không trả.
+       • Bỏ hoa hồng 10% (QĐ-32) và phí đăng bài 20.000đ (QĐ-33): đăng tin miễn phí. Code ví / hoa hồng
+         giữ trong modules/wallet để nối lại nếu sau này có thanh toán qua ví.
+       • Tháng tính theo giờ Việt Nam (UTC+7). Ngày 1 hằng tháng job nền lập hóa đơn tháng trước:
+         số giao dịch × 10.000đ, mã nội dung chuyển khoản RLFxxxxxx, hạn 7 ngày. Admin tài chính cũng lập tay được.
+       • Người bán chuyển khoản; Admin (quyền admin_finance, TL-05) đối chiếu mã + số tiền rồi bấm "Đã thu".
+       • Quá hạn 7 ngày chưa trả → khóa đăng tin và báo giá (mã lỗi INVOICE_OVERDUE) cho tới khi trả.
+       • Điều khoản thêm mục Phí dịch vụ → TERMS_VERSION 2026-10-19, mọi người đồng ý lại.
 
 
 =====================================================================

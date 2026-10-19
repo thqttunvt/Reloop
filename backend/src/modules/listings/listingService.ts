@@ -195,7 +195,7 @@ export class ListingService {
     };
     // Bắt buộc ít nhất 1 ảnh (môi trường không có S3 — dev local — thì bỏ qua)
     if (this.images.enabled && listing.imageKeys.length === 0) throw badRequest('IMAGES_REQUIRED', 'Cần ít nhất 1 ảnh thiết bị');
-    // TODO(T8.15): thu phí đăng bài khi đã có cách nạp tiền vào ví.
+    // Đăng tin miễn phí — phí dịch vụ tính theo giao dịch hoàn tất (QĐ-37, thay phí đăng bài QĐ-33).
     await this.images.assertModerated(listing.imageKeys); // ảnh phải qua kiểm duyệt Rekognition
     await this.images.markAttached(listing.imageKeys); // ảnh có chủ → không bị xóa như ảnh rác (QĐ-27)
     const label = await this.aiLabelOp(principal.userId, input.aiAnalysisId, listing);
@@ -640,7 +640,6 @@ export class ListingService {
       return next;
     });
     if (expired) {
-      // TODO(T8.15): hoàn phí đăng bài khi bật lại thu phí.
       await this.notifications.notify(expired.ownerId, {
         type: 'LISTING_EXPIRED',
         title: 'Tin đăng đã hết hạn 7 ngày',

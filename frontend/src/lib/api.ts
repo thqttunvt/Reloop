@@ -403,3 +403,34 @@ export interface ChatMessage {
   text: string;
   at: string;
 }
+
+/** Phí dịch vụ theo tháng (QĐ-37) */
+export interface Invoice {
+  userId: string;
+  month: string;
+  paymentCode: string;
+  transactionCount: number;
+  feePerTransaction: number;
+  amount: number;
+  status: 'ISSUED' | 'PAID';
+  issuedAt: string;
+  dueAt: string;
+  paidAt?: string;
+  paidNote?: string;
+  overdue: boolean;
+  /** Chỉ có ở danh sách của Admin */
+  partnerName?: string;
+}
+
+export interface BillingSummary {
+  feePerTransaction: number;
+  dueDays: number;
+  bank?: { bankName: string; accountNo: string; accountName: string };
+  currentMonth: {
+    month: string;
+    transactionCount: number;
+    amount: number;
+    lines: { transactionId: string; listingTitle: string; amount: number; completedAt: string }[];
+  };
+  invoices: Invoice[];
+}

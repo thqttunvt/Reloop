@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, type Branch, type Listing, type Partner, type Seller, type PartnerStatus, type Report, type Transaction } from '../lib/api';
+import { api, type Branch, type Invoice, type Listing, type Partner, type Seller, type PartnerStatus, type Report, type Transaction } from '../lib/api';
 import { BUSINESS_TYPE_LABEL, CATEGORY_LABEL, PARTNER_STATUS_LABEL, PARTNER_TIER_LABEL, PARTY_LABEL, statusTone, tierOf } from '../lib/catalog';
 import { dateTime, errorText, vnd } from '../lib/format';
 
@@ -11,6 +11,7 @@ export function AdminPage() {
     <div className="stack">
       <StatsAdmin />
       <ListingReviewAdmin />
+      <InvoicesAdmin />
       <PartnersAdmin />
       <DisputesAdmin />
       <ReportsAdmin />
@@ -293,6 +294,110 @@ function ListingReviewAdmin() {
           </div>
         );
       })}
+    </section>
+  );
+}
+
+/**
+ * Hóa đơn phí dịch vụ (QĐ-37): đối chiếu chuyển khoản theo mã RLF… rồi bấm "Đã thu" (cần quyền admin_finance).
+ * Lập hóa đơn tay cho tháng đã kết thúc (job nền tự chạy ngày 1 hằng tháng).
+ */
+function InvoicesAdmin() {
+  const [status, setStatus] = useState<'ISSUED' | 'PAID'>('ISSUED');
+  const [items, setItems] = useState<Invoice[]>([]);
+  const [month, setMonth] = useState('');
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    try {
+      setItems((await api<{ items: Invoice[] }>('GET', `/admin/invoices?status=${status}`)).items);
+      setError('');
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }, [status]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const run = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      await load();
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+  const total = items.reduce((s, i) => s + i.amount, 0);
+
+  return (
+    <section className="card">
+      <div className="row between">
+        <h2>Hóa đơn phí dịch vụ</h2>
+        <select value={status} onChange={(e) => setStatus(e.target.value as 'ISSUED' | 'PAID')}>
+          <option value="ISSUED">Chưa thu</option>
+          <option value="PAID">Đã thu</option>
+        </select>
+      </div>
+      <p className="muted">10.000đ / giao dịch hoàn tất, người bán trả. Đối chiếu nội dung chuyển khoản với mã hóa đơn trước khi bấm "Đã thu".</p>
+      {error && <p className="error">{error}</p>}
+      {items.length === 0 ? (
+        <p className="muted">Không có hóa đơn.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Đối tác</th>
+              <th>Tháng</th>
+              <th className="num">Giao dịch</th>
+              <th className="num">Số tiền</th>
+              <th>Mã CK</th>
+              <th>{status === 'ISSUED' ? 'Hạn' : 'Đã thu'}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((i) => (
+              <tr key={`${i.userId}-${i.month}`}>
+                <td>{i.partnerName ?? i.userId}</td>
+                <td>{i.month}</td>
+                <td className="num">{i.transactionCount}</td>
+                <td className="num">{vnd(i.amount)}</td>
+                <td>
+                  <code>{i.paymentCode}</code>
+                </td>
+                <td>
+                  {status === 'ISSUED' ? (
+                    <span className={`badge ${i.overdue ? 'bad' : 'warn'}`}>{dateTime(i.dueAt)}</span>
+                  ) : (
+                    i.paidAt && dateTime(i.paidAt)
+                  )}
+                </td>
+                <td>
+                  {status === 'ISSUED' && (
+                    <button className="secondary" onClick={() => confirm(`Xác nhận đã nhận ${vnd(i.amount)} (mã ${i.paymentCode})?`) && void run(() => api('POST', `/admin/invoices/${i.userId}/${i.month}/paid`, { body: {} }))}>
+                      Đã thu
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {items.length > 0 && <p className="muted">Tổng: {vnd(total)}</p>}
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run(async () => setMsg(`Đã lập ${(await api<{ issued: number }>('POST', '/admin/billing/issue', { body: { month } })).issued} hóa đơn tháng ${month}`));
+        }}
+      >
+        <input placeholder="Tháng đã kết thúc, vd 2026-10" value={month} onChange={(e) => setMonth(e.target.value)} pattern="\d{4}-\d{2}" required />
+        <button type="submit" className="secondary">
+          Lập hóa đơn
+        </button>
+        {msg && <span className="muted">{msg}</span>}
+      </form>
     </section>
   );
 }

@@ -9,6 +9,7 @@ import { keys } from '../../store/keys';
 import { withOptimisticRetry } from '../../store/retry';
 import { putNew, putVersioned, type Item, type Table, type WriteOp } from '../../store/table';
 import { timerOp } from '../jobs/timers';
+import type { BillingService } from '../billing/billingService';
 import type { Listing, ListingService, Quote } from '../listings/listingService';
 import type { NotificationService } from '../notifications/notificationService';
 import type { Branch, PartnerService } from '../partners/partnerService';
@@ -90,6 +91,7 @@ export class TransactionService {
     private readonly listings: ListingService,
     private readonly notifications: NotificationService,
     private readonly images: ImageStore,
+    private readonly billing: BillingService,
   ) {}
 
   // ------------------------------------------------------------------ Tạo giao dịch (T9.1)
@@ -512,6 +514,8 @@ export class TransactionService {
           timerOp('TX_AUTO_COMPLETE', tx.transactionId, next.counterpartyDeadline),
         );
       }
+      // Phí dịch vụ 10.000đ / giao dịch hoàn tất, người bán trả, gom hóa đơn theo tháng (QĐ-37)
+      if (tx.status !== 'COMPLETED' && next.status === 'COMPLETED') ops.push(...this.billing.feeOps(next, now));
       if (!TERMINAL.includes(tx.status) && TERMINAL.includes(next.status)) {
         const listing = await this.loadListing(tx.listingId);
         if (listing.status === 'MATCHED' && listing.activeTransactionId === tx.transactionId) {

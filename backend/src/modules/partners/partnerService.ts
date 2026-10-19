@@ -19,6 +19,7 @@ import { bool, geoPoint, int, listOf, num, oneOf, str, type GeoPoint } from '../
 import { gsi1, keys } from '../../store/keys';
 import { withOptimisticRetry } from '../../store/retry';
 import { putVersioned, type Item, type Table } from '../../store/table';
+import type { BillingService } from '../billing/billingService';
 import type { NotificationService } from '../notifications/notificationService';
 import type { UserService } from '../users/userService';
 
@@ -107,6 +108,7 @@ export class PartnerService {
     private readonly clock: Clock,
     private readonly users: UserService,
     private readonly notifications: NotificationService,
+    private readonly billing: BillingService,
   ) {}
 
   // ------------------------------------------------------------------ Hồ sơ đối tác (T3.1)
@@ -220,6 +222,7 @@ export class PartnerService {
   async requireApprovedBusiness(partnerId: string): Promise<Partner> {
     const partner = await this.requireApproved(partnerId);
     if (partnerTier(partner) !== 'BUSINESS') throw forbidden('Chỉ đối tác cấp 2 (doanh nghiệp / hộ kinh doanh) mới thu mua được');
+    await this.billing.assertNoOverdue(partnerId); // nợ phí quá hạn → khóa báo giá (QĐ-37)
     return partner;
   }
 
@@ -229,6 +232,7 @@ export class PartnerService {
     if (partner?.status !== 'APPROVED') {
       throw new AppError(403, 'PARTNER_REQUIRED', 'Chỉ đối tác đã được Admin duyệt mới đăng tin được — hãy gửi yêu cầu làm đối tác');
     }
+    await this.billing.assertNoOverdue(userId); // nợ phí quá hạn → khóa đăng tin (QĐ-37)
     return partner;
   }
 

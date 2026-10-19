@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { BillingCard } from '../components/BillingCard';
 import { CheckGroup } from '../components/CheckGroup';
 import { MapPicker, type LatLng } from '../components/MapPicker';
 import { api, type Branch, type BusinessType, type Partner, type PartnerRequest, type PricingRule } from '../lib/api';
@@ -66,6 +67,7 @@ export function PartnerPage() {
         onUpdateEmail={(contactEmail) => run(() => api('PATCH', '/partners/me/contact', { body: { contactEmail } }))}
       />
 
+      {p && (p.status === 'APPROVED' || p.status === 'SUSPENDED') && <BillingCard />}
       {p && tierOf(p) === 'BUSINESS' && (
         <>
           {p.status === 'APPROVED' && <RequestsCard requests={requests} />}
@@ -126,7 +128,8 @@ function ApplyCard({
       {!partner && (
         <p>
           Chỉ <strong>đối tác đã được Admin duyệt</strong> mới đăng tin được. Khách lẻ đăng ký <strong>cấp 1</strong>; doanh nghiệp / hộ kinh doanh
-          đăng ký <strong>cấp 2</strong> để vừa đăng tin vừa thu mua theo chi nhánh và bảng giá.
+          đăng ký <strong>cấp 2</strong> để vừa đăng tin vừa thu mua theo chi nhánh và bảng giá. Đăng tin miễn phí; người bán trả{' '}
+          <strong>10.000đ cho mỗi giao dịch hoàn tất</strong>, thanh toán gộp theo tháng.
         </p>
       )}
       {partner?.status === 'PENDING' && (

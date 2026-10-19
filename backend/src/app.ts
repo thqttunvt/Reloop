@@ -1,6 +1,7 @@
 import { BedrockAnalyzer, DisabledAnalyzer, type Analyzer } from './ai/analyzer';
 import { CognitoAuthProvider, LocalAuthProvider, type AuthProvider } from './auth/auth';
 import { apiRoutes, type Services } from './http/routes';
+import { BillingService, DEFAULT_BILLING, type BillingBank } from './modules/billing/billingService';
 import { ChatService } from './modules/chat/chatService';
 import { AiService } from './modules/ai/aiService';
 import { TimerSweeper } from './modules/jobs/timers';
@@ -37,6 +38,8 @@ export interface AppConfig {
   /** Bedrock Guardrail áp cho mỗi lần gọi AI (không bắt buộc). */
   aiGuardrail?: { id: string; version: string };
   awsRegion: string;
+  /** Tài khoản nhận phí dịch vụ (QĐ-37) — hiện trên hóa đơn. */
+  billingBank?: BillingBank;
   /** Chỉ dùng với MemoryTable khi dev local. */
   dataFile?: string;
 }
@@ -55,6 +58,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     aiModelId: env.AI_MODEL_ID || undefined,
     aiGuardrail: env.AI_GUARDRAIL_ID ? { id: env.AI_GUARDRAIL_ID, version: env.AI_GUARDRAIL_VERSION || 'DRAFT' } : undefined,
     awsRegion: env.AWS_REGION ?? 'ap-southeast-1',
+    billingBank:
+      env.BILLING_BANK_NAME && env.BILLING_ACCOUNT_NO && env.BILLING_ACCOUNT_NAME
+        ? { bankName: env.BILLING_BANK_NAME, accountNo: env.BILLING_ACCOUNT_NO, accountName: env.BILLING_ACCOUNT_NAME }
+        : undefined,
     dataFile: env.DATA_FILE ?? '.data/db.json',
   };
 }
@@ -81,21 +88,22 @@ export function buildApp(
   const users = new UserService(table, clock);
   const wallet = new WalletService(table, clock, new Ledger(table, clock), config.fees);
   const notifications = new NotificationService(table, clock);
-  const partners = new PartnerService(table, clock, users, notifications);
+  const billing = new BillingService(table, clock, notifications, DEFAULT_BILLING, config.billingBank);
+  const partners = new PartnerService(table, clock, users, notifications, billing);
   const listings = new ListingService(table, clock, users, partners, images, notifications);
-  const transactions = new TransactionService(table, clock, users, partners, listings, notifications, images);
+  const transactions = new TransactionService(table, clock, users, partners, listings, notifications, images, billing);
   const reputation = new ReputationService(table, clock);
   const analyzer = overrides.analyzer ?? (config.aiModelId ? new BedrockAnalyzer(config.aiModelId, config.awsRegion, config.aiGuardrail) : new DisabledAnalyzer());
   const ai = new AiService(table, clock, analyzer, images);
   const locations = new LocationService(table, clock);
   const reports = new ReportService(table, clock, listings, notifications);
   const chat = new ChatService(table, clock, listings, partners, users, notifications);
-  const services: Services = { users, wallet, partners, listings, images, moderator, screener, notifications, transactions, reputation, ai, locations, reports, chat };
+  const services: Services = { users, wallet, billing, partners, listings, images, moderator, screener, notifications, transactions, reputation, ai, locations, reports, chat };
   const sweeper = new TimerSweeper(table, clock, {
     LISTING_EXPIRE: (t) => listings.expireIfDue(t.targetId),
     TX_REMIND: (t) => transactions.remindIfWaiting(t.targetId),
     TX_AUTO_COMPLETE: async (t) => void (await transactions.autoComplete(t.targetId)),
-  });
+  }, [() => billing.issuePreviousMonthIfDue()]);
 
   const routes = apiRoutes(services);
   return { handler: createApiHandler({ routes, auth, table, clock }), services, table, sweeper };

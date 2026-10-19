@@ -117,10 +117,11 @@ describe('Ví — giữ tiền & kết thúc giao dịch', () => {
   });
 });
 
-describe('Phí (QĐ-32, QĐ-33)', () => {
+// QĐ-32 / QĐ-33 đã được QĐ-37 (10.000đ / giao dịch, theo tháng) thay thế; module ví giữ lại để nối sau.
+describe('Phí cũ trong module ví (QĐ-32, QĐ-33 — đã thay bằng QĐ-37)', () => {
   it('hoa hồng 10%, tối thiểu 5.000đ', async () => {
     const t = makeTestApp();
-    const quote = (price: number) => t.call('GET', `/fees?price=${price}`, { user: 'u' }).then((r) => r.body);
+    const quote = async (price: number) => t.services.wallet.feeQuote(price);
     expect(await quote(200_000)).toMatchObject({ commission: 20_000, payerTotal: 220_000 });
     expect(await quote(30_000)).toMatchObject({ commission: 5_000, payerTotal: 35_000 });
     expect(await quote(0)).toMatchObject({ commission: 0, payerTotal: 0 });

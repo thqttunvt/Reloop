@@ -4,6 +4,7 @@ Nền tảng kết nối người có đồ điện tử cũ, hỏng (**Owner**)
 
 - Web (dev): https://d1cjl1tvcp0r6q.cloudfront.net
 - Tài liệu kế hoạch: [plan/](plan/). Thứ tự ưu tiên khi các file mâu thuẫn: [plan/quyetdinh.txt](plan/quyetdinh.txt) → [plan/task.txt](plan/task.txt) → giaiphap.txt → spec gốc. Trạng thái mới nhất: [plan/readmeall.md](plan/readmeall.md).
+- **Phí dịch vụ (QĐ-37):** đăng tin miễn phí; người bán trả 10.000đ / giao dịch hoàn tất, hóa đơn gộp theo tháng, chuyển khoản, Admin xác nhận.
 - **Nạp / rút tiền qua ngân hàng đã bỏ (2026-10-16).** Hai bên thanh toán trực tiếp khi bàn giao. Sổ cái ví, giữ tiền, hoa hồng, phí đăng bài vẫn giữ trong code để nối lại khi có kết nối ngân hàng cho đối tác chuyển tiền.
 
 ## Cấu trúc

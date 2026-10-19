@@ -37,6 +37,11 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
         giá cuối do hai bên thống nhất khi bàn giao. Hiện hai bên thanh toán trực tiếp khi gặp nhau. Chỉ đối tác đã được Admin duyệt mới đăng tin:
         khách lẻ là đối tác cấp 1, doanh nghiệp / hộ kinh doanh là đối tác cấp 2.
       </p>
+      <h3>Phí dịch vụ</h3>
+      <p>
+        Đăng tin miễn phí. Người bán trả 10.000đ cho mỗi giao dịch hoàn tất (hủy / thất bại không tính phí). Phí được gộp theo tháng: ngày 1 hằng
+        tháng ReLoop gửi hóa đơn tháng trước, thanh toán bằng chuyển khoản trong 7 ngày; quá hạn sẽ tạm khóa đăng tin và báo giá cho tới khi thanh toán.
+      </p>
       <h3>2. AI phân tích ảnh</h3>
       <p>AI chỉ gợi ý thông tin dựa trên những gì thấy được trong ảnh, không khẳng định thiết bị còn hoạt động. Bạn chịu trách nhiệm kiểm tra lại trước khi đăng.</p>
       <h3>3. Dữ liệu cá nhân</h3>

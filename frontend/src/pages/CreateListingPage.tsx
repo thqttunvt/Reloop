@@ -344,7 +344,7 @@ function PartnerCta({ partner }: { partner: Partner | null }) {
       <h3>🤝 Trở thành đối tác để đăng tin</h3>
       <p>
         Chỉ đối tác đã được Admin duyệt mới đăng tin được. <strong>Khách lẻ</strong> đăng ký đối tác cấp 1;{' '}
-        <strong>doanh nghiệp / hộ kinh doanh</strong> đăng ký cấp 2. Chỉ cần tên và email liên hệ.
+        <strong>doanh nghiệp / hộ kinh doanh</strong> đăng ký cấp 2. Đăng tin miễn phí; chỉ thu 10.000đ cho mỗi giao dịch hoàn tất, trả gộp theo tháng.
         {partner?.status === 'REJECTED' && ' Hồ sơ trước đã bị từ chối — bạn có thể sửa và gửi lại.'}
       </p>
       <Link to="/partner" className="button">

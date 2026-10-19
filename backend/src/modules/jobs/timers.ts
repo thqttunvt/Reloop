@@ -31,6 +31,8 @@ export class TimerSweeper {
     private readonly table: Table,
     private readonly clock: Clock,
     private readonly handlers: Record<TimerKind, TimerHandler>,
+    /** Việc định kỳ chạy sau mỗi lượt quét (vd lập hóa đơn tháng — QĐ-37). Phải idempotent. */
+    private readonly periodic: (() => Promise<void>)[] = [],
   ) {}
 
   async sweep(): Promise<{ processed: number; failed: number }> {
@@ -51,6 +53,14 @@ export class TimerSweeper {
           failed++; // giữ lại timer để lần quét sau thử lại
           log('error', 'timer_failed', { kind: t.kind, targetId: t.targetId, error: err instanceof Error ? err.message : String(err) });
         }
+      }
+    }
+    for (const job of this.periodic) {
+      try {
+        await job();
+      } catch (err) {
+        failed++;
+        log('error', 'timer_failed', { kind: 'PERIODIC', error: err instanceof Error ? err.message : String(err) });
       }
     }
     if (processed || failed) log('info', 'timer_sweep', { processed, failed });

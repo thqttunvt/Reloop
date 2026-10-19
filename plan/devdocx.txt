@@ -6,7 +6,7 @@ Nhánh code mới nhất: feature/doi-tac-2-cap (chưa gộp vào main, chưa de
 Cách dùng file này:
   • Điền tên 5 thành viên vào bảng THÀNH VIÊN ở mục 5, rồi thay [Tên người làm] ở mỗi task.
   • Nhận task thì ghi tên + ngày bắt đầu; xong thì đánh dấu ✔ + link PR cạnh task đó.
-  • Quyết định nghiệp vụ: xem plan/quyetdinh.txt (ưu tiên cao nhất, hiện có QĐ-01 → QĐ-36).
+  • Quyết định nghiệp vụ: xem plan/quyetdinh.txt (ưu tiên cao nhất, hiện có QĐ-01 → QĐ-37).
   • Trạng thái chi tiết + nhật ký: plan/readmeall.md. Danh sách task gốc 12 tuần: plan/task.txt.
 
 
@@ -28,17 +28,19 @@ Kiến trúc (serverless AWS, ap-southeast-1, account 926583575243):
   Phụ trợ: S3 ảnh (presigned POST) · Rekognition (kiểm duyệt ảnh + đọc chữ) ·
            Bedrock Amazon Nova Pro (AI phân tích ảnh) + Guardrail · EventBridge 15 phút (job nền) ·
            CloudWatch (dashboard, 8 alarm).
-  Thanh toán: OFFLINE (hai bên trả tiền khi gặp). Code ví / sổ cái / phí vẫn giữ, chưa nối.
+  Thanh toán: OFFLINE (hai bên trả tiền khi gặp). Code ví / sổ cái vẫn giữ, chưa nối.
+  Doanh thu (QĐ-37): đăng tin miễn phí; người bán trả 10.000đ / giao dịch hoàn tất, hóa đơn gộp theo
+  tháng (ngày 1), chuyển khoản theo mã RLFxxxxxx, Admin tài chính xác nhận; quá hạn 7 ngày khóa đăng tin.
 
 Bản đồ thư mục:
   backend/src/app.ts            lắp adapter theo môi trường (local ↔ aws)
   backend/src/http/routes.ts    TẤT CẢ API ở một file
-  backend/src/modules/*         nghiệp vụ: users, partners, listings, transactions, chat, ai,
+  backend/src/modules/*         nghiệp vụ: users, partners, listings, transactions, chat, ai, billing,
                                 notifications, reputation, reports, locations, jobs, wallet
   backend/src/store/keys.ts     TẤT CẢ khóa DynamoDB ở một file
   backend/src/domain/           state machine Listing / Quote / Transaction, danh mục
   backend/src/storage, ai/      S3, Rekognition, Bedrock (adapter — nghiệp vụ không gọi AWS trực tiếp)
-  backend/test/                 vitest (101 test)
+  backend/test/                 vitest (107 test)
   frontend/src/pages, lib/      React; lib/api.ts = kiểu dữ liệu + gọi API; lib/catalog.ts = nhãn tiếng Việt
   infra/*.tf                    Terraform; infra/deploy.sh = build + apply + upload web
   scripts/                      smoke-aws.py (test trên AWS), make-admin.sh, loadtest.mjs
@@ -107,7 +109,7 @@ Definition of Done (mọi task):
   ✔ Kiểm duyệt ảnh nhạy cảm (Rekognition), lưu trữ QĐ-27 (TTL + S3 Lifecycle).
   ✔ Hạ tầng dev bằng Terraform, CloudWatch dashboard + alarm, smoke test AWS.
   ✔ (Nhánh mới, chưa deploy) QĐ-34 đối tác 2 cấp · QĐ-35 AI Amazon Nova Pro + bộ dữ liệu nhãn ·
-    QĐ-36 gắn cờ ảnh có chữ bất thường → tin chờ Admin duyệt.
+    QĐ-36 gắn cờ ảnh có chữ bất thường → tin chờ Admin duyệt · QĐ-37 phí 10.000đ / giao dịch theo tháng.
 
 
 =====================================================================
@@ -185,7 +187,7 @@ Review chéo PR (mỗi PR cần 1 người duyệt):
                                                                           Làm: [Tên người làm]
   A5  [P1] T7   Script xuất bộ dữ liệu nhãn (AILABEL#<tháng>) ra JSONL / CSV + thống kê
                 % AI đúng theo tháng.                                     Làm: [Tên người làm]
-  A6  [MR]      Ví & phí: nối lại phí đăng bài (T8.15), hoa hồng (QĐ-32) — chờ quyết Q1.
+  A6  [MR]      Ví: nối lại thanh toán qua ví nếu Q1 chọn (phí đã chuyển sang QĐ-37, không cần ví).
                                                                           Làm: [Tên người làm]
 
 ---------------------------------------------------------------------
@@ -216,6 +218,8 @@ Review chéo PR (mỗi PR cần 1 người duyệt):
 ---------------------------------------------------------------------
 5.5 #5 QA-DOC — Kiểm thử, bằng chứng, tài liệu   Phụ trách chính: [Tên người làm]
 ---------------------------------------------------------------------
+  Q-0 [P0] T4   Kiểm thử phí QĐ-37 trên dev: giao dịch hoàn tất → tạm tính tháng; Admin lập hóa đơn tháng
+                trước, bấm "Đã thu"; quá hạn → bị khóa đăng tin.                Làm: [Tên người làm]
   Q-1 [P0] T3+  Checklist kiểm thử thủ công theo kịch bản demo (mục 6); chạy lại sau mỗi lần
                 deploy dev, ghi lỗi thành GitHub Issue.                   Làm: [Tên người làm]
   Q-2 [P0] T4   Test phân quyền trên dev: người khác / vai trò khác bị từ chối (tin chờ duyệt,
@@ -271,7 +275,8 @@ Kịch bản demo (cập nhật theo QĐ-34 → QĐ-36):
   1. Người dùng đăng ký → gửi yêu cầu đối tác cấp 1 → Admin duyệt.
   2. Đăng laptop hỏng → AI (Nova Pro) gợi ý → sửa lại → đăng (dữ liệu nhãn được lưu).
   3. Đơn vị thu mua cấp 2 trong 5 km nhận tin, báo giá; chủ tin chọn → giao dịch → bàn giao →
-     xác nhận 2 bên → đánh giá.
+     xác nhận 2 bên → đánh giá → trang Đối tác hiện phí tạm tính 10.000đ.
+  3b. Admin lập hóa đơn tháng → người bán thấy mã chuyển khoản → Admin tài chính bấm "Đã thu".
   4. Ảnh in câu lệnh → bị gắn cờ → tin chờ duyệt → Admin xem chữ đọc được → từ chối.
   5. Cloud: dashboard, alarm, load test, chi phí, demo lỗi đồng thời.
 
@@ -316,5 +321,10 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
          Người làm: [Tên người làm]   Kiểm chứng: 101 test · commit 1acf50c
   19/10  Dev doc + phân chia công việc 5 thành viên (file này).
          Người làm: [Tên người làm]   Kiểm chứng: commit 276a96d
+
+  19/10  QĐ-37 phí dịch vụ: 10.000đ / giao dịch hoàn tất, người bán trả, hóa đơn gộp theo tháng
+         (giờ VN), Admin tài chính xác nhận đã thu, quá hạn 7 ngày khóa đăng tin / báo giá;
+         thay hoa hồng 10% và phí đăng bài.
+         Người làm: [Tên người làm]   Kiểm chứng: 107 test (billing.test.ts) · commit (xem git log)
 
   ⚠ Các mục 18/10 – 19/10 nằm trên nhánh feature/doi-tac-2-cap, CHƯA deploy lên web dev (task O1).

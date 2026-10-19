@@ -65,6 +65,15 @@ export const keys = {
   }),
   userConversation: (userId: string, conversationId: string) => ({ pk: `USER#${userId}`, sk: `CONV#${conversationId}` }),
 
+  // Phí dịch vụ theo tháng (QĐ-37)
+  feeLine: (userId: string, month: string, transactionId: string) => ({ pk: `USER#${userId}`, sk: `FEE#${month}#${transactionId}` }),
+  /** Người có phí trong tháng — để lập hóa đơn không cần Scan. */
+  feeMonthMember: (month: string, userId: string) => ({ pk: `FEEMONTH#${month}`, sk: userId }),
+  feeMonthPk: (month: string) => `FEEMONTH#${month}`,
+  invoice: (userId: string, month: string) => ({ pk: `USER#${userId}`, sk: `INVOICE#${month}` }),
+  /** Đánh dấu job lập hóa đơn của tháng đã chạy. */
+  billingRun: (month: string) => ({ pk: 'SYSTEM', sk: `BILLINGRUN#${month}` }),
+
   // Hẹn giờ việc nền (Epic 10)
   timer: (bucket: string, kind: string, id: string) => ({ pk: `TIMER#${bucket}`, sk: `${kind}#${id}` }),
   timerPk: (bucket: string) => `TIMER#${bucket}`,
