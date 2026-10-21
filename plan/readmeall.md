@@ -89,12 +89,12 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 
 ## 6. Trạng thái hiện tại (2026-10-22)
 
-**Đã deploy lên AWS dev (bản 2026-10-19, commit `f1b8b71`):** EPIC 1–7, 9–14, Chợ + chat, kiểm duyệt ảnh, QĐ-34 → QĐ-37; smoke-aws.py ALL PASS.
+**Đã deploy lên AWS dev (2026-10-22, commit `d4e2784` + `ae5f016`, nhánh `feature/doi-tac-2-cap`):** toàn bộ dưới đây; smoke-aws.py RUN e07cce ALL PASS (25 bước). Dữ liệu test được GIỮ trên web theo yêu cầu (dùng để test / fix bug) — không xóa tin nào.
 
-**Có test, CHƯA commit, CHƯA deploy (2026-10-20 → 2026-10-22, 140 test pass):**
+**Gồm (2026-10-20 → 2026-10-22, 140 test pass):**
 - QĐ-38 ra giá trong chat + hủy sau 5 phút · QĐ-39 chống né phí · QĐ-40 khóa 2 mức khi nợ phí · QĐ-41 hạn mức tin + VIP 1 · QĐ-42 hoàn tất 2 bước · QĐ-43 xử lý vi phạm theo mức, đếm vi phạm, ảnh nghi nhạy cảm chờ duyệt.
 - Sửa lỗi theo `danhgia.txt`: 1, 1b, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 20 (Admin xem chat, hộp thư chung Admin + email khi có khiếu nại, Chợ phân trang thật…).
-- Terraform: SNS luôn tạo, alarm `dispute-opened`, metric mới — cần `terraform apply`.
+- Terraform đã apply: SNS `reloop-dev-alarms`, alarm `dispute-opened`, metric mới, S3 ảnh 90 ngày.
 
 **Chưa làm / còn lỗi** (chi tiết `danhgia.txt`, `devdocx.txt` mục 5)
 - Lỗi code còn mở: 12 (lượt AI theo ngày UTC), 19 (comment IAM ghi "Claude Haiku").
@@ -103,8 +103,8 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 
 ## 7. Việc tiếp theo
 
-1. **Commit + push** toàn bộ thay đổi từ 2026-10-20 (kiểm tra `git status`).
-2. **Deploy bản đầy đủ** `AWS_PROFILE=reloop bash infra/deploy.sh`, chạy `smoke-aws.py`; chạy lại `make-admin.sh` cho các Admin hiện có để đăng ký email cảnh báo và bấm Confirm.
+1. Chạy lại `make-admin.sh` cho các Admin hiện có để đăng ký email cảnh báo, mỗi người bấm Confirm trong email AWS.
+2. Gộp `feature/doi-tac-2-cap` vào `main` (Pull Request) khi nhóm đã test xong.
 3. Người dùng thử trên web dev, báo lỗi; sửa tiếp các mục còn mở trong `danhgia.txt`.
 4. Báo đồng đội tắt / thêm xác thực API `reloop-generate-presigned-url` (đang công khai); bỏ pool Cognito cũ.
 
@@ -145,3 +145,4 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 | 2026-10-21 | QĐ-39 chống né phí (phí nghi bán ngoài + khiếu nại + cờ Admin). QĐ-40 khóa 2 mức khi nợ phí; người bán bị tạm ngừng bị ẩn. Sửa lỗi 1b, 2, 3, 6, 8, 9, 10, 11 (Chợ phân trang thật, `skRange`), 20 (Admin xem chat). QĐ-41 hạn mức tin 3 / 5 / 10 + VIP 1. QĐ-42 hoàn tất 2 bước. 132 test. Chưa commit / deploy. |
 | 2026-10-22 | Mục 7: hộp thư chung Admin + CloudWatch alarm `dispute-opened` → SNS email (make-admin.sh tự đăng ký email Admin). QĐ-43: báo cáo vi phạm theo mức, lý do soạn sẵn, chặn tạm ngừng nhầm, đếm vi phạm ≥ 5 / 30 ngày, ảnh nghi nhạy cảm 50–70% chờ duyệt. 140 test, terraform validate OK. Đối chiếu toàn bộ tài liệu với code (chỉ sửa tài liệu). Chưa commit / deploy. |
 | 2026-10-22 | S3 Lifecycle: ảnh xóa 90 ngày sau khi upload (thay 120 ngày, tiết kiệm); điều khoản sửa "90 ngày sau khi tải lên"; menu "Ví (đang fix)". Chưa commit / deploy (cần `terraform apply`). |
+| 2026-10-22 | Push GitHub (commit d4e2784, ae5f016) + DEPLOY dev: terraform apply 5 thêm / 10 sửa / 0 xóa, Lambda + web mới. smoke-aws.py sửa theo luật mới (hủy 5 phút, ra giá trong chat, khách đồng ý điều khoản), mặc định giữ dữ liệu test (người dùng yêu cầu không xóa tin nào); RUN e07cce ALL PASS. 2 tài khoản test smoke-*-cd6a26 đang bị tạm ngừng (tin ẩn, chưa xóa). |

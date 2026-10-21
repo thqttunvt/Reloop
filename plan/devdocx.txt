@@ -1,8 +1,8 @@
 RELOOP — DEV DOC & PHÂN CHIA CÔNG VIỆC
 =====================================================================
 Cập nhật: 2026-10-22 (đối chiếu lại toàn bộ với code) · Dành cho: 5 thành viên nhóm phát triển
-Nhánh code mới nhất: feature/doi-tac-2-cap (chưa gộp vào main). Đã deploy lên dev bản 19/10 (commit f1b8b71);
-mọi thay đổi từ 20/10 (QĐ-38 → QĐ-43) CHƯA commit, CHƯA deploy.
+Nhánh code mới nhất: feature/doi-tac-2-cap (chưa gộp vào main). Đã push + deploy lên dev ngày 22/10
+(commit d4e2784, ae5f016) — gồm QĐ-38 → QĐ-43.
 
 Cách dùng file này:
   • Điền tên 5 thành viên vào bảng THÀNH VIÊN ở mục 5, rồi thay [Tên người làm] ở mỗi task.
@@ -78,7 +78,8 @@ Làm việc với AWS (chỉ người có quyền, xem vai trò OPS):
   AWS_PROFILE=reloop bash scripts/make-admin.sh <email> --finance   # + tự đăng ký email Admin nhận cảnh báo SNS
   ⚠ Không dùng profile mặc định của máy cho ReLoop. Không commit .env, khóa AWS.
 
-Web dev: https://d1cjl1tvcp0r6q.cloudfront.net (bản 19/10; các tính năng từ 20/10 chưa có trên web dev)
+Web dev: https://d1cjl1tvcp0r6q.cloudfront.net (bản 22/10, commit d4e2784)
+Smoke test mặc định GIỮ dữ liệu test trên web (nhóm dùng để test / fix bug); --cleanup chỉ tạm ngừng tài khoản test.
 Server local chạy job nền mỗi 60 giây (trên AWS: EventBridge 15 phút).
 
 
@@ -125,7 +126,7 @@ Definition of Done (mọi task):
   ✔ Hạ tầng dev bằng Terraform, CloudWatch dashboard + alarm, smoke test AWS.
   ✔ (Đã deploy dev 19/10) QĐ-34 đối tác 2 cấp · QĐ-35 AI Amazon Nova Pro + bộ dữ liệu nhãn ·
     QĐ-36 gắn cờ ảnh có chữ bất thường → tin chờ Admin duyệt · QĐ-37 phí 10.000đ / giao dịch theo tháng.
-  ✔ (Có test, CHƯA commit / deploy, 20–22/10) QĐ-38 ra giá trong chat + hủy giao dịch sau 5 phút ·
+  ✔ (Đã deploy dev 22/10, commit d4e2784) QĐ-38 ra giá trong chat + hủy giao dịch sau 5 phút ·
     QĐ-39 chống né phí (phí nghi bán ngoài, khiếu nại phí, cờ cho Admin) · QĐ-40 khóa 2 mức khi nợ phí ·
     QĐ-41 hạn mức tin + VIP 1 · QĐ-42 hoàn tất 2 bước (xác nhận giá → chấp nhận) · QĐ-43 báo cáo vi phạm theo
     mức, đếm vi phạm, ảnh nghi nhạy cảm chờ duyệt · Chợ phân trang thật · Admin xem chat · hộp thư chung Admin +
@@ -365,60 +366,63 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
          QĐ-38 ra giá trong chat: khách và người bán ra giá qua lại, bên kia bấm Chấp nhận → tạo giao dịch,
          tin rời Chợ, khách khác + đơn vị thu mua được báo và chat của họ khóa; đang giao dịch vẫn ra giá mới được.
          Hủy giao dịch = yêu cầu hủy, 5 phút sau tự hủy (rút lại / đồng ý hủy ngay được), tin quay lại Chợ.
-         Người làm: [Tên người làm]   Kiểm chứng: 112 test (chat.test.ts, transactions.test.ts) · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 112 test (chat.test.ts, transactions.test.ts) · đã deploy dev 22/10
 
   21/10  QĐ-39 chống né phí: hủy / thất bại rồi người bán gỡ tin trong 72 giờ → tự tính 10.000đ "nghi bán ngoài",
          người bán khiếu nại, Admin tài chính miễn / giữ (hóa đơn chưa thu được tính lại). Cờ "nghi né phí" cho Admin
          (≥ 2 lần hủy với cùng người mua, hoặc ≥ 3 lần hủy rồi gỡ tin trong 30 ngày) → bỏ qua / cảnh cáo / tạm ngừng.
          Điều khoản lên 2026-10-21 (mọi người đồng ý lại).
-         Người làm: [Tên người làm]   Kiểm chứng: 117 test (feeEvasion.test.ts) · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 117 test (feeEvasion.test.ts) · đã deploy dev 22/10
 
   21/10  Sửa 3 lỗi mức cao (plan/danhgia.txt): (1b) báo giá của đơn vị không được chọn hiện "đang giao dịch với người khác",
          được báo, tin hoàn tất → hết hiệu lực; (2 + 3) QĐ-40 nợ phí quá hạn > 3 ngày không đăng tin mới, > 7 ngày khóa mọi
          chức năng (chỉ còn màn hình thanh toán); người bán bị tạm ngừng → tin ẩn khỏi Chợ, không chốt / báo giá / chat mới.
-         Người làm: [Tên người làm]   Kiểm chứng: 119 test (billing, transactions, chat) · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 119 test (billing, transactions, chat) · đã deploy dev 22/10
 
   21/10  Mục 11: Chợ phân trang thật (đọc con trỏ 7 ngày gần nhất theo từng đợt bằng khoảng sort key, không giới hạn
          200 tin / tháng); Table.query có thêm skRange (BETWEEN / >= / <=).
          QĐ-41 hạn mức tin đang mở cùng lúc: cấp 1 = 3, VIP 1 = 5, cấp 2 = 10; VIP 1 tự mua 10.000đ / 30 ngày (cộng dồn),
          cộng vào hóa đơn tháng; thẻ "Hạn mức đăng tin" ở trang Đối tác, cảnh báo ở trang Đăng tin.
-         Người làm: [Tên người làm]   Kiểm chứng: 125 test (quota.test.ts, chat.test.ts, dynamoTable.test.ts) · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 125 test (quota.test.ts, chat.test.ts, dynamoTable.test.ts) · đã deploy dev 22/10
 
   21/10  Sửa mục 6, 10, 20 (plan/danhgia.txt): nút tiền (Đã thu, Lập hóa đơn, Miễn / Giữ phí) chỉ hiện với Admin tài chính;
          ghép đối tác đọc lại tin khi bị tranh chấp ghi (không còn lỗi 500 khi chủ tin hủy đúng lúc); Admin xem chat của
          tin ở trang giao dịch (chỉ đọc, ghi log ai xem).
-         Người làm: [Tên người làm]   Kiểm chứng: 127 test (adminChat.test.ts) · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 127 test (adminChat.test.ts) · đã deploy dev 22/10
 
   21/10  Mục 9: tin kết thúc (hủy / Admin gỡ / hết hạn) → báo giá còn mở hết hạn qua quoteMachine (vai SYSTEM),
          gom về 1 hàm expireOpenQuotes — không còn chỗ nào gán trạng thái báo giá thẳng.
-         Người làm: [Tên người làm]   Kiểm chứng: 129 test (listings.test.ts) · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 129 test (listings.test.ts) · đã deploy dev 22/10
 
   21/10  Mục 8: sửa chi nhánh / bảng giá dùng cùng điều kiện như thêm mới — đối tác bị tạm ngừng hoặc cấp 1 không sửa được;
          trang Đối tác báo trước khi đang bị tạm ngừng.
-         Người làm: [Tên người làm]   Kiểm chứng: 131 test (partnerTiers.test.ts) · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 131 test (partnerTiers.test.ts) · đã deploy dev 22/10
 
   21/10  QĐ-42 (mục 7): hoàn tất 2 bước — bên trước nhập giá cuối, bên kia chỉ bấm Chấp nhận (hoàn tất) hoặc Khiếu nại;
          bỏ "2 bên nhập giá khác nhau tự sang tranh chấp"; thông báo ghi rõ giá cuối cần chấp nhận.
-         Người làm: [Tên người làm]   Kiểm chứng: 132 test (transactions.test.ts) · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 132 test (transactions.test.ts) · đã deploy dev 22/10
 
   22/10  Mục 7 (phần còn lại): khiếu nại mới → chuông "hộp thư chung Admin" trên web + log dispute_opened → CloudWatch alarm
          reloop-dev-dispute-opened → email. SNS reloop-dev-alarms luôn tạo; scripts/make-admin.sh tự đăng ký email của Admin
          (bấm Confirm trong email AWS). Cần chạy terraform apply (deploy.sh) để có alarm + SNS.
-         Người làm: [Tên người làm]   Kiểm chứng: 133 test · terraform validate OK · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 133 test · terraform validate OK · đã deploy dev 22/10
 
   22/10  QĐ-43 (mục 5): báo cáo vi phạm xử lý theo mức — Cảnh cáo / Gỡ tin + cảnh cáo / Gỡ tin + tạm ngừng (tin) /
          Tạm ngừng (giao dịch) / Bỏ qua; cảnh cáo gửi đúng người vi phạm; tin đang giao dịch không gỡ được → báo Admin, báo cáo
          vẫn mở; đường dẫn tới thứ bị báo cáo; chặn bấm nhầm tạm ngừng (số vi phạm 30 ngày, lý do bắt buộc, hỏi lại);
          lý do soạn sẵn (chọn là điền). Ảnh nhạy cảm: ≥ 70% chặn + tính vi phạm; 50–70% nhãn nặng → tin chờ Admin duyệt.
          Đếm vi phạm (cảnh cáo, gỡ tin, tạm ngừng, ảnh bị chặn, tin bị từ chối) ≥ 5 / 30 ngày → cờ cho Admin.
-         Người làm: [Tên người làm]   Kiểm chứng: 140 test (violations.test.ts) · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: 140 test (violations.test.ts) · đã deploy dev 22/10
 
   22/10  S3 Lifecycle: ảnh xóa 90 ngày sau khi upload (thay 120 ngày, tiết kiệm); điều khoản sửa "90 ngày sau khi tải lên";
          menu "Ví (đang fix)" (danhgia mục 17, 18).
-         Người làm: [Tên người làm]   Kiểm chứng: terraform validate · typecheck + build web · chưa deploy dev
+         Người làm: [Tên người làm]   Kiểm chứng: terraform validate · typecheck + build web · đã deploy dev 22/10
 
-  ⚠ Các mục từ 18/10 nằm trên nhánh feature/doi-tac-2-cap (chưa gộp vào main). Mục 18/10 – 19/10 đã deploy dev
-    (commit f1b8b71); mục từ 20/10 chưa commit, chưa deploy.
+  22/10  DEPLOY lên AWS dev: terraform apply (5 thêm, 10 sửa, 0 xóa — SNS reloop-dev-alarms, alarm dispute-opened,
+         metric mới, S3 ảnh 90 ngày), Lambda + web mới. smoke-aws.py cập nhật (hủy 5 phút, ra giá trong chat, giữ dữ liệu test).
+         Người làm: [Tên người làm]   Kiểm chứng: smoke-aws.py RUN e07cce ALL PASS (25 bước) · commit d4e2784, ae5f016
+
+  ⚠ Các mục từ 18/10 nằm trên nhánh feature/doi-tac-2-cap (chưa gộp vào main); tất cả đã deploy dev (22/10).
 
   22/10  Đối chiếu toàn bộ tài liệu với code (chỉ sửa tài liệu): quyetdinh.txt (đánh dấu QĐ ví / giữ tiền TẠM NGƯNG,
          sửa QĐ-02, 10, 13, 14, 15, 18, 20, 22, 26, 27, 28, state machine, TL-02/03/04/06), devdocx.txt, readmeall.md,
