@@ -1,27 +1,36 @@
 # ---------------- Giám sát (T15.3): metric từ log, alarm, dashboard ----------------
 variable "alarm_email" {
-  description = "Email nhận cảnh báo (để rỗng = không gửi email, alarm vẫn hiện trên CloudWatch). Cần bấm xác nhận trong email AWS gửi."
+  description = "Email nhận cảnh báo thêm (không bắt buộc). Email của Admin được đăng ký tự động bằng scripts/make-admin.sh. Cần bấm xác nhận trong email AWS gửi."
   type        = string
   default     = ""
 }
 
 locals {
   metric_ns      = "ReLoop/${var.env}"
-  alarm_actions  = var.alarm_email == "" ? [] : [aws_sns_topic.alarms[0].arn]
+  alarm_actions  = [aws_sns_topic.alarms.arn]
   api_dimensions = { ApiId = aws_apigatewayv2_api.api.id }
   fn_dimensions  = { FunctionName = aws_lambda_function.api.function_name }
 }
 
+# Kênh cảnh báo luôn tồn tại: scripts/make-admin.sh đăng ký email của từng Admin vào đây (mục 7 danhgia)
 resource "aws_sns_topic" "alarms" {
-  count = var.alarm_email == "" ? 0 : 1
-  name  = "${local.name_prefix}-alarms"
+  name = "${local.name_prefix}-alarms"
+}
+
+moved {
+  from = aws_sns_topic.alarms[0]
+  to   = aws_sns_topic.alarms
 }
 
 resource "aws_sns_topic_subscription" "alarm_email" {
   count     = var.alarm_email == "" ? 0 : 1
-  topic_arn = aws_sns_topic.alarms[0].arn
+  topic_arn = aws_sns_topic.alarms.arn
   protocol  = "email"
   endpoint  = var.alarm_email
+}
+
+output "alarm_topic_arn" {
+  value = aws_sns_topic.alarms.arn
 }
 
 # Metric nghiệp vụ lấy từ log JSON có cấu trúc (backend/src/http/log.ts)
@@ -36,6 +45,11 @@ resource "aws_cloudwatch_log_metric_filter" "business" {
     ImagesTextFlagged = "{ $.msg = \"image_text_flagged\" }"
     ListingsFlagged   = "{ $.msg = \"listing_flagged\" }"
     TextCheckFailures = "{ $.msg = \"image_text_check_failed\" }"
+    # Khiếu nại → tranh chấp mới (mục 7 danhgia): email cho Admin
+    DisputesOpened = "{ $.msg = \"dispute_opened\" }"
+    # QĐ-43: ảnh nghi nhạy cảm chờ duyệt / vi phạm được ghi nhận — để chỉnh ngưỡng sau khi chạy thật
+    ImagesSensitiveSuspected = "{ $.msg = \"image_sensitive_suspected\" }"
+    ViolationsRecorded       = "{ $.msg = \"violation_recorded\" }"
   }
   name           = "${local.name_prefix}-${each.key}"
   log_group_name = aws_cloudwatch_log_group.api.name
@@ -223,6 +237,23 @@ resource "aws_cloudwatch_dashboard" "main" {
 
 output "dashboard_url" {
   value = "https://${var.region}.console.aws.amazon.com/cloudwatch/home?region=${var.region}#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
+}
+
+# Có khiếu nại / tranh chấp mới → email cho Admin trong vài phút (mục 7 danhgia).
+# Alarm chỉ gửi khi chuyển OK → ALARM: nhiều khiếu nại liên tiếp trong cùng khoảng 5 phút chỉ gửi 1 email.
+resource "aws_cloudwatch_metric_alarm" "disputes_opened" {
+  alarm_name          = "${local.name_prefix}-dispute-opened"
+  alarm_description   = "Có khiếu nại / tranh chấp mới — vào trang Admin → Tranh chấp (hoặc chuông thông báo) để xử lý trong 7 ngày (QĐ-08)"
+  namespace           = local.metric_ns
+  metric_name         = "DisputesOpened"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+  depends_on          = [aws_cloudwatch_log_metric_filter.business]
 }
 
 # Nhiều ảnh bị gắn cờ trong 1 ngày → có thể có người cố tình tấn công AI (QĐ-36)

@@ -21,7 +21,7 @@ export interface UserProfile extends Item {
 }
 
 /** Phiên bản điều khoản hiện hành. Đổi chuỗi này → mọi người phải đồng ý lại. */
-export const TERMS_VERSION = '2026-10-19';
+export const TERMS_VERSION = '2026-10-21';
 
 /**
  * Hồ sơ do Lambda Cognito "reloop-auth-post-confirmation" ghi khi xác nhận đăng ký:

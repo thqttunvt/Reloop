@@ -71,6 +71,22 @@ describe('DynamoTable — ánh xạ sang lệnh DynamoDB', () => {
     expect(sent[0]!.input.ConsistentRead).toBeUndefined();
   });
 
+  it('query khoảng sort key: BETWEEN / >= / <=', async () => {
+    const { client, sent } = fakeClient([{ Items: [] }, { Items: [] }, { Items: [] }]);
+    const table = new DynamoTable('t', client);
+    await table.query('F', { skRange: { from: 'a', to: 'b' }, ascending: false });
+    await table.query('F', { skRange: { from: 'a' } });
+    await table.query('F', { skRange: { to: 'b' } });
+    expect(sent[0]!.input).toMatchObject({
+      KeyConditionExpression: '#pk = :pk AND #sk BETWEEN :skFrom AND :skTo',
+      ExpressionAttributeNames: { '#pk': 'PK', '#sk': 'SK' },
+      ExpressionAttributeValues: { ':pk': 'F', ':skFrom': 'a', ':skTo': 'b' },
+      ScanIndexForward: false,
+    });
+    expect(sent[1]!.input.KeyConditionExpression).toBe('#pk = :pk AND #sk >= :skFrom');
+    expect(sent[2]!.input.KeyConditionExpression).toBe('#pk = :pk AND #sk <= :skTo');
+  });
+
   it('transact: điều kiện notExists / versionEquals / versionMissing và delete', async () => {
     const { client, sent } = fakeClient();
     await new DynamoTable('t', client).transact([
@@ -165,6 +181,8 @@ const contract = (name: string, make: () => Table) =>
       await t.transact([putNew({ pk, sk: 'X#2' }), putNew({ pk, sk: 'X#1' }), putNew({ pk, sk: 'Y#1' })]);
       expect((await t.query(pk, { skPrefix: 'X#' })).map((i) => i.sk)).toEqual(['X#1', 'X#2']);
       expect((await t.query(pk, { ascending: false, limit: 2 })).map((i) => i.sk)).toEqual(['Y#1', 'X#2']);
+      expect((await t.query(pk, { skRange: { from: 'X#2', to: 'Y#1' } })).map((i) => i.sk)).toEqual(['X#2', 'Y#1']); // gồm cả 2 đầu
+      expect((await t.query(pk, { skRange: { to: 'X#2' }, ascending: false })).map((i) => i.sk)).toEqual(['X#2', 'X#1']);
       await t.transact(['X#1', 'X#2', 'Y#1'].map((sk) => ({ type: 'delete' as const, pk, sk })));
     });
   });

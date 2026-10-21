@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { BillingCard } from '../components/BillingCard';
 import { CheckGroup } from '../components/CheckGroup';
 import { MapPicker, type LatLng } from '../components/MapPicker';
-import { api, type Branch, type BusinessType, type Partner, type PartnerRequest, type PricingRule } from '../lib/api';
+import { api, newIdempotencyKey, type Branch, type BusinessType, type ListingQuota, type Partner, type PartnerRequest, type PricingRule } from '../lib/api';
 import {
   BUSINESS_TYPE_LABEL,
   TIER2_BUSINESS_TYPES,
@@ -24,6 +24,55 @@ interface PartnerMe {
   partner: Partner | null;
   branches: Branch[];
   rules: PricingRule[];
+  quota: ListingQuota | null;
+}
+
+const PLAN_LABEL: Record<string, string> = { BASIC: 'Cấp 1 — gói thường', VIP1: 'Cấp 1 — VIP 1', BUSINESS: 'Cấp 2 — đối tác ký hợp đồng' };
+
+/** Hạn mức tin đang mở cùng lúc + mua / gia hạn VIP 1 (QĐ-41). */
+function QuotaCard({ quota, onBuyVip }: { quota: ListingQuota; onBuyVip: () => void }) {
+  const full = quota.open >= quota.limit;
+  return (
+    <section className="card">
+      <h2>Hạn mức đăng tin</h2>
+      <div className="tiles">
+        <div className="tile">
+          <span className="muted">Tin đang mở</span>
+          <strong className={full ? 'warn-text' : ''}>
+            {quota.open} / {quota.limit}
+          </strong>
+          <span className="muted small">{PLAN_LABEL[quota.plan]}</span>
+        </div>
+        {quota.plan !== 'BUSINESS' && (
+          <div className="tile">
+            <span className="muted">Gói VIP 1</span>
+            <strong>{quota.plan === 'VIP1' ? `Đến ${dateTime(quota.vipUntil!)}` : 'Chưa có'}</strong>
+            <span className="muted small">
+              {vnd(quota.vipPrice)} / {quota.vipDays} ngày · tối đa 5 tin
+            </span>
+          </div>
+        )}
+      </div>
+      <p className="muted small">
+        Tính tin đang chờ duyệt, đang mở và đang giao dịch. Tin bán xong, hết hạn hoặc bị hủy thì trả lại suất.
+        {quota.plan === 'BUSINESS' && ' Đối tác cấp 2 được mở tối đa 10 tin.'}
+      </p>
+      {quota.plan !== 'BUSINESS' && (
+        <div className="row">
+          <button
+            onClick={() =>
+              confirm(
+                `${quota.plan === 'VIP1' ? 'Gia hạn VIP 1 thêm' : 'Nâng lên VIP 1 trong'} ${quota.vipDays} ngày, đăng tối đa 5 tin cùng lúc.\n` +
+                  `Phí ${vnd(quota.vipPrice)} được cộng vào hóa đơn phí tháng. Tiếp tục?`,
+              ) && onBuyVip()
+            }
+          >
+            {quota.plan === 'VIP1' ? `Gia hạn VIP 1 — ${vnd(quota.vipPrice)}` : `Nâng lên VIP 1 — ${vnd(quota.vipPrice)} / ${quota.vipDays} ngày`}
+          </button>
+        </div>
+      )}
+    </section>
+  );
 }
 
 export function PartnerPage() {
@@ -67,10 +116,18 @@ export function PartnerPage() {
         onUpdateEmail={(contactEmail) => run(() => api('PATCH', '/partners/me/contact', { body: { contactEmail } }))}
       />
 
+      {p?.status === 'APPROVED' && me.quota && (
+        <QuotaCard quota={me.quota} onBuyVip={() => void run(() => api('POST', '/partners/me/vip', { idempotencyKey: newIdempotencyKey() }))} />
+      )}
       {p && (p.status === 'APPROVED' || p.status === 'SUSPENDED') && <BillingCard />}
       {p && tierOf(p) === 'BUSINESS' && (
         <>
           {p.status === 'APPROVED' && <RequestsCard requests={requests} />}
+          {p.status === 'SUSPENDED' && (
+            <div className="notice bad">
+              Tài khoản đối tác đang bị tạm ngừng — chi nhánh và bảng giá chỉ xem được, không thêm / sửa / bật tắt cho tới khi Admin mở lại.
+            </div>
+          )}
           <BranchesCard
             branches={me.branches}
             onAdd={(body) => run(() => api('POST', '/partners/me/branches', { body }))}
@@ -242,8 +299,8 @@ function RequestsCard({ requests }: { requests: PartnerRequest[] }) {
                 <div className="stack end">
                   <span className={`badge ${statusTone(r.listingStatus)}`}>{LISTING_STATUS_LABEL[r.listingStatus]}</span>
                   {r.quotes.map((q) => (
-                    <span key={q.quoteId} className={`badge ${statusTone(q.status)}`}>
-                      {QUOTE_STATUS_LABEL[q.status]}
+                    <span key={q.quoteId} className={`badge ${q.takenByOther ? 'warn' : statusTone(q.status)}`}>
+                      {q.takenByOther ? 'Đang giao dịch với người khác' : QUOTE_STATUS_LABEL[q.status]}
                     </span>
                   ))}
                 </div>

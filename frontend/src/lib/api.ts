@@ -3,6 +3,8 @@ import { loadSession } from './session';
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
+export const ACCOUNT_LOCKED_EVENT = 'reloop:account-locked';
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -35,7 +37,11 @@ export async function api<T>(
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const data = (await res.json().catch(() => null)) as { code?: string; message?: string } | null;
-  if (!res.ok) throw new ApiError(res.status, data?.code ?? 'HTTP_ERROR', data?.message ?? res.statusText);
+  if (!res.ok) {
+    // Nợ phí quá hạn > 7 ngày → App chuyển sang màn hình "cần thanh toán phí" (QĐ-40)
+    if (data?.code === 'ACCOUNT_LOCKED_UNPAID') window.dispatchEvent(new Event(ACCOUNT_LOCKED_EVENT));
+    throw new ApiError(res.status, data?.code ?? 'HTTP_ERROR', data?.message ?? res.statusText);
+  }
   return data as T;
 }
 
@@ -102,11 +108,13 @@ export interface Listing {
   /** Ảnh có chữ bị gắn cờ → chờ Admin duyệt (QĐ-36) */
   review?: {
     reason: string;
-    images: { key: string; text: string }[];
+    images: { key: string; text: string; kind?: 'TEXT' | 'SENSITIVE' }[];
     at: string;
     decision?: { approved: boolean; note?: string; at: string };
   };
   moderated?: { note?: string; at: string };
+  /** Chỉ chủ tin thấy: giao dịch gần nhất bị hủy / thất bại — gỡ tin trong 72 giờ sau đó bị tính phí (QĐ-39) */
+  lastEndedDeal?: { transactionId: string; buyerId: string; status: 'CANCELLED' | 'FAILED'; at: string };
   status: ListingStatus;
   matchingStatus: 'PENDING' | 'DONE';
   matchCount: number;
@@ -139,6 +147,8 @@ export interface Quote {
   offer?: { price: number; note?: string; validUntil: string; at: string; differsFromEstimate: boolean };
   responseDeadline?: string;
   rejectNote?: string;
+  /** Tin đang giao dịch với người khác: báo giá giữ lại (chọn lại được nếu giao dịch hủy) nhưng chưa làm gì được */
+  takenByOther?: boolean;
 }
 
 export interface Contact {
@@ -191,7 +201,19 @@ export interface Partner {
   phone?: string;
   status: PartnerStatus;
   reviewNote?: string;
+  /** Gói VIP 1 của cấp 1 (QĐ-41) — còn hiệu lực khi chưa tới until */
+  vip?: { plan: 'VIP1'; since: string; until: string };
   createdAt: string;
+}
+
+/** Hạn mức tin đang mở cùng lúc (QĐ-41): BASIC 3 · VIP1 5 · BUSINESS 10 */
+export interface ListingQuota {
+  plan: 'BASIC' | 'VIP1' | 'BUSINESS';
+  limit: number;
+  open: number;
+  vipUntil?: string;
+  vipPrice: number;
+  vipDays: number;
 }
 
 export interface Branch {
@@ -289,12 +311,15 @@ export type Party = 'OWNER' | 'PARTNER';
 export interface Transaction {
   transactionId: string;
   listingId: string;
+  /** CHAT: chốt lời ra giá trong chat (QĐ-38); QUOTE / không có: chọn báo giá của đối tác */
+  source?: 'QUOTE' | 'CHAT';
+  conversationId?: string;
   ownerId: string;
   partnerId: string;
   status: TransactionStatus;
   listingTitle: string;
   partnerName: string;
-  branchName: string;
+  branchName?: string;
   originalPrice: number;
   agreedPrice: number;
   finalPrice?: number;
@@ -303,6 +328,8 @@ export interface Transaction {
   completion: Partial<Record<Party, { at: string; finalPrice: number }>>;
   counterpartyDeadline?: string;
   cancel?: { by: Party; reason: string; at: string };
+  /** Đang chờ hủy — tự hủy lúc effectiveAt (QĐ-38) */
+  cancelRequest?: { by: Party; reason: string; at: string; effectiveAt: string };
   failure?: { by: Party; reason: string; note?: string; at: string };
   dispute?: { by: Party; reason: string; at: string; resolution?: { outcome: string; note: string; at: string } };
   createdAt: string;
@@ -380,6 +407,10 @@ export interface Report {
   targetId: string;
   reason: string;
   createdAt: string;
+  /** Thứ bị báo cáo (chỉ ở hàng đợi Admin) */
+  target?: { title: string; status?: string; link?: string };
+  /** Người vi phạm + số vi phạm 30 ngày — chặn tạm ngừng nhầm (QĐ-43) */
+  violator?: { userId: string; name: string; partnerStatus?: string; violations30d: number };
 }
 
 export interface Conversation {
@@ -394,13 +425,19 @@ export interface Conversation {
   createdAt: string;
   myRole?: 'OWNER' | 'PARTNER';
   myUnread: number;
+  /** Lời ra giá đang chờ bên kia trả lời (QĐ-38) */
+  pendingOffer?: { offerId: string; price: number; by: 'OWNER' | 'PARTNER'; at: string };
 }
 
 export interface ChatMessage {
   messageId: string;
   senderId: string;
   senderRole: 'OWNER' | 'PARTNER';
+  /** TEXT: tin thường · OFFER: lời ra giá · SYSTEM: kết quả chấp nhận / từ chối giá */
+  kind?: 'TEXT' | 'OFFER' | 'SYSTEM';
   text: string;
+  price?: number;
+  offerId?: string;
   at: string;
 }
 
@@ -425,12 +462,60 @@ export interface Invoice {
 export interface BillingSummary {
   feePerTransaction: number;
   dueDays: number;
+  postingLockDays: number;
+  fullLockDays: number;
+  /** Mức khóa do nợ phí quá hạn (QĐ-40) */
+  debt: DebtStatus;
   bank?: { bankName: string; accountNo: string; accountName: string };
   currentMonth: {
     month: string;
     transactionCount: number;
     amount: number;
-    lines: { transactionId: string; listingTitle: string; amount: number; completedAt: string }[];
+    lines: FeeLine[];
   };
+  /** Phí nghi bán ngoài tháng này + tháng trước (QĐ-39) */
+  suspected: FeeLine[];
   invoices: Invoice[];
+}
+
+/** NONE · WARNING: quá hạn, chưa khóa · NO_POSTING: quá hạn > 3 ngày, không đăng tin mới · FULL: quá hạn > 7 ngày, khóa mọi chức năng */
+export interface DebtStatus {
+  level: 'NONE' | 'WARNING' | 'NO_POSTING' | 'FULL';
+  invoice?: { month: string; amount: number; paymentCode: string; dueAt: string };
+  overdueAmount: number;
+  daysOverdue: number;
+  postingLockAt?: string;
+  fullLockAt?: string;
+}
+
+export interface FeeAppeal {
+  reason: string;
+  at: string;
+  status: 'OPEN' | 'WAIVED' | 'KEPT';
+  note?: string;
+  resolvedAt?: string;
+}
+
+export interface FeeLine {
+  month: string;
+  transactionId: string;
+  listingTitle: string;
+  amount: number;
+  completedAt: string;
+  /** SUSPECTED_OFFLINE: hủy giao dịch rồi gỡ tin trong 72 giờ (QĐ-39) */
+  kind: 'TRANSACTION' | 'SUSPECTED_OFFLINE' | 'VIP_PLAN';
+  appeal?: FeeAppeal;
+}
+
+/** Cờ "nghi né phí" cho Admin (QĐ-39) */
+export interface RiskFlag {
+  userId: string;
+  sellerName?: string;
+  reasons: { code: string; count: number; text: string }[];
+  openedAt: string;
+  resolution?: { action: string; note?: string; at: string };
+  dealsEnded: { transactionId: string; buyerName: string; listingTitle: string; status: 'CANCELLED' | 'FAILED'; at: string }[];
+  cancelThenRemove: { transactionId: string; listingId: string; listingTitle: string; at: string }[];
+  /** Vi phạm 30 ngày (QĐ-43) */
+  violations?: { violationId: string; kind: string; ref: { type: string; id: string; title?: string }; note?: string; at: string }[];
 }

@@ -38,6 +38,10 @@ export const BUSINESS_TYPES = ['PERSONAL', 'HOUSEHOLD', 'ENTERPRISE'] as const;
 export type BusinessType = (typeof BUSINESS_TYPES)[number];
 const TIER2_TYPES: BusinessType[] = ['HOUSEHOLD', 'ENTERPRISE'];
 
+/** Hạn mức tin đang mở cùng lúc (QĐ-41). */
+export const LISTING_QUOTA = { BASIC: 3, VIP1: 5, BUSINESS: 10 } as const;
+export type ListingPlan = keyof typeof LISTING_QUOTA;
+
 export interface Partner extends Item {
   partnerId: string;
   /** Hồ sơ cũ (trước QĐ-34) không có tier → coi là cấp 2. Đọc qua partnerTier(). */
@@ -52,6 +56,8 @@ export interface Partner extends Item {
   contactEmail?: string;
   /** Hồ sơ cũ: SĐT khai khi đăng ký. Hiện SĐT liên hệ lấy từ hồ sơ người dùng (không bắt buộc). */
   phone?: string;
+  /** Gói VIP 1 của cấp 1 (QĐ-41): còn hiệu lực khi now < until. */
+  vip?: { plan: 'VIP1'; since: string; until: string };
   status: PartnerStatus;
   reviewNote?: string;
   reviewedBy?: string;
@@ -101,6 +107,8 @@ const parseEmail = (value: unknown): string => {
 };
 
 export const partnerTier =(p: Pick<Partner, 'tier'>): PartnerTier => p.tier ?? 'BUSINESS';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export class PartnerService {
   constructor(
@@ -218,22 +226,76 @@ export class PartnerService {
     return partner;
   }
 
-  /** Thu mua (báo giá, offer): chỉ đối tác cấp 2 đã duyệt. */
+  /**
+   * Thu mua (báo giá, offer): chỉ đối tác cấp 2 đã duyệt. Nợ phí không chặn ở đây (QĐ-40): quá hạn > 7 ngày thì
+   * cả tài khoản bị khóa ở router; dưới mức đó vẫn trả lời / rút báo giá bình thường.
+   */
   async requireApprovedBusiness(partnerId: string): Promise<Partner> {
     const partner = await this.requireApproved(partnerId);
     if (partnerTier(partner) !== 'BUSINESS') throw forbidden('Chỉ đối tác cấp 2 (doanh nghiệp / hộ kinh doanh) mới thu mua được');
-    await this.billing.assertNoOverdue(partnerId); // nợ phí quá hạn → khóa báo giá (QĐ-37)
     return partner;
   }
 
-  /** Đăng tin (QĐ-34): chỉ người có hồ sơ đối tác (cấp 1 hoặc cấp 2) đã được Admin duyệt. */
-  async requireCanPost(userId: string): Promise<Partner> {
+  /** Người bán (QĐ-34): đối tác cấp 1 hoặc cấp 2 đã được Admin duyệt, không bị tạm ngừng. */
+  async requireSeller(userId: string): Promise<Partner> {
     const partner = await this.get(userId);
     if (partner?.status !== 'APPROVED') {
-      throw new AppError(403, 'PARTNER_REQUIRED', 'Chỉ đối tác đã được Admin duyệt mới đăng tin được — hãy gửi yêu cầu làm đối tác');
+      throw new AppError(403, 'PARTNER_REQUIRED', 'Chỉ đối tác đã được Admin duyệt mới đăng tin / bán được — hãy gửi yêu cầu làm đối tác');
     }
-    await this.billing.assertNoOverdue(userId); // nợ phí quá hạn → khóa đăng tin (QĐ-37)
     return partner;
+  }
+
+  /** Đăng tin mới: là người bán + không nợ phí quá hạn > 3 ngày (QĐ-40). */
+  async requireCanPost(userId: string): Promise<Partner> {
+    const partner = await this.requireSeller(userId);
+    await this.billing.assertCanPost(userId);
+    return partner;
+  }
+
+  /**
+   * Đối tác còn hoạt động trên Chợ không: đã duyệt, không bị Admin tạm ngừng, không bị khóa do nợ phí > 7 ngày (QĐ-40).
+   * Người bán không hoạt động → tin ẩn khỏi Chợ, không chốt / báo giá / chat mới. Bên mua không hoạt động → không chọn được.
+   */
+  async isAvailable(userId: string): Promise<boolean> {
+    const partner = await this.get(userId);
+    if (partner?.status !== 'APPROVED') return false;
+    return (await this.billing.debtStatus(userId)).level !== 'FULL';
+  }
+
+  // ------------------------------------------------------------------ Hạn mức tin + gói VIP 1 (QĐ-41)
+
+  /** Gói đang áp dụng và số tin được mở cùng lúc. */
+  listingQuota(partner: Partner, now = this.clock.now()): { plan: ListingPlan; limit: number; vipUntil?: string } {
+    if (partnerTier(partner) === 'BUSINESS') return { plan: 'BUSINESS', limit: LISTING_QUOTA.BUSINESS };
+    const vipActive = !!partner.vip && now.toISOString() < partner.vip.until;
+    return vipActive ? { plan: 'VIP1', limit: LISTING_QUOTA.VIP1, vipUntil: partner.vip!.until } : { plan: 'BASIC', limit: LISTING_QUOTA.BASIC };
+  }
+
+  /** Cấp 1 mua / gia hạn VIP 1: hiệu lực ngay 30 ngày (còn hạn thì cộng dồn), phí cộng vào hóa đơn tháng. */
+  async buyVip(userId: string) {
+    const seller = await this.requireSeller(userId);
+    if (partnerTier(seller) !== 'INDIVIDUAL') throw conflict('VIP_NOT_AVAILABLE', 'Gói VIP 1 dành cho đối tác cấp 1 — đối tác cấp 2 đã có 10 tin');
+    await this.billing.assertCanPost(userId); // đang nợ quá hạn > 3 ngày thì thanh toán trước
+    const { price, days } = this.billing.vipPlan;
+    const k = keys.partner(userId);
+    const updated = await withOptimisticRetry(async () => {
+      const current = await this.table.get<Partner>(k.pk, k.sk);
+      if (!current) throw notFound('hồ sơ đối tác');
+      const now = this.clock.now();
+      const active = !!current.vip && now.toISOString() < current.vip.until;
+      const base = active ? Date.parse(current.vip!.until) : now.getTime();
+      const vip = { plan: 'VIP1' as const, since: active ? current.vip!.since : now.toISOString(), until: new Date(base + days * DAY_MS).toISOString() };
+      const next: Partner = { ...current, vip, updatedAt: now.toISOString() };
+      await this.table.transact([putVersioned(next, current.version ?? 0), ...this.billing.vipFeeOps(userId, newId(), vip.until, now.toISOString())]);
+      return { ...next, version: (current.version ?? 0) + 1 };
+    });
+    await this.notifications.notify(userId, {
+      type: 'VIP_ACTIVATED',
+      title: `Đã kích hoạt VIP 1 tới ${new Date(updated.vip!.until).toLocaleDateString('vi-VN')} — đăng tối đa ${LISTING_QUOTA.VIP1} tin cùng lúc`,
+      body: `Phí ${price.toLocaleString('vi-VN')}đ được cộng vào hóa đơn tháng`,
+      link: '/partner',
+    });
+    return { partner: updated, charged: price };
   }
 
   /** Liên hệ công khai của đối tác: email (bắt buộc) + SĐT trong hồ sơ người dùng (không bắt buộc). */
@@ -326,8 +388,12 @@ export class PartnerService {
     return { ...branch, version: 1 };
   }
 
-  /** Sửa chi nhánh. Chỉ ảnh hưởng matching từ thời điểm này (giaiphap D9). */
-  updateBranch(partnerId: string, branchId: string, input: Record<string, unknown>): Promise<Branch> {
+  /**
+   * Sửa chi nhánh. Chỉ ảnh hưởng matching từ thời điểm này (giaiphap D9).
+   * Cùng điều kiện như thêm mới: bị tạm ngừng / cấp 1 thì không sửa được (mục 8 danhgia).
+   */
+  async updateBranch(partnerId: string, branchId: string, input: Record<string, unknown>): Promise<Branch> {
+    await this.requireAppliedBusiness(partnerId);
     return withOptimisticRetry(async () => {
       const current = await this.getBranch(partnerId, branchId);
       if (!current) throw notFound('chi nhánh');
@@ -388,8 +454,12 @@ export class PartnerService {
     return { ...rule, version: 1 };
   }
 
-  /** Sửa rule không đổi các báo giá đã tạo — báo giá giữ Rule Snapshot (T7.2). */
-  updateRule(partnerId: string, ruleId: string, input: Record<string, unknown>): Promise<PricingRule> {
+  /**
+   * Sửa rule không đổi các báo giá đã tạo — báo giá giữ Rule Snapshot (T7.2).
+   * Cùng điều kiện như thêm mới: bị tạm ngừng / cấp 1 thì không sửa được (mục 8 danhgia).
+   */
+  async updateRule(partnerId: string, ruleId: string, input: Record<string, unknown>): Promise<PricingRule> {
+    await this.requireAppliedBusiness(partnerId);
     return withOptimisticRetry(async () => {
       const k = keys.rule(partnerId, ruleId);
       const current = await this.table.get<PricingRule>(k.pk, k.sk);

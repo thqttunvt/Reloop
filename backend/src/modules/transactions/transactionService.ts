@@ -10,6 +10,8 @@ import { withOptimisticRetry } from '../../store/retry';
 import { putNew, putVersioned, type Item, type Table, type WriteOp } from '../../store/table';
 import { timerOp } from '../jobs/timers';
 import type { BillingService } from '../billing/billingService';
+import type { RiskService } from '../risk/riskService';
+import { log } from '../../http/log';
 import type { Listing, ListingService, Quote } from '../listings/listingService';
 import type { NotificationService } from '../notifications/notificationService';
 import type { Branch, PartnerService } from '../partners/partnerService';
@@ -21,6 +23,10 @@ export const COUNTERPARTY_TTL_MS = 48 * HOUR_MS;
 export const MAX_PRICE_ADJUSTMENTS = 2;
 /** Đánh giá trong 14 ngày sau khi giao dịch kết thúc (giaiphap D13). */
 export const REVIEW_WINDOW_MS = 14 * 24 * HOUR_MS;
+/** Một bên yêu cầu hủy → 5 phút sau tự hủy (QĐ-38). */
+export const CANCEL_DELAY_MS = 5 * 60 * 1000;
+/** Thao tác vẫn làm được khi đang có yêu cầu hủy. */
+const CANCEL_EVENTS = ['CANCEL_WITHDRAWN', 'CANCELLED'];
 
 export const FAILURE_REASONS = ['NO_SHOW_OWNER', 'NO_SHOW_PARTNER', 'DEVICE_MISMATCH', 'PRICE_DISAGREEMENT', 'OTHER'] as const;
 export type FailureReason = (typeof FAILURE_REASONS)[number];
@@ -31,10 +37,14 @@ const other = (p: Party): Party => (p === 'OWNER' ? 'PARTNER' : 'OWNER');
 export interface Transaction extends Item {
   transactionId: string;
   listingId: string;
-  quoteId: string;
+  /** QUOTE: chủ tin chọn báo giá của đối tác cấp 2. CHAT: hai bên chốt lời ra giá trong chat (QĐ-38). Bản ghi cũ không có → QUOTE. */
+  source?: 'QUOTE' | 'CHAT';
+  quoteId?: string;
+  conversationId?: string;
   ownerId: string;
+  /** Bên mua: đối tác cấp 2 (QUOTE) hoặc khách bất kỳ (CHAT). */
   partnerId: string;
-  branchId: string;
+  branchId?: string;
   /** Chiều thu mua: Partner trả, Owner nhận (QĐ-29). */
   direction: 'BUYBACK';
   payerId: string;
@@ -44,7 +54,7 @@ export interface Transaction extends Item {
   status: TransactionStatus;
   listingTitle: string;
   partnerName: string;
-  branchName: string;
+  branchName?: string;
   originalPrice: number;
   agreedPrice: number;
   finalPrice?: number;
@@ -61,6 +71,8 @@ export interface Transaction extends Item {
   completion: Partial<Record<Party, { at: string; finalPrice: number }>>;
   counterpartyDeadline?: string;
   cancel?: { by: Party; reason: string; at: string };
+  /** Đang chờ hủy: tới effectiveAt thì tự hủy (QĐ-38). */
+  cancelRequest?: { by: Party; reason: string; at: string; effectiveAt: string };
   failure?: { by: Party; reason: FailureReason; note?: string; at: string };
   dispute?: { by: Party; reason: string; at: string; resolution?: { outcome: 'COMPLETED' | 'FAILED'; finalPrice?: number; note: string; by: string; at: string } };
   closedAt?: string;
@@ -92,6 +104,7 @@ export class TransactionService {
     private readonly notifications: NotificationService,
     private readonly images: ImageStore,
     private readonly billing: BillingService,
+    private readonly risk: RiskService,
   ) {}
 
   // ------------------------------------------------------------------ Tạo giao dịch (T9.1)
@@ -99,6 +112,7 @@ export class TransactionService {
   /** Owner chọn một offer đã xác nhận. 2 request đồng thời → chỉ 1 thành công (điều kiện version của Listing). */
   async select(ownerId: string, input: Record<string, unknown>): Promise<Transaction> {
     await this.users.requireTerms({ userId: ownerId, groups: [] });
+    await this.partners.requireSeller(ownerId); // người bán bị tạm ngừng không chốt giao dịch mới
     const listingId = str(input.listingId, 'listingId', { max: 64 });
     const quoteId = str(input.quoteId, 'quoteId', { max: 80 });
     const tx = await withOptimisticRetry(async () => {
@@ -114,6 +128,8 @@ export class TransactionService {
       if (qs !== 'CONFIRMED_OFFER') throw conflict('OFFER_NOT_SELECTABLE', 'Chỉ chọn được báo giá đã xác nhận còn hiệu lực');
       quoteMachine.assertTransition('CONFIRMED_OFFER', 'SELECTED', 'OWNER');
       await this.partners.requireApproved(quote.partnerId);
+      // Đơn vị thu mua bị khóa do nợ phí > 7 ngày không làm được gì trong giao dịch (QĐ-40)
+      if (!(await this.partners.isAvailable(quote.partnerId))) throw conflict('PARTNER_UNAVAILABLE', 'Đơn vị thu mua đang tạm khóa — hãy chọn báo giá khác');
 
       const now = this.clock.now().toISOString();
       const transactionId = newId();
@@ -122,6 +138,7 @@ export class TransactionService {
         ...keys.transaction(transactionId),
         transactionId,
         listingId,
+        source: 'QUOTE',
         quoteId,
         ownerId,
         partnerId: quote.partnerId,
@@ -142,7 +159,7 @@ export class TransactionService {
         updatedAt: now,
       };
       await this.table.transact([
-        putVersioned({ ...listing, status: 'MATCHED', activeTransactionId: transactionId, updatedAt: now }, listing.version ?? 1),
+        putVersioned({ ...listing, status: 'MATCHED', activeTransactionId: transactionId, lastEndedDeal: undefined, updatedAt: now }, listing.version ?? 1),
         putVersioned({ ...quote, status: 'SELECTED', updatedAt: now }, quote.version ?? 1),
         putVersioned(tx, 0),
         putNew({ ...keys.userTransaction(ownerId, now, transactionId), transactionId, role: 'OWNER' }),
@@ -157,7 +174,56 @@ export class TransactionService {
       body: `${tx.listingTitle} — ${tx.agreedPrice.toLocaleString('vi-VN')}đ`,
       link: `/transactions/${tx.transactionId}`,
     });
+    // Đơn vị thu mua khác + khách đang hỏi biết tin đã có người chốt (mục 1b danhgia)
+    await this.listings.notifyTaken(tx.listingId, tx.listingTitle, [tx.ownerId, tx.partnerId]);
     return tx;
+  }
+
+  /**
+   * Chốt lời ra giá trong chat khi tin đang mở (QĐ-38). Trả về các thao tác ghi để ChatService ghi CÙNG
+   * transaction với việc đóng lời ra giá → 2 người chốt cùng lúc thì chỉ 1 người thành công (version của Listing).
+   */
+  chatDealOps(listing: Listing, buyer: { userId: string; name: string; conversationId: string }, price: number, acceptedBy: Party) {
+    const now = this.clock.now().toISOString();
+    const transactionId = newId();
+    const tx: Transaction = {
+      ...keys.transaction(transactionId),
+      transactionId,
+      listingId: listing.listingId,
+      source: 'CHAT',
+      conversationId: buyer.conversationId,
+      ownerId: listing.ownerId,
+      partnerId: buyer.userId,
+      direction: 'BUYBACK',
+      payerId: buyer.userId,
+      payeeId: listing.ownerId,
+      paymentMode: 'OFFLINE',
+      status: 'HANDOVER_PENDING',
+      listingTitle: listing.title,
+      partnerName: buyer.name,
+      originalPrice: price,
+      agreedPrice: price,
+      priceAdjustments: [],
+      completion: {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    const ops: WriteOp[] = [
+      putVersioned({ ...listing, status: 'MATCHED', activeTransactionId: transactionId, lastEndedDeal: undefined, updatedAt: now }, listing.version ?? 1),
+      putVersioned(tx, 0),
+      putNew({ ...keys.userTransaction(listing.ownerId, now, transactionId), transactionId, role: 'OWNER' }),
+      putNew({ ...keys.userTransaction(buyer.userId, now, transactionId), transactionId, role: 'PARTNER' }),
+      this.eventOp(tx, 0, acceptedBy, 'CREATED', { price, source: 'CHAT' }),
+    ];
+    return { tx: { ...tx, version: 1 }, ops };
+  }
+
+  /** Hai bên chốt giá mới trong chat khi đang chờ bàn giao (QĐ-38). */
+  agreeChatPrice(userId: string, transactionId: string, price: number) {
+    return this.change(userId, transactionId, 'PRICE_AGREED', (tx) => {
+      if (tx.status !== 'HANDOVER_PENDING') throw conflict('INVALID_STATE', 'Chỉ đổi giá khi đang chờ bàn giao');
+      return { ...tx, agreedPrice: price };
+    }, { price });
   }
 
   // ------------------------------------------------------------------ Đọc
@@ -175,16 +241,18 @@ export class TransactionService {
     const party = this.partyOf(tx, userId);
     if (!party && !isAdmin) throw notFound('giao dịch');
 
-    const [listing, owner, ownerPartner, partner, branch, events, reviews] = await Promise.all([
+    const [listing, owner, ownerPartner, partner, buyer, branch, events, reviews] = await Promise.all([
       this.loadListing(tx.listingId),
       this.users.get(tx.ownerId),
       this.partners.get(tx.ownerId),
       this.partners.get(tx.partnerId),
-      this.partners.getBranch(tx.partnerId, tx.branchId),
+      this.users.get(tx.partnerId),
+      tx.branchId ? this.partners.getBranch(tx.partnerId, tx.branchId) : undefined,
       this.table.query<Item>(keys.transactionPk(transactionId), { skPrefix: 'EVENT#' }),
       this.table.query<Review>(keys.transactionPk(transactionId), { skPrefix: 'REVIEW#' }),
     ]);
-    const partnerContact = partner ? await this.partners.contactOf(partner) : undefined;
+    // Người mua qua chat có thể không phải đối tác → liên hệ lấy từ hồ sơ người dùng
+    const partnerContact = partner ? await this.partners.contactOf(partner) : { email: buyer?.email, phone: buyer?.phone };
     const contacts = {
       owner: {
         fullName: ownerPartner?.businessName ?? owner?.fullName,
@@ -194,7 +262,7 @@ export class TransactionService {
         location: listing.location,
       },
       partner: {
-        businessName: partner?.businessName,
+        businessName: partner?.businessName ?? tx.partnerName,
         email: partnerContact?.email,
         phone: partnerContact?.phone,
         branchName: (branch as Branch | undefined)?.name,
@@ -261,11 +329,15 @@ export class TransactionService {
 
   // ------------------------------------------------------------------ Hoàn tất (T9.6, QĐ-18, giaiphap C7)
 
+  /**
+   * Hoàn tất 2 bước (mục 7 danhgia): bên xác nhận TRƯỚC nhập giá cuối; bên còn lại chỉ CHẤP NHẬN giá đó
+   * (không nhập lại — finalPrice gửi kèm ở bước 2 bị bỏ qua). Không đồng ý → Khiếu nại (dispute) trong 48 giờ.
+   */
   confirmCompletion(userId: string, transactionId: string, input: Record<string, unknown>) {
     return this.change(userId, transactionId, 'COMPLETION_CONFIRMED', (tx, party, now) => {
-      const finalPrice = input.finalPrice === undefined ? tx.agreedPrice : int(input.finalPrice, 'finalPrice', { min: 0, max: 1_000_000_000 });
-      const completion = { ...tx.completion, [party]: { at: now, finalPrice } };
       if (tx.status === 'HANDOVER_PENDING') {
+        const finalPrice = input.finalPrice === undefined ? tx.agreedPrice : int(input.finalPrice, 'finalPrice', { min: 0, max: 1_000_000_000 });
+        const completion = { ...tx.completion, [party]: { at: now, finalPrice } };
         transactionMachine.assertTransition(tx.status, 'AWAITING_COUNTERPARTY', party);
         return {
           ...tx,
@@ -276,33 +348,91 @@ export class TransactionService {
       }
       if (tx.status !== 'AWAITING_COUNTERPARTY') throw conflict('INVALID_STATE_TRANSITION', `Giao dịch đang ${tx.status}`);
       if (tx.completion[party]) throw conflict('ALREADY_CONFIRMED', 'Bạn đã xác nhận, đang chờ bên kia');
-      const first = tx.completion[other(party)]!;
-      if (first.finalPrice !== finalPrice) {
-        // Hai bên nhập giá cuối khác nhau → tranh chấp, Admin xem (giaiphap C7)
-        return { ...tx, status: 'DISPUTED', completion, dispute: { by: party, reason: `Giá cuối không khớp: ${first.finalPrice} ≠ ${finalPrice}`, at: now } };
-      }
+      transactionMachine.assertTransition(tx.status, 'COMPLETED', party);
+      const { finalPrice } = tx.completion[other(party)]!; // chấp nhận đúng giá bên kia đã xác nhận
+      const completion = { ...tx.completion, [party]: { at: now, finalPrice } };
       return { ...tx, status: 'COMPLETED', completion, finalPrice, closedAt: now };
     });
   }
 
-  /** Bên kia khiếu nại trong 48h (QĐ-18 → QĐ-08). */
-  dispute(userId: string, transactionId: string, input: Record<string, unknown>) {
+  /**
+   * Bên kia khiếu nại trong 48h (QĐ-18 → QĐ-08). Báo cho Admin: chuông hộp thư chung trên web + log `dispute_opened`
+   * → CloudWatch alarm gửi email tới các Admin đã đăng ký (infra/monitoring.tf, scripts/make-admin.sh — mục 7 danhgia).
+   */
+  async dispute(userId: string, transactionId: string, input: Record<string, unknown>) {
     const reason = str(input.reason, 'reason', { min: 5, max: 1000 });
-    return this.change(userId, transactionId, 'DISPUTED', (tx, party, now) => {
+    const tx = await this.change(userId, transactionId, 'DISPUTED', (tx, party, now) => {
       transactionMachine.assertTransition(tx.status, 'DISPUTED', party);
       if (tx.completion[party]) throw conflict('ALREADY_CONFIRMED', 'Bạn đã xác nhận hoàn tất');
       return { ...tx, status: 'DISPUTED', dispute: { by: party, reason, at: now } };
     });
+    log('warn', 'dispute_opened', { transactionId, by: tx.dispute?.by });
+    await this.notifications.notifyAdmins({
+      type: 'ADMIN_DISPUTE',
+      title: `Có khiếu nại mới: ${tx.listingTitle}`,
+      body: `${tx.dispute?.by === 'OWNER' ? 'Người bán' : 'Người mua'} khiếu nại — ${reason}`,
+      link: `/transactions/${transactionId}`,
+    });
+    return tx;
   }
 
   // ------------------------------------------------------------------ Hủy / thất bại (T9.7)
 
+  /** Yêu cầu hủy: 5 phút sau tự hủy dù bên kia có đồng ý hay không (QĐ-38). */
   cancel(userId: string, transactionId: string, input: Record<string, unknown>) {
     const reason = str(input.reason, 'reason', { min: 3, max: 500 });
-    return this.change(userId, transactionId, 'CANCELLED', (tx, party, now) => {
+    return this.change(userId, transactionId, 'CANCEL_REQUESTED', (tx, party, now) => {
       transactionMachine.assertTransition(tx.status, 'CANCELLED', party);
-      return { ...tx, status: 'CANCELLED', cancel: { by: party, reason, at: now }, closedAt: now };
+      const effectiveAt = new Date(Date.parse(now) + CANCEL_DELAY_MS).toISOString();
+      return { ...tx, cancelRequest: { by: party, reason, at: now, effectiveAt } };
     });
+  }
+
+  /** Người yêu cầu rút lại trong 5 phút. */
+  withdrawCancel(userId: string, transactionId: string) {
+    return this.change(userId, transactionId, 'CANCEL_WITHDRAWN', (tx, party) => {
+      if (!tx.cancelRequest) throw conflict('NO_CANCEL_REQUEST', 'Không có yêu cầu hủy');
+      if (tx.cancelRequest.by !== party) throw forbidden('Chỉ bên yêu cầu hủy mới rút lại được');
+      const { cancelRequest: _request, ...rest } = tx;
+      return rest;
+    });
+  }
+
+  /** Bên kia đồng ý → hủy ngay, không chờ hết 5 phút. */
+  confirmCancel(userId: string, transactionId: string) {
+    return this.change(userId, transactionId, 'CANCELLED', (tx, party, now) => {
+      if (!tx.cancelRequest) throw conflict('NO_CANCEL_REQUEST', 'Không có yêu cầu hủy');
+      if (tx.cancelRequest.by === party) throw conflict('OWN_CANCEL_REQUEST', 'Đang chờ bên kia — giao dịch tự hủy khi hết 5 phút');
+      return this.cancelled(tx, now);
+    });
+  }
+
+  /** Hết 5 phút (job nền hoặc khi đọc). Chạy trùng an toàn: chỉ ghi khi yêu cầu hủy còn và đã tới hạn. */
+  async finalizeCancel(transactionId: string): Promise<Transaction | undefined> {
+    let done: Transaction;
+    try {
+      done = await this.mutate(transactionId, 'SYSTEM', 'SYSTEM', 'CANCELLED', (tx, now) => {
+        if (!tx.cancelRequest || now < tx.cancelRequest.effectiveAt) throw conflict('NOT_DUE', 'Chưa tới hạn');
+        return this.cancelled(tx, now);
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code === 'NOT_DUE') return this.loadTx(transactionId);
+      throw err;
+    }
+    await this.notifications.notify([done.ownerId, done.partnerId], {
+      type: 'TX_CANCELLED',
+      title: 'Giao dịch đã hủy sau 5 phút — tin quay lại Chợ nếu còn hạn',
+      body: done.listingTitle,
+      link: `/transactions/${transactionId}`,
+    });
+    return done;
+  }
+
+  private cancelled(tx: Transaction, now: string): Transaction {
+    const request = tx.cancelRequest!;
+    transactionMachine.assertTransition(tx.status, 'CANCELLED', request.by);
+    const { cancelRequest: _request, ...rest } = tx;
+    return { ...rest, status: 'CANCELLED', cancel: { by: request.by, reason: request.reason, at: now }, closedAt: now };
   }
 
   reportFailure(userId: string, transactionId: string, input: Record<string, unknown>) {
@@ -405,6 +535,7 @@ export class TransactionService {
   /** Đọc giao dịch; nếu đã quá 48h chờ bên kia thì tự hoàn tất trước khi trả về (chưa có job nền — Epic 10). */
   async loadAndSettle(transactionId: string): Promise<Transaction | undefined> {
     const tx = await this.loadTx(transactionId);
+    if (tx?.cancelRequest && this.clock.now().toISOString() >= tx.cancelRequest.effectiveAt) return this.finalizeCancel(transactionId);
     if (!tx || tx.status !== 'AWAITING_COUNTERPARTY' || !tx.counterpartyDeadline) return tx;
     if (this.clock.now().toISOString() < tx.counterpartyDeadline) return tx;
     return this.autoComplete(transactionId);
@@ -468,9 +599,13 @@ export class TransactionService {
     data: Record<string, unknown> = {},
   ) {
     let actingParty: Party = 'OWNER';
+    await this.loadAndSettle(transactionId); // yêu cầu hủy đã quá 5 phút → hủy trước khi làm tiếp
     const next = await this.mutate(transactionId, undefined, userId, eventType, (tx, now) => {
       const party = this.partyOf(tx, userId);
       if (!party) throw notFound('giao dịch');
+      if (tx.cancelRequest && !CANCEL_EVENTS.includes(eventType)) {
+        throw conflict('CANCEL_PENDING', 'Giao dịch đang chờ hủy — rút yêu cầu hủy trước, hoặc chờ hết 5 phút');
+      }
       actingParty = party;
       return fn(tx, party, now);
     }, data);
@@ -482,7 +617,7 @@ export class TransactionService {
    * Ghi trạng thái mới + sự kiện (T9.8) + đồng bộ Listing khi giao dịch kết thúc (A5):
    * COMPLETED → Listing COMPLETED; CANCELLED/FAILED → Listing mở lại nếu còn hạn, không thì EXPIRED.
    */
-  private mutate(
+  private async mutate(
     transactionId: string,
     actor: Actor | undefined,
     actorId: string,
@@ -490,7 +625,8 @@ export class TransactionService {
     fn: (tx: Transaction, now: string) => Transaction,
     data: Record<string, unknown> = {},
   ): Promise<Transaction> {
-    return withOptimisticRetry(async () => {
+    let endedByParties = false;
+    const result = await withOptimisticRetry(async () => {
       const tx = await this.loadTx(transactionId);
       if (!tx) throw notFound('giao dịch');
       const now = this.clock.now().toISOString();
@@ -503,6 +639,9 @@ export class TransactionService {
       }
 
       const resolvedActor: Actor = actor ?? (tx.ownerId === actorId ? 'OWNER' : 'PARTNER');
+      // Hủy / thất bại do hai bên (không phải Admin kết luận tranh chấp) → dữ liệu chống né phí (QĐ-39)
+      endedByParties =
+        !TERMINAL.includes(tx.status) && (next.status === 'CANCELLED' || next.status === 'FAILED') && resolvedActor !== 'ADMIN';
       const ops: WriteOp[] = [
         putVersioned(next, tx.version ?? 1),
         this.eventOp(tx, (tx.version ?? 1) + 1, resolvedActor, eventType, { ...data, to: next.status }),
@@ -514,18 +653,29 @@ export class TransactionService {
           timerOp('TX_AUTO_COMPLETE', tx.transactionId, next.counterpartyDeadline),
         );
       }
+      // Yêu cầu hủy → mốc tự hủy sau 5 phút (QĐ-38); đọc giao dịch / tin cũng tự hủy khi quá hạn
+      if (!tx.cancelRequest && next.cancelRequest) ops.push(timerOp('TX_CANCEL', tx.transactionId, next.cancelRequest.effectiveAt, true));
       // Phí dịch vụ 10.000đ / giao dịch hoàn tất, người bán trả, gom hóa đơn theo tháng (QĐ-37)
       if (tx.status !== 'COMPLETED' && next.status === 'COMPLETED') ops.push(...this.billing.feeOps(next, now));
       if (!TERMINAL.includes(tx.status) && TERMINAL.includes(next.status)) {
         const listing = await this.loadListing(tx.listingId);
         if (listing.status === 'MATCHED' && listing.activeTransactionId === tx.transactionId) {
           const reopen: ListingStatus = next.status === 'COMPLETED' ? 'COMPLETED' : now < listing.expiresAt ? 'ACTIVE' : 'EXPIRED';
-          ops.push(putVersioned({ ...listing, status: reopen, activeTransactionId: undefined, updatedAt: now }, listing.version ?? 1));
+          const lastEndedDeal =
+            endedByParties && reopen === 'ACTIVE'
+              ? { transactionId: tx.transactionId, buyerId: tx.partnerId, status: next.status as 'CANCELLED' | 'FAILED', at: now }
+              : listing.lastEndedDeal;
+          ops.push(putVersioned({ ...listing, status: reopen, activeTransactionId: undefined, lastEndedDeal, updatedAt: now }, listing.version ?? 1));
         }
       }
+      if (endedByParties) ops.push(this.risk.dealEndedOp({ ...next, status: next.status as 'CANCELLED' | 'FAILED' }, now));
       await this.table.transact(ops);
       return { ...next, version: (tx.version ?? 1) + 1 };
     });
+    if (endedByParties) {
+      await this.risk.evaluate(result.ownerId).catch((err) => log('error', 'risk_evaluate_failed', { ownerId: result.ownerId, error: err instanceof Error ? err.message : String(err) }));
+    }
+    return result;
   }
 
   private async notifyCounterparty(tx: Transaction, by: Party, eventType: string) {
@@ -537,8 +687,13 @@ export class TransactionService {
       PRICE_ADJUSTMENT_ACCEPTED: 'Chủ tin đồng ý giá mới',
       PRICE_ADJUSTMENT_REJECTED: 'Chủ tin từ chối giá mới',
       COMPLETION_CONFIRMED:
-        tx.status === 'AWAITING_COUNTERPARTY' ? 'Bên kia đã xác nhận hoàn tất — vui lòng xác nhận trong 48 giờ' : 'Giao dịch đã cập nhật',
+        tx.status === 'AWAITING_COUNTERPARTY'
+          ? `Bên kia xác nhận đã bàn giao, giá cuối ${(Object.values(tx.completion)[0]?.finalPrice ?? tx.agreedPrice).toLocaleString('vi-VN')}đ — bấm Chấp nhận để hoàn tất hoặc Khiếu nại trong 48 giờ`
+          : 'Giao dịch đã cập nhật',
       DISPUTED: 'Giao dịch đang tranh chấp — Admin sẽ xem xét',
+      CANCEL_REQUESTED: 'Bên kia yêu cầu hủy giao dịch — tự hủy sau 5 phút nếu không rút lại',
+      CANCEL_WITHDRAWN: 'Bên kia đã rút yêu cầu hủy, giao dịch tiếp tục',
+      PRICE_AGREED: 'Giá giao dịch đã đổi theo lời ra giá trong chat',
       CANCELLED: 'Giao dịch đã bị hủy',
       FAILED: 'Giao dịch được báo thất bại',
     };

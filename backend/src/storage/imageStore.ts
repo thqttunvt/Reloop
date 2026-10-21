@@ -9,7 +9,7 @@ import type { TextScreener } from './textScreener';
 /**
  * Vòng đời ảnh (QĐ-27) do S3 Lifecycle xử lý theo tag "state":
  *  - pending  : vừa upload, chưa gắn vào tin → xóa sau 1 ngày (ảnh rác)
- *  - attached : đã gắn vào tin / đề nghị giảm giá → xóa sau 120 ngày (≈ 90 ngày sau khi tin kết thúc)
+ *  - attached : đã gắn vào tin / đề nghị giảm giá → xóa 90 ngày sau khi upload
  * Rule nằm ở infra/storage.tf.
  * Tag "moderation=passed": ảnh đã qua kiểm duyệt Rekognition — bắt buộc trước khi dùng ảnh.
  */
@@ -164,8 +164,8 @@ export async function moderateUpload(
   moderator: import('./moderator').ImageModerator,
   userId: string,
   rawKey: unknown,
-  onRejected: (key: string, labels: { name: string; confidence: number }[]) => void,
-  textCheck?: { screener: TextScreener; onFlagged: (key: string, text: string) => Promise<void> },
+  onRejected: (key: string, labels: { name: string; confidence: number }[]) => void | Promise<void>,
+  flagging?: { screener?: TextScreener; onFlagged: (key: string, text: string, kind?: 'TEXT' | 'SENSITIVE') => Promise<void> },
 ) {
   const [key] = assertOwnImageKeys(userId, [rawKey]);
   if (!key) throw badRequest('INVALID_IMAGE_KEYS', 'Ảnh không hợp lệ');
@@ -173,19 +173,25 @@ export async function moderateUpload(
   const result = await moderator.check(key);
   if (!result.allowed) {
     await images.remove(key);
-    onRejected(key, result.labels);
+    await onRejected(key, result.labels);
     throw new AppError(422, 'IMAGE_REJECTED', 'Ảnh bị từ chối vì có nội dung không phù hợp. Vui lòng chỉ đăng ảnh thiết bị.', {
       labels: result.labels.map((l) => l.name),
     });
   }
   await images.markModerated(key);
 
+  // QĐ-43: nghi ảnh nhạy cảm (nhãn nặng 50–70%) → gắn cờ, tin dùng ảnh này chờ Admin duyệt tay
+  if (result.review && flagging) {
+    await flagging.onFlagged(key, `Nghi ảnh nhạy cảm: ${result.labels.map((l) => `${l.name} ${l.confidence}%`).join(', ')}`, 'SENSITIVE');
+    return { key, allowed: true, flagged: true };
+  }
+
   let flagged = false;
-  if (textCheck?.screener.enabled) {
+  if (flagging?.screener?.enabled) {
     try {
-      const screen = await textCheck.screener.check(key);
+      const screen = await flagging.screener.check(key);
       flagged = screen.flagged;
-      if (flagged) await textCheck.onFlagged(key, screen.text);
+      if (flagged) await flagging.onFlagged(key, screen.text, 'TEXT');
     } catch (err) {
       // Lỗi OCR / Guardrail không được chặn người dùng upload ảnh
       log('error', 'image_text_check_failed', { key, error: err instanceof Error ? err.message : String(err) });

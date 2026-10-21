@@ -6,8 +6,9 @@ import type { ChatService } from '../modules/chat/chatService';
 import type { ListingService } from '../modules/listings/listingService';
 import type { LocationService } from '../modules/locations/locationService';
 import type { ReportService } from '../modules/reports/reportService';
+import type { RiskService } from '../modules/risk/riskService';
 import { TERMS_VERSION } from '../modules/users/userService';
-import type { NotificationService } from '../modules/notifications/notificationService';
+import { ADMIN_INBOX, type NotificationService } from '../modules/notifications/notificationService';
 import type { ReputationService } from '../modules/reputation/reputationService';
 import type { TransactionService } from '../modules/transactions/transactionService';
 import { PARTNER_STATUSES, partnerTier, type PartnerService, type PartnerStatus } from '../modules/partners/partnerService';
@@ -23,6 +24,7 @@ export interface Services {
   users: UserService;
   wallet: WalletService;
   billing: BillingService;
+  risk: RiskService;
   partners: PartnerService;
   listings: ListingService;
   images: ImageStore;
@@ -50,12 +52,14 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/me',
       auth: 'required',
+      allowWhenLocked: true,
       handle: async (c) => ({ body: { ...(await s.users.getOrCreate(c.principal)), currentTermsVersion: TERMS_VERSION } }),
     },
     {
       method: 'POST',
       path: '/me/accept-terms',
       auth: 'required',
+      allowWhenLocked: true,
       handle: async (c) => ({ body: await s.users.acceptTerms(c.principal, c.body.version) }),
     },
 
@@ -111,6 +115,27 @@ export function apiRoutes(s: Services): Route[] {
       handle: async (c) => ({ status: 201, body: await s.chat.send(c.principal.userId, c.params.id!, c.body.text) }),
     },
     {
+      // Ra giá trong chat (QĐ-38)
+      method: 'POST',
+      path: '/conversations/{id}/offers',
+      auth: 'required',
+      handle: async (c) => ({ status: 201, body: await s.chat.sendOffer(c.principal.userId, c.params.id!, c.body.price) }),
+    },
+    {
+      // Chấp nhận khi tin đang mở → tạo giao dịch; bấm lại do mạng lỗi không tạo trùng
+      method: 'POST',
+      path: '/conversations/{id}/offers/{offerId}/accept',
+      auth: 'required',
+      idempotent: true,
+      handle: async (c) => ({ body: await s.chat.respondOffer(c.principal.userId, c.params.id!, c.params.offerId!, true) }),
+    },
+    {
+      method: 'POST',
+      path: '/conversations/{id}/offers/{offerId}/reject',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.chat.respondOffer(c.principal.userId, c.params.id!, c.params.offerId!, false) }),
+    },
+    {
       method: 'POST',
       path: '/conversations/{id}/read',
       auth: 'required',
@@ -136,6 +161,7 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/fees',
       auth: 'required',
+      allowWhenLocked: true,
       handle: async () => ({
         body: { feePerTransaction: s.billing.feePerTransaction, payer: 'SELLER', billing: 'MONTHLY', appliesTo: 'COMPLETED_TRANSACTIONS' },
       }),
@@ -145,7 +171,16 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/billing/me',
       auth: 'required',
+      allowWhenLocked: true,
       handle: async (c) => ({ body: await s.billing.summaryFor(c.principal.userId) }),
+    },
+    {
+      // Khiếu nại phí nghi bán ngoài ReLoop (QĐ-39)
+      method: 'POST',
+      path: '/billing/fees/{month}/{transactionId}/appeal',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => ({ body: await s.billing.appeal(c.principal.userId, c.params.month!, c.params.transactionId!, c.body.reason) }),
     },
     { method: 'GET', path: '/wallet', auth: 'required', handle: async (c) => ({ body: await s.wallet.getWallet(c.principal.userId) }) },
     {
@@ -173,13 +208,17 @@ export function apiRoutes(s: Services): Route[] {
           s.moderator,
           c.principal.userId,
           c.body.key,
-          (key, labels) => log('warn', 'image_rejected', { userId: c.principal.userId, key, labels }),
+          async (key, labels) => {
+            log('warn', 'image_rejected', { userId: c.principal.userId, key, labels });
+            // Ảnh nhạy cảm bị chặn = 1 lần vi phạm (QĐ-43)
+            await s.risk.recordViolation(c.principal.userId, 'IMAGE_REJECTED', { type: 'IMAGE', id: key }, labels.map((l) => `${l.name} ${l.confidence}%`).join(', '));
+          },
           {
-            // Chữ trong ảnh giống câu lệnh → gắn cờ, tin dùng ảnh này chờ Admin duyệt (QĐ-36)
+            // Chữ giống câu lệnh (QĐ-36) / nghi ảnh nhạy cảm 50–70% (QĐ-43) → gắn cờ, tin dùng ảnh này chờ Admin duyệt
             screener: s.screener,
-            onFlagged: async (key, text) => {
-              log('warn', 'image_text_flagged', { userId: c.principal.userId, key });
-              await s.listings.recordImageFlag(c.principal.userId, key, text);
+            onFlagged: async (key, text, kind = 'TEXT') => {
+              log('warn', kind === 'SENSITIVE' ? 'image_sensitive_suspected' : 'image_text_flagged', { userId: c.principal.userId, key });
+              await s.listings.recordImageFlag(c.principal.userId, key, text, kind);
             },
           },
         ),
@@ -351,6 +390,20 @@ export function apiRoutes(s: Services): Route[] {
       handle: async (c) => ({ body: await s.transactions.cancel(c.principal.userId, c.params.id!, c.body) }),
     },
     {
+      // Người yêu cầu hủy rút lại trong 5 phút (QĐ-38)
+      method: 'POST',
+      path: '/transactions/{id}/cancel/withdraw',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.withdrawCancel(c.principal.userId, c.params.id!) }),
+    },
+    {
+      // Bên kia đồng ý → hủy ngay
+      method: 'POST',
+      path: '/transactions/{id}/cancel/confirm',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.confirmCancel(c.principal.userId, c.params.id!) }),
+    },
+    {
       method: 'POST',
       path: '/transactions/{id}/report-failure',
       auth: 'required',
@@ -368,24 +421,28 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/notifications',
       auth: 'required',
+      allowWhenLocked: true,
       handle: async (c) => ({ body: { items: await s.notifications.list(c.principal.userId) } }),
     },
     {
       method: 'GET',
       path: '/notifications/unread-count',
       auth: 'required',
+      allowWhenLocked: true,
       handle: async (c) => ({ body: { count: await s.notifications.unreadCount(c.principal.userId) } }),
     },
     {
       method: 'POST',
       path: '/notifications/read-all',
       auth: 'required',
+      allowWhenLocked: true,
       handle: async (c) => ({ body: await s.notifications.markAllRead(c.principal.userId) }),
     },
     {
       method: 'POST',
       path: '/notifications/{id}/read',
       auth: 'required',
+      allowWhenLocked: true,
       handle: async (c) => ({ body: await s.notifications.markRead(c.principal.userId, c.params.id!) }),
     },
 
@@ -421,11 +478,27 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/partners/me',
       auth: 'required',
+      allowWhenLocked: true,
       handle: async (c) => {
         const id = c.principal.userId;
-        const [partner, branches, rules] = await Promise.all([s.partners.get(id), s.partners.listBranches(id), s.partners.listRules(id)]);
-        return { body: { partner: partner ?? null, branches, rules } };
+        const [partner, branches, rules, open] = await Promise.all([
+          s.partners.get(id),
+          s.partners.listBranches(id),
+          s.partners.listRules(id),
+          s.listings.openListingCount(id),
+        ]);
+        // Hạn mức tin đang mở + gói VIP 1 (QĐ-41)
+        const quota = partner ? { ...s.partners.listingQuota(partner), open, vipPrice: s.billing.vipPlan.price, vipDays: s.billing.vipPlan.days } : null;
+        return { body: { partner: partner ?? null, branches, rules, quota } };
       },
+    },
+    {
+      // Mua / gia hạn VIP 1 (QĐ-41) — tính tiền nên bắt buộc Idempotency-Key
+      method: 'POST',
+      path: '/partners/me/vip',
+      auth: 'required',
+      idempotent: true,
+      handle: async (c) => ({ body: await s.partners.buyVip(c.principal.userId) }),
     },
     {
       method: 'PATCH',
@@ -538,6 +611,95 @@ export function apiRoutes(s: Services): Route[] {
         return { body: await s.billing.issueMonth(String(c.body.month ?? '')) };
       },
     },
+    // Hộp thư chung của Admin (mục 7 danhgia): tranh chấp mới…
+    {
+      method: 'GET',
+      path: '/admin/notifications',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: { items: await s.notifications.list(ADMIN_INBOX) } };
+      },
+    },
+    {
+      method: 'GET',
+      path: '/admin/notifications/unread-count',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: { count: await s.notifications.unreadCount(ADMIN_INBOX) } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/notifications/read-all',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.notifications.markAllRead(ADMIN_INBOX) };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/notifications/{id}/read',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.notifications.markRead(ADMIN_INBOX, c.params.id!) };
+      },
+    },
+    {
+      // Admin xem chat của một tin (chỉ đọc, ghi log) — mục 20 danhgia
+      method: 'GET',
+      path: '/admin/listings/{id}/chats',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.chat.adminListingChats(c.principal.userId, c.params.id!) };
+      },
+    },
+    {
+      // Khiếu nại phí nghi bán ngoài (QĐ-39) — xem: admin; miễn / giữ phí: admin_finance
+      method: 'GET',
+      path: '/admin/fee-appeals',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const items = await s.billing.listAppeals();
+        const names = Object.fromEntries(await Promise.all(items.map(async (i) => [i.userId, (await s.partners.get(i.userId))?.businessName] as const)));
+        return { body: { items: items.map((i) => ({ ...i, partnerName: names[i.userId] })) } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/fee-appeals/{userId}/{month}/{transactionId}/resolve',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        if (typeof c.body.waive !== 'boolean') throw badRequest('INVALID_BODY', 'waive phải là true/false');
+        const note = typeof c.body.note === 'string' && c.body.note.trim() ? c.body.note.trim().slice(0, 500) : undefined;
+        return { body: await s.billing.resolveAppeal(c.principal.userId, c.params.userId!, c.params.month!, c.params.transactionId!, c.body.waive, note) };
+      },
+    },
+    {
+      // Cờ "nghi né phí" (QĐ-39)
+      method: 'GET',
+      path: '/admin/risk-flags',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: { items: await s.risk.listOpen() } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/risk-flags/{userId}/resolve',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.risk.resolve(c.principal.userId, c.params.userId!, c.body) };
+      },
+    },
     {
       // Tin có ảnh bị gắn cờ chờ duyệt (QĐ-36)
       method: 'GET',
@@ -566,7 +728,7 @@ export function apiRoutes(s: Services): Route[] {
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
-        return { body: { items: await s.reports.listOpen() } };
+        return { body: { items: await s.reports.listOpenDetailed() } };
       },
     },
     {
@@ -588,8 +750,23 @@ export function apiRoutes(s: Services): Route[] {
         const partnerCounts = Object.fromEntries(
           await Promise.all(PARTNER_STATUSES.map(async (st) => [st, (await s.partners.listByStatus(st)).length] as const)),
         );
-        const [disputes, reports, pendingListings] = await Promise.all([s.transactions.listDisputed(), s.reports.listOpen(), s.listings.listPendingReview()]);
-        return { body: { partners: partnerCounts, openDisputes: disputes.length, openReports: reports.length, pendingListings: pendingListings.length } };
+        const [disputes, reports, pendingListings, riskFlags, feeAppeals] = await Promise.all([
+          s.transactions.listDisputed(),
+          s.reports.listOpen(),
+          s.listings.listPendingReview(),
+          s.risk.listOpen(),
+          s.billing.listAppeals(),
+        ]);
+        return {
+          body: {
+            partners: partnerCounts,
+            openDisputes: disputes.length,
+            openReports: reports.length,
+            pendingListings: pendingListings.length,
+            riskFlags: riskFlags.length,
+            feeAppeals: feeAppeals.length,
+          },
+        };
       },
     },
     {

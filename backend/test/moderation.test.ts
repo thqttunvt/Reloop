@@ -32,7 +32,7 @@ describe('Kiểm duyệt ảnh (Rekognition, M6)', () => {
   it('ảnh nhạy cảm → xóa ngay, trả 422 IMAGE_REJECTED, ghi nhận vi phạm', async () => {
     const { images, moderator, calls } = fakes(false);
     const rejected: string[] = [];
-    await expect(moderateUpload(images, moderator, 'u1', 'listings/u1/b.jpg', (k) => rejected.push(k))).rejects.toMatchObject({
+    await expect(moderateUpload(images, moderator, 'u1', 'listings/u1/b.jpg', (k) => void rejected.push(k))).rejects.toMatchObject({
       status: 422,
       code: 'IMAGE_REJECTED',
       details: { labels: ['Explicit Nudity'] },

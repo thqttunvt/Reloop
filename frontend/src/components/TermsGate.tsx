@@ -40,7 +40,14 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
       <h3>Phí dịch vụ</h3>
       <p>
         Đăng tin miễn phí. Người bán trả 10.000đ cho mỗi giao dịch hoàn tất (hủy / thất bại không tính phí). Phí được gộp theo tháng: ngày 1 hằng
-        tháng ReLoop gửi hóa đơn tháng trước, thanh toán bằng chuyển khoản trong 7 ngày; quá hạn sẽ tạm khóa đăng tin và báo giá cho tới khi thanh toán.
+        tháng ReLoop gửi hóa đơn tháng trước, thanh toán bằng chuyển khoản trong 7 ngày. Quá hạn trên 3 ngày: không đăng tin mới (tin đang có vẫn
+        bình thường); quá hạn trên 7 ngày: tạm khóa mọi chức năng, chỉ còn xem và thanh toán phí, cho tới khi ReLoop xác nhận đã nhận tiền.
+      </p>
+      <p>
+        Hạn mức tin đang mở cùng lúc: đối tác cấp 1 được 3 tin, gói VIP 1 (10.000đ / 30 ngày, cộng vào phí tháng) được 5 tin, đối tác cấp 2 được 10 tin.
+        Chống né phí: nếu giao dịch bị hủy / báo thất bại rồi người bán gỡ tin trong vòng 72 giờ sau đó, ReLoop coi như đã bán bên ngoài và tính
+        10.000đ vào phí tháng (người bán được khiếu nại, Admin miễn nếu hợp lý). Người bán có nhiều giao dịch bị hủy bất thường có thể bị cảnh cáo
+        hoặc tạm ngừng tài khoản đối tác.
       </p>
       <h3>2. AI phân tích ảnh</h3>
       <p>AI chỉ gợi ý thông tin dựa trên những gì thấy được trong ảnh, không khẳng định thiết bị còn hoạt động. Bạn chịu trách nhiệm kiểm tra lại trước khi đăng.</p>
@@ -48,7 +55,7 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
       <p>
         Chúng tôi thu thập: email, họ tên, số điện thoại, địa chỉ và vị trí bạn ghim, ảnh thiết bị. Trước khi bạn chọn đối tác, đối tác chỉ thấy khu vực (phường/quận)
         và khoảng cách làm tròn; địa chỉ chi tiết chỉ mở cho hai bên sau khi giao dịch được tạo. Khi bạn là đối tác, tên đối tác, email liên hệ và số
-        điện thoại (nếu bạn khai trong hồ sơ) được hiện công khai trên tin đăng để khách liên lạc. Ảnh tin đăng được xóa 90 ngày sau khi tin kết thúc;
+        điện thoại (nếu bạn khai trong hồ sơ) được hiện công khai trên tin đăng để khách liên lạc. Ảnh tin đăng được xóa 90 ngày sau khi tải lên;
         lịch sử giao dịch được lưu để giải quyết tranh chấp. Bạn có thể yêu cầu xóa tài khoản; dữ liệu giao dịch sẽ được ẩn danh (theo Nghị định 13/2023/NĐ-CP).
       </p>
       <h3>4. Ứng xử</h3>

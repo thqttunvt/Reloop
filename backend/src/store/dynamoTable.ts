@@ -75,18 +75,35 @@ export class DynamoTable implements Table {
   }
 
   async query<T extends Item>(pk: string, options: QueryOptions = {}): Promise<T[]> {
-    const { index, skPrefix = '', limit, ascending = true } = options;
+    const { index, skPrefix = '', skRange, limit, ascending = true } = options;
     const onGsi = index === 'gsi1';
     const pkField = onGsi ? 'GSI1PK' : 'PK';
     const skField = onGsi ? 'GSI1SK' : 'SK';
+
+    // Điều kiện sort key: tiền tố, hoặc khoảng [from, to] (BETWEEN / >= / <=)
+    let skCondition = '';
+    const values: Record<string, unknown> = { ':pk': pk };
+    if (skPrefix) {
+      skCondition = 'begins_with(#sk, :skPrefix)';
+      values[':skPrefix'] = skPrefix;
+    } else if (skRange?.from && skRange.to) {
+      skCondition = '#sk BETWEEN :skFrom AND :skTo';
+      Object.assign(values, { ':skFrom': skRange.from, ':skTo': skRange.to });
+    } else if (skRange?.from) {
+      skCondition = '#sk >= :skFrom';
+      values[':skFrom'] = skRange.from;
+    } else if (skRange?.to) {
+      skCondition = '#sk <= :skTo';
+      values[':skTo'] = skRange.to;
+    }
 
     const input: QueryCommandInput = {
       TableName: this.tableName,
       IndexName: onGsi ? GSI1_NAME : undefined,
       ConsistentRead: onGsi ? undefined : true,
-      KeyConditionExpression: skPrefix ? '#pk = :pk AND begins_with(#sk, :skPrefix)' : '#pk = :pk',
-      ExpressionAttributeNames: skPrefix ? { '#pk': pkField, '#sk': skField } : { '#pk': pkField },
-      ExpressionAttributeValues: skPrefix ? { ':pk': pk, ':skPrefix': skPrefix } : { ':pk': pk },
+      KeyConditionExpression: skCondition ? `#pk = :pk AND ${skCondition}` : '#pk = :pk',
+      ExpressionAttributeNames: skCondition ? { '#pk': pkField, '#sk': skField } : { '#pk': pkField },
+      ExpressionAttributeValues: values,
       ScanIndexForward: ascending,
     };
 

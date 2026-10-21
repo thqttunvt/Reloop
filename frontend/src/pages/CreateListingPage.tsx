@@ -2,9 +2,22 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CheckGroup } from '../components/CheckGroup';
 import { MapPicker, type LatLng } from '../components/MapPicker';
-import { ApiError, api, newIdempotencyKey, uploadImage, type AiAnalysis, type Features, type Listing, type Partner, type SavedLocation } from '../lib/api';
+import {
+  ApiError,
+  api,
+  newIdempotencyKey,
+  uploadImage,
+  type AiAnalysis,
+  type BillingSummary,
+  type DebtStatus,
+  type Features,
+  type Listing,
+  type ListingQuota,
+  type Partner,
+  type SavedLocation,
+} from '../lib/api';
 import { CATEGORY_LABEL, CONDITION_LABEL, HANDOVER_LABEL, UNIT_LABEL } from '../lib/catalog';
-import { errorText } from '../lib/format';
+import { errorText, vnd } from '../lib/format';
 
 const MAX_IMAGES = 6;
 
@@ -37,13 +50,28 @@ export function CreateListingPage() {
 
   /** undefined = đang tải; null = chưa đăng ký đối tác. Chỉ đối tác đã duyệt mới đăng tin (QĐ-34). */
   const [partner, setPartner] = useState<Partner | null | undefined>(undefined);
+  /** Hạn mức tin đang mở cùng lúc (QĐ-41) */
+  const [quota, setQuota] = useState<ListingQuota | null>(null);
+  const quotaFull = !!quota && quota.open >= quota.limit;
   const canPost = partner?.status === 'APPROVED';
 
   useEffect(() => {
-    api<{ partner: Partner | null }>('GET', '/partners/me')
-      .then((r) => setPartner(r.partner))
+    api<{ partner: Partner | null; quota: ListingQuota | null }>('GET', '/partners/me')
+      .then((r) => {
+        setPartner(r.partner);
+        setQuota(r.quota);
+      })
       .catch(() => setPartner(null));
   }, []);
+
+  /** Nợ phí quá hạn > 3 ngày → không đăng tin mới; tin đang có vẫn bình thường (QĐ-40). */
+  const [debt, setDebt] = useState<DebtStatus>();
+  useEffect(() => {
+    api<BillingSummary>('GET', '/billing/me')
+      .then((b) => setDebt(b.debt))
+      .catch(() => undefined);
+  }, []);
+  const debtBlocked = debt?.level === 'NO_POSTING' || debt?.level === 'FULL';
 
   const [saved, setSaved] = useState<SavedLocation[]>([]);
   const [saveLocation, setSaveLocation] = useState(false);
@@ -170,6 +198,28 @@ export function CreateListingPage() {
   return (
     <div className="stack">
     {partner !== undefined && !canPost && <PartnerCta partner={partner} />}
+    {canPost && quotaFull && (
+      <div className="notice warn">
+        <strong>
+          Bạn đang có {quota!.open}/{quota!.limit} tin đang mở.
+        </strong>{' '}
+        Chờ một tin bán xong / hết hạn, hoặc gỡ bớt tin
+        {quota!.plan === 'BASIC' && (
+          <>
+            {' '}
+            — hay <Link to="/partner">nâng lên VIP 1</Link> ({vnd(quota!.vipPrice)} / {quota!.vipDays} ngày) để đăng tối đa 5 tin
+          </>
+        )}
+        .
+      </div>
+    )}
+    {debtBlocked && debt?.invoice && (
+      <div className="notice bad">
+        <strong>Tạm dừng đăng tin mới:</strong> hóa đơn phí tháng {debt.invoice.month} đã quá hạn {debt.daysOverdue} ngày. Hãy chuyển khoản{' '}
+        {vnd(debt.overdueAmount)} với nội dung <strong>{debt.invoice.paymentCode}</strong> (xem ở trang <Link to="/partner">Đối tác</Link>). Các tin
+        đang có vẫn hoạt động bình thường.
+      </div>
+    )}
     <form className="card" onSubmit={submit}>
       <h2>Đăng tin thiết bị</h2>
 
@@ -260,8 +310,8 @@ export function CreateListingPage() {
       {uploading && <p className="muted">Đang tải ảnh lên…</p>}
       {flaggedKeys.length > 0 && (
         <div className="notice warn">
-          <strong>⚠ {flaggedKeys.length} ảnh có chữ bất thường.</strong> Hệ thống phát hiện chữ trong ảnh giống câu lệnh hoặc nội dung không phù hợp.
-          Bạn vẫn đăng được, nhưng tin sẽ <strong>chờ Admin duyệt (1–3 ngày)</strong> trước khi hiện trên Chợ. Nếu đó chỉ là tem nhãn bình thường,
+          <strong>⚠ {flaggedKeys.length} ảnh cần Admin kiểm tra.</strong> Hệ thống phát hiện chữ trong ảnh giống câu lệnh, hoặc ảnh có thể chứa nội
+          dung nhạy cảm. Bạn vẫn đăng được, nhưng tin sẽ <strong>chờ Admin duyệt (1–3 ngày)</strong> trước khi hiện trên Chợ. Nếu ảnh bình thường,
           Admin sẽ duyệt. Muốn đăng ngay, hãy tải lại trang và dùng ảnh khác.
         </div>
       )}
@@ -311,7 +361,7 @@ export function CreateListingPage() {
       <p className="muted">* bắt buộc. Cần đủ thông tin, ít nhất 1 ảnh và vị trí trên bản đồ mới đăng được.</p>
       {error && <p className="error">{error}</p>}
       <div className="row">
-        <button type="submit" disabled={!canPost || busy || uploading || handover.length === 0 || !point || (!imagesOff && imageKeys.length === 0)}>
+        <button type="submit" disabled={!canPost || debtBlocked || quotaFull || busy || uploading || handover.length === 0 || !point || (!imagesOff && imageKeys.length === 0)}>
           {busy ? 'Đang đăng…' : flaggedKeys.length > 0 ? 'Gửi tin để Admin duyệt' : 'Đăng tin'}
         </button>
         {partner !== undefined && !canPost && <span className="muted">Cần được duyệt làm đối tác trước khi đăng.</span>}

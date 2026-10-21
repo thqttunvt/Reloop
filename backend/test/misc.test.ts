@@ -43,7 +43,7 @@ describe('Báo cáo vi phạm & kiểm duyệt (C13, T14.5, T14.6)', () => {
     expect((await t.call('GET', '/admin/reports', { user: 'near' })).status).toBe(403);
     expect((await t.call('GET', '/admin/stats', ADMIN)).body).toMatchObject({ openReports: 1, openDisputes: 0, partners: { APPROVED: 2 } }); // near (cấp 2) + owner (cấp 1)
 
-    const res = await t.call('POST', `/admin/reports/${report.reportId}/resolve`, { ...ADMIN, body: { action: 'HIDE_LISTING', note: 'Spam' } });
+    const res = await t.call('POST', `/admin/reports/${report.reportId}/resolve`, { ...ADMIN, body: { action: 'HIDE_AND_WARN', note: 'Spam' } });
     expect(res.body.status).toBe('RESOLVED');
     expect((await t.call('GET', `/listings/${listingId}`, { user: 'owner' })).body.listing.status).toBe('CANCELLED');
     const ownerTypes = (await t.call('GET', '/notifications', { user: 'owner' })).body.items.map((n: { type: string }) => n.type);

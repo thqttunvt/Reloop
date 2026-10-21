@@ -88,3 +88,33 @@ describe('Đối tác cấp 1 / cấp 2 (QĐ-34)', () => {
     expect((await t.call('GET', '/partners/old/public', { user: 'x' })).body).toMatchObject({ tier: 'BUSINESS', contact: { email: 'moi@thumua.vn' } });
   });
 });
+
+describe('Sửa chi nhánh / bảng giá cùng điều kiện như thêm mới (mục 8 danhgia)', () => {
+  it('bị Admin tạm ngừng → không sửa được chi nhánh / bảng giá; mở lại thì sửa được', async () => {
+    const t = makeTestApp();
+    const branch = await approvedPartner(t, 'near');
+    const rule = (await t.call('GET', '/partners/me', { user: 'near' })).body.rules[0];
+    const patchBranch = () => t.call('PATCH', `/partners/me/branches/${branch.branchId}`, { user: 'near', body: { radiusKm: 2 } });
+    const patchRule = () => t.call('PATCH', `/partners/me/rules/${rule.ruleId}`, { user: 'near', body: { maxPrice: 900_000 } });
+
+    await t.call('POST', '/admin/partners/near/suspend', { ...ADMIN, body: { note: 'Vi phạm' } });
+    expect((await patchBranch()).status).toBe(403);
+    expect((await patchRule()).status).toBe(403);
+    const after = (await t.call('GET', '/partners/me', { user: 'near' })).body;
+    expect(after.branches[0].radiusKm).toBe(5); // không đổi gì trong lúc bị ngừng
+    expect(after.rules[0].maxPrice).toBe(500_000);
+
+    await t.call('POST', '/admin/partners/near/reactivate', ADMIN);
+    expect((await patchBranch()).body.radiusKm).toBe(2);
+    expect((await patchRule()).body.maxPrice).toBe(900_000);
+  });
+
+  it('hồ sơ chuyển từ cấp 2 sang cấp 1 → chi nhánh cũ không sửa được', async () => {
+    const t = makeTestApp();
+    await acceptTerms(t, 'shop');
+    await t.call('POST', '/partners/apply', { user: 'shop', body: businessApply('shop') });
+    const branch = (await t.call('POST', '/partners/me/branches', { user: 'shop', body: branchBody(NEAR) })).body;
+    await t.call('POST', '/partners/apply', { user: 'shop', body: { tier: 'INDIVIDUAL', businessType: 'PERSONAL', businessName: 'Cá nhân', licenseNo: '001099012345', contactEmail: 'shop@mail.vn' } });
+    expect((await t.call('PATCH', `/partners/me/branches/${branch.branchId}`, { user: 'shop', body: { active: true } })).status).toBe(403);
+  });
+});

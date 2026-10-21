@@ -7,12 +7,13 @@ import { AiService } from './modules/ai/aiService';
 import { TimerSweeper } from './modules/jobs/timers';
 import { LocationService } from './modules/locations/locationService';
 import { ReportService } from './modules/reports/reportService';
+import { RiskService } from './modules/risk/riskService';
 import { ListingService } from './modules/listings/listingService';
 import { NotificationService } from './modules/notifications/notificationService';
 import { ReputationService } from './modules/reputation/reputationService';
 import { TransactionService } from './modules/transactions/transactionService';
 import { PartnerService } from './modules/partners/partnerService';
-import { createApiHandler } from './http/router';
+import { createApiHandler, type AccessGuard } from './http/router';
 import { UserService } from './modules/users/userService';
 import { Ledger } from './modules/wallet/ledger';
 import { DEFAULT_FEES, type FeePolicy } from './modules/wallet/walletConfig';
@@ -90,21 +91,29 @@ export function buildApp(
   const notifications = new NotificationService(table, clock);
   const billing = new BillingService(table, clock, notifications, DEFAULT_BILLING, config.billingBank);
   const partners = new PartnerService(table, clock, users, notifications, billing);
-  const listings = new ListingService(table, clock, users, partners, images, notifications);
-  const transactions = new TransactionService(table, clock, users, partners, listings, notifications, images, billing);
+  const risk = new RiskService(table, clock, notifications, partners);
+  const listings = new ListingService(table, clock, users, partners, images, notifications, billing, risk);
+  const transactions = new TransactionService(table, clock, users, partners, listings, notifications, images, billing, risk);
   const reputation = new ReputationService(table, clock);
   const analyzer = overrides.analyzer ?? (config.aiModelId ? new BedrockAnalyzer(config.aiModelId, config.awsRegion, config.aiGuardrail) : new DisabledAnalyzer());
   const ai = new AiService(table, clock, analyzer, images);
   const locations = new LocationService(table, clock);
-  const reports = new ReportService(table, clock, listings, notifications);
-  const chat = new ChatService(table, clock, listings, partners, users, notifications);
-  const services: Services = { users, wallet, billing, partners, listings, images, moderator, screener, notifications, transactions, reputation, ai, locations, reports, chat };
+  const reports = new ReportService(table, clock, listings, notifications, partners, users, risk);
+  const chat = new ChatService(table, clock, listings, partners, users, notifications, transactions);
+  listings.settleTransaction = (id) => transactions.loadAndSettle(id);
+  const services: Services = { users, wallet, billing, risk, partners, listings, images, moderator, screener, notifications, transactions, reputation, ai, locations, reports, chat };
   const sweeper = new TimerSweeper(table, clock, {
     LISTING_EXPIRE: (t) => listings.expireIfDue(t.targetId),
     TX_REMIND: (t) => transactions.remindIfWaiting(t.targetId),
     TX_AUTO_COMPLETE: async (t) => void (await transactions.autoComplete(t.targetId)),
+    TX_CANCEL: async (t) => void (await transactions.finalizeCancel(t.targetId)),
   }, [() => billing.issuePreviousMonthIfDue()]);
 
   const routes = apiRoutes(services);
-  return { handler: createApiHandler({ routes, auth, table, clock }), services, table, sweeper };
+  // Nợ phí quá hạn > 7 ngày → khóa mọi chức năng trừ route allowWhenLocked (QĐ-40). Trang Admin không bị ảnh hưởng.
+  const guard: AccessGuard = async (principal, route) => {
+    if (route.path.startsWith('/admin/')) return;
+    await billing.assertNotLocked(principal.userId);
+  };
+  return { handler: createApiHandler({ routes, auth, table, clock, guard }), services, table, sweeper };
 }

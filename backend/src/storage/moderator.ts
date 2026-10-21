@@ -2,6 +2,8 @@ import { DetectModerationLabelsCommand, RekognitionClient } from '@aws-sdk/clien
 
 export interface ModerationResult {
   allowed: boolean;
+  /** Nghi ngờ (nhãn nặng 50–70%) → cho dùng ảnh nhưng tin phải chờ Admin duyệt tay (QĐ-43). */
+  review?: boolean;
   /** Nhãn vi phạm Rekognition tìm thấy (để log / báo lỗi) */
   labels: { name: string; confidence: number }[];
 }
@@ -32,8 +34,32 @@ const BLOCKED = new Set([
   'Drugs',
 ]);
 
+/** Nhãn nặng: dưới ngưỡng chặn nhưng ≥ REVIEW_CONFIDENCE thì đưa Admin duyệt tay (QĐ-43). */
+const HEAVY = new Set([
+  'Explicit',
+  'Explicit Nudity',
+  'Violence',
+  'Graphic Violence',
+  'Graphic Violence Or Gore',
+  'Hate Symbols',
+  'Drugs & Tobacco',
+  'Drugs',
+]);
+
 /** Ngưỡng tin cậy để chặn. Thấp hơn → bắt nhầm nhiều; cao hơn → lọt nhiều. */
-const MIN_CONFIDENCE = 70;
+export const REJECT_CONFIDENCE = 70;
+/** Vùng nghi ngờ [REVIEW_CONFIDENCE, REJECT_CONFIDENCE) cho nhãn nặng → chờ Admin duyệt. Chỉnh theo metric ImagesSensitiveSuspected. */
+export const REVIEW_CONFIDENCE = 50;
+
+/** Phân loại nhãn Rekognition: chặn / nghi ngờ chờ duyệt / cho qua. */
+export function classifyModeration(raw: { name: string; parent?: string; confidence: number }[]): ModerationResult {
+  const hits = raw.filter((l) => BLOCKED.has(l.name) || BLOCKED.has(l.parent ?? ''));
+  const label = (l: { name: string; confidence: number }) => ({ name: l.name, confidence: Math.round(l.confidence) });
+  const rejected = hits.filter((l) => l.confidence >= REJECT_CONFIDENCE);
+  if (rejected.length) return { allowed: false, labels: rejected.map(label) };
+  const suspected = hits.filter((l) => (HEAVY.has(l.name) || HEAVY.has(l.parent ?? '')) && l.confidence >= REVIEW_CONFIDENCE);
+  return { allowed: true, review: suspected.length > 0, labels: suspected.map(label) };
+}
 
 export class RekognitionModerator implements ImageModerator {
   readonly enabled = true;
@@ -43,12 +69,9 @@ export class RekognitionModerator implements ImageModerator {
 
   async check(key: string): Promise<ModerationResult> {
     const res = await this.client.send(
-      new DetectModerationLabelsCommand({ Image: { S3Object: { Bucket: this.bucket, Name: key } }, MinConfidence: MIN_CONFIDENCE }),
+      new DetectModerationLabelsCommand({ Image: { S3Object: { Bucket: this.bucket, Name: key } }, MinConfidence: REVIEW_CONFIDENCE }),
     );
-    const labels = (res.ModerationLabels ?? [])
-      .filter((l) => BLOCKED.has(l.Name ?? '') || BLOCKED.has(l.ParentName ?? ''))
-      .map((l) => ({ name: l.Name ?? '', confidence: Math.round(l.Confidence ?? 0) }));
-    return { allowed: labels.length === 0, labels };
+    return classifyModeration((res.ModerationLabels ?? []).map((l) => ({ name: l.Name ?? '', parent: l.ParentName, confidence: l.Confidence ?? 0 })));
   }
 }
 

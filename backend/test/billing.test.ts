@@ -54,7 +54,7 @@ describe('Phí dịch vụ 10.000đ / giao dịch hoàn tất, người bán tr�
 
     const disputed = await openTransaction(t);
     await post(t, `/transactions/${disputed}/confirm-completion`, 'owner', { finalPrice: 400_000 });
-    await post(t, `/transactions/${disputed}/confirm-completion`, 'near', { finalPrice: 300_000 }); // lệch giá → tranh chấp
+    await post(t, `/transactions/${disputed}/dispute`, 'near', { reason: 'Cân thực tế chỉ được 300.000đ' }); // không đồng ý giá → khiếu nại
     await t.call('POST', `/admin/transactions/${disputed}/resolve`, { ...ADMIN, body: { outcome: 'COMPLETED', note: 'Theo cân thực tế', finalPrice: 300_000 } });
 
     expect((await billingOf(t, 'owner')).currentMonth).toMatchObject({ transactionCount: 2, amount: 20_000 });
@@ -86,27 +86,45 @@ describe('Phí dịch vụ 10.000đ / giao dịch hoàn tất, người bán tr�
     expect(notes).toContain('INVOICE_ISSUED');
   });
 
-  it('quá hạn 7 ngày → khóa đăng tin; Admin tài chính xác nhận đã thu → mở khóa', async () => {
+  it('nợ quá hạn ≤ 3 ngày chỉ cảnh báo; > 3 ngày không đăng tin mới; > 7 ngày khóa mọi chức năng; Admin thu → mở khóa (QĐ-40)', async () => {
     const t = makeTestApp();
     await approvedPartner(t, 'near');
     await completedTransaction(t);
     t.clock.advance(31 * DAY);
-    await t.app.sweeper.sweep();
+    await t.app.sweeper.sweep(); // hóa đơn tháng 1 lập ngày 1/2, hạn 8/2
 
-    t.clock.advance(8 * DAY);
+    t.clock.advance(9 * DAY); // quá hạn 2 ngày → chỉ cảnh báo
+    expect((await billingOf(t, 'owner')).debt).toMatchObject({ level: 'WARNING', daysOverdue: 2, overdueAmount: 10_000 });
+    const kept = (await post(t, '/listings', 'owner', listingBody())).body;
+    expect(kept.status).toBe('ACTIVE');
+
+    t.clock.advance(2 * DAY); // quá hạn 4 ngày → không đăng tin mới, tin đang có vẫn bình thường
     const blocked = await post(t, '/listings', 'owner', listingBody());
-    expect(blocked.body).toMatchObject({ code: 'INVOICE_OVERDUE', details: { month: '2026-01', amount: 10_000 } });
+    expect(blocked.body).toMatchObject({ code: 'INVOICE_OVERDUE', details: { level: 'NO_POSTING', month: '2026-01', amount: 10_000 } });
+    expect((await t.call('GET', '/feed', { user: 'owner' })).status).toBe(200);
+    expect((await t.call('GET', '/feed', { user: 'buyer' })).body.items.map((i: { listing: { listingId: string } }) => i.listing.listingId)).toContain(kept.listingId);
+
+    t.clock.advance(4 * DAY); // quá hạn 8 ngày → khóa mọi chức năng, chỉ còn xem phí / thông báo
+    const locked = await t.call('GET', '/feed', { user: 'owner' });
+    expect(locked).toMatchObject({ status: 403, body: { code: 'ACCOUNT_LOCKED_UNPAID', details: { level: 'FULL', paymentCode: expect.stringMatching(/^RLF/) } } });
+    expect((await post(t, `/listings/${kept.listingId}/cancel`, 'owner')).body.code).toBe('ACCOUNT_LOCKED_UNPAID');
+    expect((await billingOf(t, 'owner')).debt.level).toBe('FULL');
+    expect((await t.call('GET', '/notifications', { user: 'owner' })).status).toBe(200);
+    expect((await t.call('GET', '/me', { user: 'owner' })).status).toBe(200);
+    // Tin của người bán bị khóa ẩn khỏi Chợ
+    expect((await t.call('GET', '/feed', { user: 'buyer' })).body.items.map((i: { listing: { listingId: string } }) => i.listing.listingId)).not.toContain(kept.listingId);
     expect((await t.call('GET', '/admin/invoices?status=ISSUED', ADMIN)).body.items[0]).toMatchObject({ userId: 'owner', overdue: true, partnerName: 'Người bán owner' });
 
-    // Chỉ admin_finance được xác nhận thu tiền (TL-05)
+    // Chỉ admin_finance được xác nhận thu tiền (TL-05) → mở khóa ngay
     expect((await t.call('POST', '/admin/invoices/owner/2026-01/paid', { ...ADMIN, body: {} })).status).toBe(403);
     const paid = await t.call('POST', '/admin/invoices/owner/2026-01/paid', { ...FINANCE, body: { note: 'VCB 12/02' } });
     expect(paid.body).toMatchObject({ status: 'PAID', paidBy: 'admin1' });
     expect((await t.call('POST', '/admin/invoices/owner/2026-01/paid', { ...FINANCE, body: {} })).body.code).toBe('INVOICE_ALREADY_PAID');
+    expect((await t.call('GET', '/feed', { user: 'owner' })).status).toBe(200);
     expect((await post(t, '/listings', 'owner', listingBody())).status).toBe(201);
   });
 
-  it('đơn vị thu mua (cấp 2) nợ quá hạn với tư cách người bán → bị khóa cả báo giá', async () => {
+  it('đơn vị thu mua (cấp 2) nợ quá hạn: dưới 7 ngày vẫn trả lời báo giá; quá 7 ngày bị khóa, chủ tin không chọn được', async () => {
     const t = makeTestApp();
     await approvedPartner(t, 'near');
     await approvedPartner(t, 'biz2', { location: { lat: 10.871, lng: 106.804, address: 'gần' } });
@@ -119,12 +137,17 @@ describe('Phí dịch vụ 10.000đ / giao dịch hoàn tất, người bán tr�
     await post(t, `/transactions/${tx}/confirm-completion`, 'near');
     await post(t, `/transactions/${tx}/confirm-completion`, 'biz2');
     t.clock.advance(31 * DAY + 8 * DAY);
-    await t.app.sweeper.sweep();
-    t.clock.advance(8 * DAY);
+    await t.app.sweeper.sweep(); // hóa đơn của "near", hạn +7 ngày
+    t.clock.advance(7 * DAY + 4 * DAY); // quá hạn 4 ngày
 
     const other = (await post(t, '/listings', 'owner', listingBody())).body;
     const q = (await t.call('GET', `/listings/${other.listingId}`, { user: 'owner' })).body.quotes.find((x: { partnerId: string }) => x.partnerId === 'near');
     await post(t, `/listings/${other.listingId}/quotes/${q.quoteId}/request-confirmation`, 'owner');
-    expect((await post(t, `/listings/${other.listingId}/quotes/${q.quoteId}/confirm`, 'near', { price: 1 })).body.code).toBe('INVOICE_OVERDUE');
+    expect((await post(t, `/listings/${other.listingId}/quotes/${q.quoteId}/confirm`, 'near', { price: 300_000, validHours: 168 })).body.status).toBe('CONFIRMED_OFFER');
+    expect((await post(t, '/listings', 'near', listingBody())).body.code).toBe('INVOICE_OVERDUE'); // nhưng không đăng tin mới được
+
+    t.clock.advance(4 * DAY); // quá hạn 8 ngày
+    expect((await t.call('GET', '/partners/me/requests', { user: 'near' })).body.code).toBe('ACCOUNT_LOCKED_UNPAID');
+    expect((await post(t, '/transactions', 'owner', { listingId: other.listingId, quoteId: q.quoteId })).body.code).toBe('PARTNER_UNAVAILABLE');
   });
 });

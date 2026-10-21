@@ -34,6 +34,8 @@ export type Route =
       auth: 'required';
       /** Bắt buộc header Idempotency-Key; gọi lại cùng key trả về kết quả cũ (TL-04). */
       idempotent?: boolean;
+      /** Vẫn dùng được khi tài khoản bị khóa do nợ phí quá hạn (xem hóa đơn, thông báo… — QĐ-40). */
+      allowWhenLocked?: boolean;
       handle: (ctx: AuthedContext) => Promise<HandlerResult>;
     };
 
@@ -65,7 +67,10 @@ const json = (status: number, body: unknown): APIGatewayProxyStructuredResultV2 
   body: JSON.stringify(body, (key, value: unknown) => (INTERNAL_FIELDS.has(key) ? undefined : value)),
 });
 
-export function createApiHandler(deps: { routes: Route[]; auth: AuthProvider; table: Table; clock: Clock }) {
+/** Chặn request của người dùng đang bị khóa (ném AppError). Bỏ qua route allowWhenLocked. */
+export type AccessGuard = (principal: Principal, route: { method: string; path: string }) => Promise<void>;
+
+export function createApiHandler(deps: { routes: Route[]; auth: AuthProvider; table: Table; clock: Clock; guard?: AccessGuard }) {
   return async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
     const started = Date.now();
     const method = event.requestContext.http.method.toUpperCase();
@@ -105,6 +110,7 @@ export function createApiHandler(deps: { routes: Route[]; auth: AuthProvider; ta
       } else {
         principal = deps.auth.authenticate({ ...event, headers });
         if (!principal) throw unauthenticated();
+        if (deps.guard && !route.allowWhenLocked) await deps.guard(principal, route);
         const authed: AuthedContext = { ...ctx, principal };
         result = route.idempotent ? await runIdempotent(deps.table, authed, route.handle) : await route.handle(authed);
       }

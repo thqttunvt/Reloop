@@ -19,8 +19,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "images" {
     }
   }
 
-  # Ảnh tin đăng / bằng chứng điều chỉnh giá → xóa 120 ngày sau khi upload
-  # (≈ 90 ngày sau khi tin kết thúc: tin mở tối đa 7 ngày + thời gian giao dịch)
+  # Ảnh tin đăng / bằng chứng điều chỉnh giá → xóa 90 ngày sau khi upload (QĐ-27, chỉnh 2026-10-22 để tiết kiệm;
+  # tin mở tối đa 7 ngày nên ảnh còn ≈ 80 ngày sau khi tin kết thúc — đủ cho giao dịch, tranh chấp thông thường)
   rule {
     id     = "reloop-listing-images-retention"
     status = "Enabled"
@@ -28,7 +28,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "images" {
       prefix = "listings/"
     }
     expiration {
-      days = 120
+      days = 90
     }
   }
 

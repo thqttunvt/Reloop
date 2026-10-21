@@ -4,17 +4,18 @@ import type { Contact } from '../lib/api';
 export function ContactLine({ contact }: { contact?: Contact }) {
   if (!contact?.email && !contact?.phone) return null;
   return (
-    <div className="small">
+    <div className="contact-line small">
       {contact.email && (
-        <>
-          ✉️ <a href={`mailto:${contact.email}`}>{contact.email}</a>
-        </>
+        <a href={`mailto:${contact.email}`}>
+          <span aria-hidden>✉️</span>
+          {contact.email}
+        </a>
       )}
-      {contact.email && contact.phone && ' · '}
       {contact.phone && (
-        <>
-          📞 <a href={`tel:${contact.phone}`}>{contact.phone}</a>
-        </>
+        <a href={`tel:${contact.phone}`}>
+          <span aria-hidden>📞</span>
+          {contact.phone}
+        </a>
       )}
     </div>
   );

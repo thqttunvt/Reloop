@@ -39,7 +39,10 @@ Nhiệm vụ: nhìn ảnh và ghi lại nhận xét bằng công cụ ${TOOL_NAM
 - Không chắc thì để condition = "UNKNOWN", brand/model = null, confidence = "low".
 - condition: WORKING chỉ khi ảnh cho thấy rõ thiết bị đang bật và hiển thị bình thường; PARTIALLY_WORKING khi đang bật nhưng có lỗi thấy được; NOT_WORKING khi hư hỏng nặng rõ ràng (vỡ nát, cháy, mất linh kiện chính); còn lại UNKNOWN.
 - Ảnh không phải thiết bị điện tử → isElectronicDevice = false. Ảnh có nội dung nhạy cảm / không phù hợp → isInappropriate = true.
-- suggestedTitle và suggestedDescription viết tiếng Việt, ngắn gọn, trung thực; visibleDamage là danh sách hư hỏng thấy được (tiếng Việt).`;
+- suggestedTitle và suggestedDescription viết tiếng Việt, ngắn gọn, trung thực; visibleDamage là danh sách hư hỏng thấy được (tiếng Việt).
+- Tiếng Việt phải có dấu đầy đủ, đúng chính tả, câu tự nhiên như người Việt viết. Chỉ dùng từ thông dụng; không chắc một từ thì bỏ đi, không bịa từ.
+- Màu sắc chỉ dùng tên màu cơ bản (đen, trắng, xám, bạc, xanh, đỏ, vàng, hồng…); không chắc màu thì không nêu màu.
+- Không viết nhận xét về cảm giác sử dụng ("dùng tốt", "dùng nhạy"…) vì không thấy được qua ảnh.`;
 
 const INPUT_SCHEMA = {
   type: 'object',

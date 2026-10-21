@@ -21,6 +21,12 @@ export interface Notification extends Item {
 
 const TTL_SECONDS = 90 * 24 * 3600;
 
+/**
+ * Hộp thư chung của Admin (mục 7 danhgia): mọi tài khoản trong nhóm Admins cùng xem, một người đọc = cả nhóm đã đọc
+ * (tránh 2 người cùng xử lý một việc). userId thật là Cognito sub (UUID) nên không trùng tên này.
+ */
+export const ADMIN_INBOX = 'ADMINS';
+
 export interface NotifyInput {
   type: string;
   title: string;
@@ -64,6 +70,11 @@ export class NotificationService {
     } catch (err) {
       log('error', 'notify_failed', { type: input.type, error: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  /** Gửi vào hộp thư chung của Admin. */
+  notifyAdmins(input: NotifyInput): Promise<void> {
+    return this.notify(ADMIN_INBOX, input);
   }
 
   list(userId: string, limit = 50) {

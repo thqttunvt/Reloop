@@ -22,8 +22,10 @@ import { withOptimisticRetry } from '../../store/retry';
 import { putNew, putVersioned, type Item, type Table, type WriteOp } from '../../store/table';
 import { timerOp } from '../jobs/timers';
 import type { Analysis } from '../ai/aiService';
+import type { BillingService } from '../billing/billingService';
+import type { RiskService } from '../risk/riskService';
 import type { NotificationService } from '../notifications/notificationService';
-import { partnerTier, type Branch, type Partner, type PartnerService, type PricingRule } from '../partners/partnerService';
+import { LISTING_QUOTA, partnerTier, type Branch, type Partner, type PartnerService, type PricingRule } from '../partners/partnerService';
 import type { UserService } from '../users/userService';
 
 const DAY_MS = 24 * HOUR_MS;
@@ -33,6 +35,8 @@ export const LISTING_TTL_MS = 7 * DAY_MS;
 export const CONFIRMATION_TTL_MS = DAY_MS;
 /** Offer hiệu lực 24h–7 ngày, mặc định 72h, không quá hạn tin (giaiphap D3). */
 const OFFER_HOURS = { min: 24, max: 168, default: 72 };
+/** Gỡ tin trong khoảng này sau khi giao dịch bị hủy / thất bại → nghi bán ngoài, tính phí (QĐ-39). */
+export const SUSPECT_WINDOW_MS = 72 * HOUR_MS;
 
 export interface Listing extends Item {
   listingId: string;
@@ -58,10 +62,13 @@ export interface Listing extends Item {
   activeTransactionId?: string;
   /** Admin gỡ tin vi phạm. */
   moderated?: { note?: string; at: string };
+  /** Giao dịch gần nhất bị hủy / thất bại do hai bên rồi tin mở lại — để phát hiện bán ngoài (QĐ-39). */
+  lastEndedDeal?: { transactionId: string; buyerId: string; status: 'CANCELLED' | 'FAILED'; at: string };
   /** Ảnh có chữ bị gắn cờ (QĐ-36) → tin chờ Admin duyệt trước khi lên Chợ. */
   review?: {
-    reason: 'IMAGE_TEXT_FLAGGED';
-    images: { key: string; text: string }[];
+    /** IMAGE_TEXT_FLAGGED: chữ bất thường (QĐ-36) · IMAGE_SENSITIVE_SUSPECTED: nghi ảnh nhạy cảm (QĐ-43) */
+    reason: 'IMAGE_TEXT_FLAGGED' | 'IMAGE_SENSITIVE_SUSPECTED';
+    images: { key: string; text: string; kind?: 'TEXT' | 'SENSITIVE' }[];
     at: string;
     decision?: { approved: boolean; note?: string; by: string; at: string };
   };
@@ -121,6 +128,12 @@ const amountFor = (listing: Pick<Listing, 'unit' | 'quantity' | 'weightKg'>) =>
   listing.unit === 'PER_DEVICE' ? listing.quantity : listing.weightKg;
 
 export class ListingService {
+  /**
+   * Chốt các mốc đã quá hạn của giao dịch đang chạy (vd yêu cầu hủy quá 5 phút — QĐ-38) trước khi hiển thị tin,
+   * để tin quay lại Chợ đúng hạn mà không chờ job 15 phút. app.ts gán = TransactionService.loadAndSettle.
+   */
+  settleTransaction?: (transactionId: string) => Promise<unknown>;
+
   constructor(
     private readonly table: Table,
     private readonly clock: Clock,
@@ -128,6 +141,8 @@ export class ListingService {
     private readonly partners: PartnerService,
     private readonly images: ImageStore,
     private readonly notifications: NotificationService,
+    private readonly billing: BillingService,
+    private readonly risk: RiskService,
   ) {}
 
   // ------------------------------------------------------------------ Trạng thái hiệu lực
@@ -142,9 +157,57 @@ export class ListingService {
     const t = now.toISOString();
     const ls = this.effectiveListingStatus(l, now);
     if (ls === 'EXPIRED' || ls === 'CANCELLED') return 'EXPIRED';
+    if (ls === 'COMPLETED') return 'INVALIDATED'; // tin đã bán cho người khác
     if (q.status === 'CONFIRMATION_REQUESTED' && q.responseDeadline && t >= q.responseDeadline) return 'EXPIRED';
     if (q.status === 'CONFIRMED_OFFER' && q.offer && t >= q.offer.validUntil) return 'EXPIRED';
     return q.status;
+  }
+
+  /**
+   * Báo giá để hiển thị. Tin đang giao dịch với người khác → takenByOther: báo giá vẫn giữ (giao dịch hủy thì
+   * chọn lại được — QĐ-14) nhưng chưa làm gì được (mục 1b danhgia).
+   */
+  quoteView(q: Quote, l: Listing, now = this.clock.now()) {
+    const status = this.effectiveQuoteStatus(q, l, now);
+    return { ...q, status, takenByOther: l.status === 'MATCHED' && OPEN_QUOTE.includes(status) };
+  }
+
+  /** Báo cho khách đang hỏi (chat) + đơn vị thu mua đã được match: tin đã có người chốt (QĐ-38). */
+  async notifyTaken(listingId: string, title: string, exclude: string[]) {
+    const [convs, matches] = await Promise.all([
+      this.table.query<Item & { partnerId: string }>(keys.listingPk(listingId), { skPrefix: 'CONV#' }),
+      this.matchesOf(listingId),
+    ]);
+    const others = [...convs.map((c) => c.partnerId), ...matches.map((m) => m.partnerId)].filter((id) => !exclude.includes(id));
+    if (others.length === 0) return;
+    await this.notifications.notify(others, {
+      type: 'LISTING_TAKEN',
+      title: 'Tin bạn quan tâm đã có người chốt giá',
+      body: `${title} — tin sẽ quay lại Chợ nếu giao dịch bị hủy`,
+      link: `/listings/${listingId}`,
+    });
+  }
+
+  /** Người bán bị tạm ngừng / khóa do nợ phí → người khác không giao dịch được với tin (mục 3 danhgia, QĐ-40). */
+  async requireSellerAvailable(l: Pick<Listing, 'ownerId'>) {
+    if (!(await this.partners.isAvailable(l.ownerId))) {
+      throw conflict('SELLER_UNAVAILABLE', 'Người bán đang tạm ngừng hoạt động — chưa giao dịch được với tin này');
+    }
+  }
+
+  /**
+   * Tin kết thúc (chủ tin hủy / Admin gỡ / hết 7 ngày) → các báo giá còn mở hết hạn theo.
+   * Đây là hệ quả hệ thống tự làm nên kiểm tra với vai SYSTEM qua bảng luật (quy tắc 1 — mục 9 danhgia).
+   * Tối đa 98 báo giá để cả transaction ≤ 100 thao tác.
+   */
+  private expireOpenQuotes(quotes: Quote[], now: string): WriteOp[] {
+    return quotes
+      .filter((q) => OPEN_QUOTE.includes(q.status))
+      .slice(0, 98)
+      .map((q) => {
+        quoteMachine.assertTransition(q.status, 'EXPIRED', 'SYSTEM');
+        return putVersioned({ ...q, status: 'EXPIRED', updatedAt: now }, q.version ?? 1);
+      });
   }
 
   private requireOpenListing(l: Listing) {
@@ -156,7 +219,19 @@ export class ListingService {
 
   async create(principal: Principal, input: Record<string, unknown>) {
     await this.users.requireTerms(principal);
-    await this.partners.requireCanPost(principal.userId);
+    const seller = await this.partners.requireCanPost(principal.userId);
+    // Hạn mức tin đang mở cùng lúc: cấp 1 = 3, VIP 1 = 5, cấp 2 = 10 (QĐ-41)
+    const quota = this.partners.listingQuota(seller);
+    const open = await this.openListingCount(principal.userId);
+    if (open >= quota.limit) {
+      throw conflict(
+        'LISTING_QUOTA_REACHED',
+        quota.plan === 'BASIC'
+          ? `Bạn đang có ${open}/${quota.limit} tin đang mở. Chờ một tin kết thúc, hoặc nâng lên VIP 1 để đăng tối đa ${LISTING_QUOTA.VIP1} tin`
+          : `Bạn đang có ${open}/${quota.limit} tin đang mở — chờ một tin kết thúc rồi đăng tiếp`,
+        { open, limit: quota.limit, plan: quota.plan },
+      );
+    }
     const unit = oneOf(input.unit, PRICE_UNITS, 'unit');
     const quantity = int(input.quantity ?? 1, 'quantity', { min: 1, max: 10_000 });
     const weightKg = optionalNum(input.weightKg, 'weightKg', { min: 0.1, max: 100_000 });
@@ -203,7 +278,8 @@ export class ListingService {
     // QĐ-36: có ảnh bị gắn cờ → chưa lên Chợ, chưa matching; chờ Admin duyệt
     const flagged = await this.flaggedImages(principal.userId, listing.imageKeys);
     if (flagged.length > 0) {
-      const pending: Listing = { ...listing, status: 'PENDING_REVIEW', review: { reason: 'IMAGE_TEXT_FLAGGED', images: flagged, at: createdAt } };
+      const reason = flagged.some((f) => f.kind === 'SENSITIVE') ? 'IMAGE_SENSITIVE_SUSPECTED' : 'IMAGE_TEXT_FLAGGED';
+      const pending: Listing = { ...listing, status: 'PENDING_REVIEW', review: { reason, images: flagged, at: createdAt } };
       await this.table.transact([
         putVersioned(pending, 0),
         putNew({ ...keys.listingReview(createdAt, listingId), listingId }),
@@ -213,7 +289,7 @@ export class ListingService {
       await this.notifications.notify(principal.userId, {
         type: 'LISTING_PENDING_REVIEW',
         title: 'Tin đăng đang chờ Admin duyệt (1–3 ngày)',
-        body: `${listing.title} — ảnh có chữ bất thường cần kiểm tra`,
+        body: `${listing.title} — ${reason === 'IMAGE_SENSITIVE_SUSPECTED' ? 'ảnh cần kiểm tra nội dung' : 'ảnh có chữ bất thường cần kiểm tra'}`,
         link: `/listings/${listingId}`,
       });
       return { ...pending, version: 1 };
@@ -259,17 +335,17 @@ export class ListingService {
   // ------------------------------------------------------------------ Duyệt tin bị gắn cờ (QĐ-36)
 
   /** Ghi nhận ảnh có chữ bị gắn cờ lúc upload; giữ 3 ngày (đủ để đăng tin), sau đó DynamoDB TTL tự xóa. */
-  async recordImageFlag(userId: string, imageKey: string, text: string) {
+  async recordImageFlag(userId: string, imageKey: string, text: string, kind: 'TEXT' | 'SENSITIVE' = 'TEXT') {
     const at = this.clock.now();
     await this.table.transact([
-      { type: 'put', item: { ...keys.imageFlag(userId, imageKey), imageKey, text: text.slice(0, 2000), at: at.toISOString(), ttl: Math.floor(at.getTime() / 1000) + 3 * 86_400 } },
+      { type: 'put', item: { ...keys.imageFlag(userId, imageKey), imageKey, text: text.slice(0, 2000), kind, at: at.toISOString(), ttl: Math.floor(at.getTime() / 1000) + 3 * 86_400 } },
     ]);
   }
 
   private async flaggedImages(userId: string, imageKeys: string[]) {
     if (imageKeys.length === 0) return [];
-    const flags = await this.table.query<Item & { imageKey: string; text: string }>(keys.userPk(userId), { skPrefix: 'IMGFLAG#' });
-    return flags.filter((f) => imageKeys.includes(f.imageKey)).map((f) => ({ key: f.imageKey, text: f.text }));
+    const flags = await this.table.query<Item & { imageKey: string; text: string; kind?: 'TEXT' | 'SENSITIVE' }>(keys.userPk(userId), { skPrefix: 'IMGFLAG#' });
+    return flags.filter((f) => imageKeys.includes(f.imageKey)).map((f) => ({ key: f.imageKey, text: f.text, kind: f.kind ?? 'TEXT' }));
   }
 
   /** Hàng đợi duyệt cho Admin, cũ nhất trước — kèm ảnh, chữ đọc được và người đăng. */
@@ -314,6 +390,8 @@ export class ListingService {
       await this.table.transact(ops);
       return { ...next, version: (listing.version ?? 1) + 1 };
     });
+    // Admin từ chối tin (ảnh vi phạm) → tính 1 lần vi phạm của người đăng (QĐ-43)
+    if (!approve) await this.risk.recordViolation(decided.ownerId, 'LISTING_REJECTED', { type: 'LISTING', id: listingId, title: decided.title }, note);
     await this.notifications.notify(decided.ownerId, {
       type: approve ? 'LISTING_APPROVED' : 'LISTING_REJECTED',
       title: approve ? 'Tin đăng đã được Admin duyệt và đang hiện trên Chợ' : 'Tin đăng bị Admin từ chối',
@@ -422,8 +500,13 @@ export class ListingService {
 
     for (let i = 0; i < ops.length; i += 25) await this.table.transact(ops.slice(i, i + 25));
 
-    const done: Listing = { ...listing, matchingStatus: 'DONE', matchCount, quoteCount, updatedAt: now };
-    await this.table.transact([putVersioned(done, listing.version ?? 1)]);
+    // Đọc lại tin mỗi lần thử: chủ tin có thể vừa hủy / sửa tin trong lúc ghép (mục 10 danhgia) → không văng 500
+    const done = await withOptimisticRetry(async () => {
+      const current = await this.load(listing.listingId);
+      const next: Listing = { ...current, matchingStatus: 'DONE', matchCount, quoteCount, updatedAt: now };
+      await this.table.transact([putVersioned(next, current.version ?? 1)]);
+      return { ...next, version: (current.version ?? 1) + 1 };
+    });
     await this.notifications.notify([...matchedPartners], {
       type: 'NEW_MATCH',
       title: 'Có tin mới phù hợp khu vực của bạn',
@@ -438,7 +521,7 @@ export class ListingService {
         link: `/listings/${listing.listingId}`,
       });
     }
-    return { ...done, version: (listing.version ?? 1) + 1 };
+    return done;
   }
 
   // ------------------------------------------------------------------ Đọc
@@ -448,6 +531,30 @@ export class ListingService {
     const listing = await this.table.get<Listing>(k.pk, k.sk);
     if (!listing) throw notFound('tin đăng');
     return listing;
+  }
+
+  /**
+   * Số tin đang mở cùng lúc của người bán (QĐ-41): chờ duyệt, đang mở (chưa hết hạn), đang giao dịch.
+   * Đọc tin tạo trong 60 ngày gần nhất qua GSI1 (tin mở tối đa 7 ngày; giao dịch kéo dài hơn 60 ngày rất hiếm).
+   */
+  async openListingCount(ownerId: string) {
+    const now = this.clock.now();
+    const from = `LISTING#${new Date(now.getTime() - 60 * DAY_MS).toISOString()}`;
+    const mine = await this.table.query<Listing>(gsi1.ownerListingPk(ownerId), { index: 'gsi1', skRange: { from } });
+    return mine.filter((l) => ['PENDING_REVIEW', 'ACTIVE', 'MATCHED'].includes(this.effectiveListingStatus(l, now))).length;
+  }
+
+  /** Đọc tin, đã chốt mốc quá hạn của giao dịch đang chạy (dùng cho chat — QĐ-38). */
+  async current(listingId: string): Promise<Listing> {
+    return this.settled(await this.load(listingId));
+  }
+
+  /** Tin đang giao dịch → chốt mốc quá hạn của giao dịch rồi đọc lại tin (trạng thái có thể đã đổi). */
+  private async settled(listing: Listing): Promise<Listing> {
+    if (listing.status !== 'MATCHED' || !listing.activeTransactionId || !this.settleTransaction) return listing;
+    await this.settleTransaction(listing.activeTransactionId);
+    const k = keys.listing(listing.listingId);
+    return (await this.table.get<Listing>(k.pk, k.sk)) ?? listing;
   }
 
   private quotesOf(listingId: string) {
@@ -464,7 +571,9 @@ export class ListingService {
   }
 
   async listMine(ownerId: string) {
-    const items = await this.table.query<Listing>(gsi1.ownerListingPk(ownerId), { index: 'gsi1', ascending: false, limit: 50 });
+    const items = await Promise.all(
+      (await this.table.query<Listing>(gsi1.ownerListingPk(ownerId), { index: 'gsi1', ascending: false, limit: 50 })).map((l) => this.settled(l)),
+    );
     return items.map((l) => ({ ...l, status: this.effectiveListingStatus(l) }));
   }
 
@@ -484,27 +593,30 @@ export class ListingService {
   }
 
   private publicView(listing: Listing) {
-    const { location: _location, geohash: _geohash, ...rest } = listing;
+    const { location: _location, geohash: _geohash, lastEndedDeal: _deal, ...rest } = listing;
     return { ...rest, status: this.effectiveListingStatus(listing) };
   }
 
   /**
    * Bảng tin kiểu chợ (mọi người đã đăng nhập): tin đang mở, mới nhất trước.
-   * Đọc 2 ngăn tháng gần nhất (tin chỉ mở 7 ngày). cursor = createdAt của tin cuối trang trước.
+   * Tin chỉ mở 7 ngày kể từ lúc lên Chợ → chỉ đọc con trỏ trong 7 ngày gần nhất, theo từng đợt `batch`
+   * bằng điều kiện sort key (không giới hạn số tin / tháng — mục 11 danhgia). cursor = sort key của tin cuối trang trước.
    */
-  async feed(viewerId: string, cursor?: string, limit = 20) {
+  async feed(viewerId: string, cursor?: string, limit = 20, batch = 50) {
     const now = this.clock.now();
-    const months = [now.toISOString().slice(0, 7), new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7)];
-    const refs = (await Promise.all(months.map((m) => this.table.query<Item & { listingId: string }>(keys.feedPk(m), { ascending: false, limit: 200 }))))
-      .flat()
-      .filter((r) => !cursor || r.sk < cursor)
-      .sort((a, b) => b.sk.localeCompare(a.sk));
     const items: Awaited<ReturnType<ListingService['feedCard']>>[] = [];
     let nextCursor: string | undefined;
-    for (const r of refs) {
+    const available = new Map<string, Promise<boolean>>();
+    const sellerOk = (ownerId: string) => {
+      if (!available.has(ownerId)) available.set(ownerId, this.partners.isAvailable(ownerId));
+      return available.get(ownerId)!;
+    };
+    for await (const r of this.feedRefs(now, cursor, batch)) {
       const k = keys.listing(r.listingId);
-      const listing = await this.table.get<Listing>(k.pk, k.sk);
+      const raw = await this.table.get<Listing>(k.pk, k.sk);
+      const listing = raw && (await this.settled(raw));
       if (!listing || this.effectiveListingStatus(listing, now) !== 'ACTIVE') continue;
+      if (listing.ownerId !== viewerId && !(await sellerOk(listing.ownerId))) continue; // người bán tạm ngừng → ẩn khỏi Chợ
       items.push(await this.feedCard(listing, viewerId));
       if (items.length >= limit) {
         nextCursor = r.sk;
@@ -512,6 +624,23 @@ export class ListingService {
       }
     }
     return { items, nextCursor };
+  }
+
+  /** Con trỏ bảng tin trong 7 ngày gần nhất, mới nhất trước, sau `cursor`; đọc từng đợt, sang ngăn tháng trước khi hết. */
+  private async *feedRefs(now: Date, cursor: string | undefined, batch: number) {
+    const from = new Date(now.getTime() - LISTING_TTL_MS).toISOString();
+    const months = [...new Set([now.toISOString().slice(0, 7), from.slice(0, 7)])];
+    batch = Math.max(2, batch); // mỗi đợt phải có ít nhất 1 con trỏ mới ngoài chính con trỏ cũ
+    let to = cursor;
+    for (const month of months) {
+      if (to && to.slice(0, 7) < month) continue; // cursor đã ở ngăn tháng cũ hơn
+      for (;;) {
+        const raw = await this.table.query<Item & { listingId: string }>(keys.feedPk(month), { skRange: { from, to }, ascending: false, limit: batch });
+        for (const r of raw) if (r.sk !== to) yield r; // khoảng gồm cả 2 đầu → bỏ chính con trỏ
+        if (raw.length < batch) break; // hết ngăn tháng này
+        to = raw[raw.length - 1]!.sk;
+      }
+    }
   }
 
   private async feedCard(listing: Listing, viewerId: string) {
@@ -524,10 +653,10 @@ export class ListingService {
    * người khác (đã đăng nhập) xem dạng công khai như trên bảng tin — chỉ khu vực, không có vị trí chính xác (QĐ-20).
    */
   async getForViewer(listingId: string, viewerId: string) {
-    const listing = await this.load(listingId);
+    const listing = await this.settled(await this.load(listingId));
     const now = this.clock.now();
     const [matches, quotes, images] = await Promise.all([this.matchesOf(listingId), this.quotesOf(listingId), this.imageUrls(listing)]);
-    const withStatus = (q: Quote) => ({ ...q, status: this.effectiveQuoteStatus(q, listing, now) });
+    const withStatus = (q: Quote) => this.quoteView(q, listing, now);
 
     if (listing.ownerId === viewerId) {
       return {
@@ -543,7 +672,14 @@ export class ListingService {
     const myMatches = matches.filter((m) => m.partnerId === viewerId);
     if (myMatches.length === 0) {
       if (!['ACTIVE', 'MATCHED'].includes(this.effectiveListingStatus(listing, now))) throw notFound('tin đăng');
-      return { role: 'VIEWER' as const, listing: this.publicView(listing), images, seller, matches: [], quotes: [] };
+      // Chỉ người mua trong giao dịch mới thấy đường dẫn tới giao dịch (QĐ-38)
+      const txId = listing.activeTransactionId;
+      const tk = txId ? keys.transaction(txId) : undefined;
+      const buyerId = tk ? (await this.table.get<Item & { partnerId: string }>(tk.pk, tk.sk))?.partnerId : undefined;
+      // Người bán bị tạm ngừng / khóa → tin ẩn với người ngoài (người mua đang giao dịch vẫn xem được)
+      if (buyerId !== viewerId && !(await this.partners.isAvailable(listing.ownerId))) throw notFound('tin đăng');
+      const view = { ...this.publicView(listing), activeTransactionId: buyerId === viewerId ? txId : undefined };
+      return { role: 'VIEWER' as const, listing: view, images, seller, matches: [], quotes: [] };
     }
     return {
       role: 'PARTNER' as const,
@@ -567,9 +703,7 @@ export class ListingService {
       reqs.map(async (r) => {
         const k = keys.listing(r.listingId);
         const [listing, quotes] = await Promise.all([this.table.get<Listing>(k.pk, k.sk), this.quotesOf(r.listingId)]);
-        const mine = listing
-          ? quotes.filter((q) => q.branchId === r.branchId).map((q) => ({ ...q, status: this.effectiveQuoteStatus(q, listing, now) }))
-          : [];
+        const mine = listing ? quotes.filter((q) => q.branchId === r.branchId).map((q) => this.quoteView(q, listing, now)) : [];
         return { ...r, listingStatus: listing ? this.effectiveListingStatus(listing, now) : 'CANCELLED', quotes: mine };
       }),
     );
@@ -577,9 +711,12 @@ export class ListingService {
 
   // ------------------------------------------------------------------ Owner
 
-  /** Hủy tin khi chưa có giao dịch; đóng các báo giá đang mở (giaiphap B7). */
+  /**
+   * Hủy (gỡ) tin khi chưa có giao dịch; đóng các báo giá đang mở (giaiphap B7).
+   * Gỡ trong 72 giờ sau khi giao dịch bị hủy / thất bại → tính phí nghi bán ngoài ReLoop (QĐ-39).
+   */
   async cancel(ownerId: string, listingId: string) {
-    return withOptimisticRetry(async () => {
+    const done = await withOptimisticRetry(async () => {
       const listing = await this.load(listingId);
       if (listing.ownerId !== ownerId) throw notFound('tin đăng');
       // Chủ tin hủy được cả khi tin còn chờ Admin duyệt (QĐ-36)
@@ -588,32 +725,56 @@ export class ListingService {
       listingMachine.assertTransition(pendingReview ? 'PENDING_REVIEW' : 'ACTIVE', 'CANCELLED', 'OWNER');
       const now = this.clock.now().toISOString();
       const next: Listing = { ...listing, status: 'CANCELLED', updatedAt: now };
-      const quoteOps: WriteOp[] = (await this.quotesOf(listingId))
-        .filter((q) => OPEN_QUOTE.includes(q.status))
-        .slice(0, 98)
-        .map((q) => putVersioned({ ...q, status: 'EXPIRED', updatedAt: now }, q.version ?? 1));
+      const quoteOps = this.expireOpenQuotes(await this.quotesOf(listingId), now);
       const reviewOps: WriteOp[] = pendingReview ? [{ type: 'delete', ...keys.listingReview(listing.review?.at ?? listing.createdAt, listingId) }] : [];
-      await this.table.transact([putVersioned(next, listing.version ?? 1), ...quoteOps, ...reviewOps]);
-      return { ...next, version: (listing.version ?? 1) + 1 };
+      const deal = pendingReview ? undefined : this.suspectedDeal(listing);
+      const feeOps: WriteOp[] = deal
+        ? [...this.billing.suspectedFeeOps(ownerId, listing, deal.transactionId, now), this.risk.suspicionOp(ownerId, listing, deal.transactionId, now)]
+        : [];
+      await this.table.transact([putVersioned(next, listing.version ?? 1), ...quoteOps, ...reviewOps, ...feeOps]);
+      return { ...next, version: (listing.version ?? 1) + 1, suspectedFee: !!deal };
     });
+    if (done.suspectedFee) {
+      log('warn', 'suspected_offline_sale', { listingId, ownerId });
+      await this.notifications.notify(ownerId, {
+        type: 'FEE_SUSPECTED',
+        title: `Đã tính phí ${this.billing.feePerTransaction.toLocaleString('vi-VN')}đ: gỡ tin ngay sau khi hủy giao dịch`,
+        body: `${done.title} — nếu bạn không bán bên ngoài, hãy khiếu nại ở trang Đối tác → Phí dịch vụ`,
+        link: '/partner',
+      });
+      await this.risk.evaluate(ownerId).catch((err) => log('error', 'risk_evaluate_failed', { ownerId, error: err instanceof Error ? err.message : String(err) }));
+    }
+    return done;
   }
 
-  /** Admin ẩn tin vi phạm (T14.5): tin đang mở → CANCELLED, đóng báo giá. */
-  async adminHide(listingId: string, note?: string) {
+  /** Giao dịch vừa hủy / thất bại trong 72 giờ → gỡ tin lúc này bị nghi đã bán ngoài (QĐ-39). */
+  suspectedDeal(listing: Listing, now = this.clock.now()) {
+    const deal = listing.lastEndedDeal;
+    return deal && now.getTime() - Date.parse(deal.at) < SUSPECT_WINDOW_MS ? deal : undefined;
+  }
+
+  /**
+   * Admin gỡ tin vi phạm (T14.5, QĐ-43): tin đang mở / chờ duyệt → CANCELLED, đóng báo giá.
+   * Tin đang giao dịch → ném LISTING_IN_TRANSACTION (gọi trước khi đóng báo cáo → báo cáo vẫn mở).
+   * Tin đã kết thúc (hủy / hết hạn / hoàn tất) → không còn trên Chợ, không làm gì.
+   */
+  async adminHide(listingId: string, note?: string, opts: { notify?: boolean } = {}) {
     const hidden = await withOptimisticRetry(async () => {
       const listing = await this.load(listingId);
-      if (listing.status !== 'ACTIVE') return undefined;
-      listingMachine.assertTransition('ACTIVE', 'CANCELLED', 'ADMIN');
+      if (listing.status === 'MATCHED') {
+        throw conflict('LISTING_IN_TRANSACTION', 'Tin đang giao dịch — chưa gỡ được. Xử lý qua giao dịch / tranh chấp, hoặc chọn Tạm ngừng');
+      }
+      if (listing.status !== 'ACTIVE' && listing.status !== 'PENDING_REVIEW') return undefined;
+      listingMachine.assertTransition(listing.status, 'CANCELLED', 'ADMIN');
+      const reviewOps: WriteOp[] =
+        listing.status === 'PENDING_REVIEW' ? [{ type: 'delete', ...keys.listingReview(listing.review?.at ?? listing.createdAt, listingId) }] : [];
       const now = this.clock.now().toISOString();
-      const quoteOps: WriteOp[] = (await this.quotesOf(listingId))
-        .filter((q) => OPEN_QUOTE.includes(q.status))
-        .slice(0, 98)
-        .map((q) => putVersioned({ ...q, status: 'EXPIRED', updatedAt: now }, q.version ?? 1));
+      const quoteOps = this.expireOpenQuotes(await this.quotesOf(listingId), now);
       const next: Listing = { ...listing, status: 'CANCELLED', moderated: { note, at: now }, updatedAt: now };
-      await this.table.transact([putVersioned(next, listing.version ?? 1), ...quoteOps]);
+      await this.table.transact([putVersioned(next, listing.version ?? 1), ...quoteOps, ...reviewOps]);
       return next;
     });
-    if (hidden) {
+    if (hidden && opts.notify !== false) {
       await this.notifications.notify(hidden.ownerId, {
         type: 'LISTING_HIDDEN',
         title: 'Tin đăng bị Admin gỡ do vi phạm',
@@ -631,10 +792,7 @@ export class ListingService {
       if (!listing || listing.status !== 'ACTIVE' || this.clock.now().toISOString() < listing.expiresAt) return undefined;
       listingMachine.assertTransition('ACTIVE', 'EXPIRED', 'SYSTEM');
       const now = this.clock.now().toISOString();
-      const quoteOps: WriteOp[] = (await this.quotesOf(listingId))
-        .filter((q) => OPEN_QUOTE.includes(q.status))
-        .slice(0, 98)
-        .map((q) => putVersioned({ ...q, status: 'EXPIRED', updatedAt: now }, q.version ?? 1));
+      const quoteOps = this.expireOpenQuotes(await this.quotesOf(listingId), now);
       const next: Listing = { ...listing, status: 'EXPIRED', updatedAt: now };
       await this.table.transact([putVersioned(next, listing.version ?? 1), ...quoteOps]);
       return next;
@@ -651,6 +809,7 @@ export class ListingService {
 
   /** Owner yêu cầu Partner xác nhận giá dự kiến (T7.3). */
   async requestConfirmation(ownerId: string, listingId: string, quoteId: string) {
+    await this.partners.requireSeller(ownerId);
     const q = await this.changeQuote(listingId, quoteId, (listing, quote, now) => {
       if (listing.ownerId !== ownerId) throw notFound('tin đăng');
       this.requireOpenListing(listing);
@@ -674,10 +833,12 @@ export class ListingService {
     const price = int(input.price, 'price', { min: 1, max: 1_000_000_000 });
     const note = str(input.note, 'note', { max: 500, optional: true });
     const hours = int(input.validHours ?? OFFER_HOURS.default, 'validHours', OFFER_HOURS);
+    const sellerOk = await this.partners.isAvailable((await this.load(listingId)).ownerId);
     const q = await this.changeQuote(listingId, quoteId, (listing, quote, now) => {
       if (quote.partnerId !== partnerId) throw notFound('báo giá');
       this.requireOpenListing(listing);
       quoteMachine.assertTransition(this.effectiveQuoteStatus(quote, listing, now), 'CONFIRMED_OFFER', 'PARTNER');
+      if (!sellerOk) throw conflict('SELLER_UNAVAILABLE', 'Người bán đang tạm ngừng hoạt động — chưa giao dịch được với tin này');
       const e = quote.estimate;
       const differsFromEstimate = !!e && e.totalMin !== undefined && e.totalMax !== undefined && (price < e.totalMin || price > e.totalMax);
       return { ...quote, status: 'CONFIRMED_OFFER', offer: this.offer(listing, now, price, hours, note, differsFromEstimate) };
@@ -718,6 +879,7 @@ export class ListingService {
 
     const listing = await this.load(listingId);
     this.requireOpenListing(listing);
+    await this.requireSellerAvailable(listing);
     const mk = keys.match(listingId, branchId);
     const match = await this.table.get<Match>(mk.pk, mk.sk);
     if (!match || match.partnerId !== partnerId) throw notFound('tin đăng');

@@ -1,46 +1,58 @@
 RELOOP — DEV DOC & PHÂN CHIA CÔNG VIỆC
 =====================================================================
-Cập nhật: 2026-10-19 (tuần 2 / 12) · Dành cho: 5 thành viên nhóm phát triển
-Nhánh code mới nhất: feature/doi-tac-2-cap (chưa gộp vào main; đã deploy lên dev 19/10)
+Cập nhật: 2026-10-22 (đối chiếu lại toàn bộ với code) · Dành cho: 5 thành viên nhóm phát triển
+Nhánh code mới nhất: feature/doi-tac-2-cap (chưa gộp vào main). Đã deploy lên dev bản 19/10 (commit f1b8b71);
+mọi thay đổi từ 20/10 (QĐ-38 → QĐ-43) CHƯA commit, CHƯA deploy.
 
 Cách dùng file này:
   • Điền tên 5 thành viên vào bảng THÀNH VIÊN ở mục 5, rồi thay [Tên người làm] ở mỗi task.
   • Nhận task thì ghi tên + ngày bắt đầu; xong thì đánh dấu ✔ + link PR cạnh task đó.
-  • Quyết định nghiệp vụ: xem plan/quyetdinh.txt (ưu tiên cao nhất, hiện có QĐ-01 → QĐ-37).
+  • Quyết định nghiệp vụ: xem plan/quyetdinh.txt (QĐ-01 → QĐ-43). Tài liệu lệch code thì CODE là chuẩn.
+  • Lỗi / mâu thuẫn đã rà soát + trạng thái sửa: plan/danhgia.txt.
   • Trạng thái chi tiết + nhật ký: plan/readmeall.md. Danh sách task gốc 12 tuần: plan/task.txt.
+  • Tra cứu kỹ thuật (Terraform, env, khóa DynamoDB, chữ ký hàm, API): mục 9 — DEVELOPER REFERENCE.
 
 
 =====================================================================
 1. HỆ THỐNG ĐANG CÓ GÌ (đọc 5 phút)
 =====================================================================
-ReLoop: chợ đồ điện tử cũ, hỏng. Người bán đăng tin kèm ảnh → AI gợi ý thông tin →
-hệ thống tìm đơn vị thu mua trong 5 km → báo giá → giao dịch, bàn giao, đánh giá 2 chiều.
+ReLoop: chợ đồ điện tử cũ, hỏng. Người bán đăng tin kèm ảnh → AI gợi ý thông tin → tin lên Chợ và được
+ghép với đơn vị thu mua trong bán kính chi nhánh (1–5 km). Hai đường chốt giao dịch:
+  (a) báo giá của đối tác cấp 2 (giá dự kiến từ bảng giá → xác nhận → chủ tin chọn);
+  (b) ra giá trong chat với bất kỳ khách nào, bên kia bấm Chấp nhận (QĐ-38).
+→ giao dịch (bàn giao, ra giá lại, xác nhận giá cuối → bên kia chấp nhận, hủy sau 5 phút, thất bại, khiếu nại)
+→ đánh giá 2 chiều.
 
 Người dùng:
-  • Khách xem      : mọi người đã đăng nhập — lướt Chợ, nhắn tin người bán.
-  • Đối tác cấp 1  : khách lẻ (cá nhân / hộ KD / DN) — ĐƯỢC ĐĂNG TIN, không thu mua (QĐ-34).
-  • Đối tác cấp 2  : doanh nghiệp / hộ kinh doanh — đăng tin + chi nhánh, bảng giá, báo giá, thu mua.
-  • Admin          : duyệt đối tác, duyệt tin bị gắn cờ, tranh chấp, báo cáo vi phạm.
+  • Khách          : mọi người đã đăng nhập — lướt Chợ, nhắn tin + ra giá với người bán, mua qua chat.
+  • Đối tác cấp 1  : khách lẻ (cá nhân / hộ KD / DN) — đăng tin bán tối đa 3 tin đang mở (VIP 1: 5 tin,
+                     10.000đ / 30 ngày); không thu mua bằng báo giá (QĐ-34, QĐ-41).
+  • Đối tác cấp 2  : doanh nghiệp / hộ kinh doanh — tối đa 10 tin đang mở + chi nhánh, bảng giá, nhận tin
+                     phù hợp, báo giá thu mua.
+  • Admin          : duyệt đối tác, duyệt tin bị gắn cờ (chữ bất thường / nghi ảnh nhạy cảm), tranh chấp,
+                     báo cáo vi phạm (xử lý theo mức), người dùng bị gắn cờ, xem chat của tin (chỉ đọc).
+  • Admin tài chính: lập hóa đơn, "Đã thu", miễn / giữ phí khi khiếu nại.
 
 Kiến trúc (serverless AWS, ap-southeast-1, account 926583575243):
   Web React (S3 + CloudFront) → API Gateway HTTP API (JWT Cognito) → 1 Lambda Node 22
   → DynamoDB single-table "reloop-core-table" (PK/SK + GSI1)
   Phụ trợ: S3 ảnh (presigned POST) · Rekognition (kiểm duyệt ảnh + đọc chữ) ·
            Bedrock Amazon Nova Pro (AI phân tích ảnh) + Guardrail · EventBridge 15 phút (job nền) ·
-           CloudWatch (dashboard, 8 alarm).
+           CloudWatch (dashboard, 9 alarm) → SNS email cho Admin.
   Thanh toán: OFFLINE (hai bên trả tiền khi gặp). Code ví / sổ cái vẫn giữ, chưa nối.
-  Doanh thu (QĐ-37): đăng tin miễn phí; người bán trả 10.000đ / giao dịch hoàn tất, hóa đơn gộp theo
-  tháng (ngày 1), chuyển khoản theo mã RLFxxxxxx, Admin tài chính xác nhận; quá hạn 7 ngày khóa đăng tin.
+  Doanh thu (QĐ-37, 39, 41): đăng tin miễn phí; người bán trả 10.000đ / giao dịch hoàn tất (+ 10.000đ nếu hủy rồi
+  gỡ tin trong 72 giờ; + 10.000đ / 30 ngày nếu mua VIP 1). Hóa đơn gộp theo tháng (ngày 1), chuyển khoản theo mã
+  RLFxxxxxx, Admin tài chính xác nhận. Nợ quá hạn > 3 ngày: không đăng tin mới; > 7 ngày: khóa mọi chức năng (QĐ-40).
 
 Bản đồ thư mục:
   backend/src/app.ts            lắp adapter theo môi trường (local ↔ aws)
   backend/src/http/routes.ts    TẤT CẢ API ở một file
   backend/src/modules/*         nghiệp vụ: users, partners, listings, transactions, chat, ai, billing,
-                                notifications, reputation, reports, locations, jobs, wallet
+                                notifications, reputation, reports, risk (vi phạm / cờ), locations, jobs, wallet
   backend/src/store/keys.ts     TẤT CẢ khóa DynamoDB ở một file
   backend/src/domain/           state machine Listing / Quote / Transaction, danh mục
   backend/src/storage, ai/      S3, Rekognition, Bedrock (adapter — nghiệp vụ không gọi AWS trực tiếp)
-  backend/test/                 vitest (107 test)
+  backend/test/                 vitest (140 test)
   frontend/src/pages, lib/      React; lib/api.ts = kiểu dữ liệu + gọi API; lib/catalog.ts = nhãn tiếng Việt
   infra/*.tf                    Terraform; infra/deploy.sh = build + apply + upload web
   scripts/                      smoke-aws.py (test trên AWS), make-admin.sh, loadtest.mjs
@@ -63,10 +75,11 @@ Làm việc với AWS (chỉ người có quyền, xem vai trò OPS):
   AWS_PROFILE=reloop bash infra/deploy.sh             # build backend → terraform apply → upload web
   AWS_PROFILE=reloop bash infra/deploy.sh frontend    # chỉ web
   AWS_PROFILE=reloop AWS_REGION=ap-southeast-1 python scripts/smoke-aws.py
-  AWS_PROFILE=reloop bash scripts/make-admin.sh <email> --finance
+  AWS_PROFILE=reloop bash scripts/make-admin.sh <email> --finance   # + tự đăng ký email Admin nhận cảnh báo SNS
   ⚠ Không dùng profile mặc định của máy cho ReLoop. Không commit .env, khóa AWS.
 
-Web dev: https://d1cjl1tvcp0r6q.cloudfront.net (đã deploy bản nhánh feature/doi-tac-2-cap ngày 19/10)
+Web dev: https://d1cjl1tvcp0r6q.cloudfront.net (bản 19/10; các tính năng từ 20/10 chưa có trên web dev)
+Server local chạy job nền mỗi 60 giây (trên AWS: EventBridge 15 phút).
 
 
 =====================================================================
@@ -84,8 +97,10 @@ Nguyên tắc code (bắt buộc — reviewer kiểm tra):
   3. Không Scan. Khóa mới thêm vào store/keys.ts, có access pattern rõ ràng.
   4. Nghiệp vụ không gọi AWS SDK trực tiếp → tạo interface + bản thật + bản tắt/giả (như ImageStore).
   5. Việc nền phải idempotent: chạy trễ / chạy trùng không sai.
-  6. API tạo dữ liệu quan trọng bắt buộc Idempotency-Key (đăng tin, chọn offer, gửi offer).
-  7. Tiền là số nguyên VND; mọi thay đổi số dư qua Ledger.post().
+  6. API tạo dữ liệu quan trọng bắt buộc Idempotency-Key (route có idempotent: true): đăng tin, gửi offer,
+     chọn báo giá, chấp nhận giá trong chat, mua VIP 1.
+  7. Tiền là số nguyên VND. Phí ghi bằng dòng phí của BillingService (FEE#…) trong CÙNG transaction với việc
+     đổi trạng thái; ví / Ledger.post() chỉ còn giữ cho thanh toán qua ví sau này.
   8. Lỗi nghiệp vụ trả mã ổn định (AppError code) để frontend hiện đúng.
   9. Không log token, mật khẩu, SĐT, STK đầy đủ.
  10. Quyết định nghiệp vụ mới → ghi QĐ-xx vào plan/quyetdinh.txt trước khi code.
@@ -108,8 +123,13 @@ Definition of Done (mọi task):
   ✔ Chợ (bảng tin kiểu Facebook) + chat người bán ↔ người mua (polling 5s).
   ✔ Kiểm duyệt ảnh nhạy cảm (Rekognition), lưu trữ QĐ-27 (TTL + S3 Lifecycle).
   ✔ Hạ tầng dev bằng Terraform, CloudWatch dashboard + alarm, smoke test AWS.
-  ✔ (Nhánh mới, chưa deploy) QĐ-34 đối tác 2 cấp · QĐ-35 AI Amazon Nova Pro + bộ dữ liệu nhãn ·
+  ✔ (Đã deploy dev 19/10) QĐ-34 đối tác 2 cấp · QĐ-35 AI Amazon Nova Pro + bộ dữ liệu nhãn ·
     QĐ-36 gắn cờ ảnh có chữ bất thường → tin chờ Admin duyệt · QĐ-37 phí 10.000đ / giao dịch theo tháng.
+  ✔ (Có test, CHƯA commit / deploy, 20–22/10) QĐ-38 ra giá trong chat + hủy giao dịch sau 5 phút ·
+    QĐ-39 chống né phí (phí nghi bán ngoài, khiếu nại phí, cờ cho Admin) · QĐ-40 khóa 2 mức khi nợ phí ·
+    QĐ-41 hạn mức tin + VIP 1 · QĐ-42 hoàn tất 2 bước (xác nhận giá → chấp nhận) · QĐ-43 báo cáo vi phạm theo
+    mức, đếm vi phạm, ảnh nghi nhạy cảm chờ duyệt · Chợ phân trang thật · Admin xem chat · hộp thư chung Admin +
+    email khi có khiếu nại · sửa các lỗi trong plan/danhgia.txt.
 
 
 =====================================================================
@@ -149,7 +169,7 @@ Review chéo PR (mỗi PR cần 1 người duyệt):
                 đang mở phù hợp. (T6.4)                                   Làm: [Tên người làm]
   B7  [P1] T8   Matching chạy nền (Lambda async như AI) thay vì trong request (QĐ-13).
                                                                           Làm: [Tên người làm]
-  B8  [P1] T8   Tin chờ duyệt quá 3 ngày: nhắc Admin / tự xử lý — chờ quyết Q2 (mục 7).
+  B8  [P1] T8   Tin chờ duyệt quá 3 ngày: nhắc Admin (QĐ-36 đã chốt KHÔNG tự quyết).
                                                                           Làm: [Tên người làm]
   B9  [MR] T9+  Chiều BÁN TÁI CHẾ: đối tác cấp 2 đăng sản phẩm tân trang,
                 khách mua (M1, QĐ-29).                                    Làm: [Tên người làm]
@@ -200,7 +220,8 @@ Review chéo PR (mỗi PR cần 1 người duyệt):
                 • reloop-core-table ON-DEMAND hay PROVISIONED (provisioned tốn tiền khi để không).
                 • Credits có trừ cho Bedrock Nova không (Billing → Credits → Applicable products).
                                                                           Làm: [Tên người làm]
-  O2  [P0] T3   AWS Budgets 50/80/100% của 20 USD; biến alarm_email nhận alarm. (T0.4)
+  O2  [P0] T3   AWS Budgets 50/80/100% của 20 USD (Terraform chưa có). Email cảnh báo: SNS reloop-dev-alarms
+                đã có trong Terraform; chạy lại make-admin.sh cho Admin hiện có để đăng ký email. (T0.4)
                                                                           Làm: [Tên người làm]
   O3  [P0] T3   Báo nhóm hạ tầng: tắt / thêm xác thực API "reloop-generate-presigned-url"
                 (đang công khai); bỏ pool Cognito cũ ReLoop-user-pool.    Làm: [Tên người làm]
@@ -219,7 +240,8 @@ Review chéo PR (mỗi PR cần 1 người duyệt):
 5.5 #5 QA-DOC — Kiểm thử, bằng chứng, tài liệu   Phụ trách chính: [Tên người làm]
 ---------------------------------------------------------------------
   Q-0 [P0] T4   Kiểm thử phí QĐ-37 trên dev: giao dịch hoàn tất → tạm tính tháng; Admin lập hóa đơn tháng
-                trước, bấm "Đã thu"; quá hạn → bị khóa đăng tin.                Làm: [Tên người làm]
+                trước, bấm "Đã thu"; quá hạn > 3 ngày không đăng tin mới, > 7 ngày khóa mọi chức năng (QĐ-40).
+                                                                          Làm: [Tên người làm]
   Q-1 [P0] T3+  Checklist kiểm thử thủ công theo kịch bản demo (mục 6); chạy lại sau mỗi lần
                 deploy dev, ghi lỗi thành GitHub Issue.                   Làm: [Tên người làm]
   Q-2 [P0] T4   Test phân quyền trên dev: người khác / vai trò khác bị từ chối (tin chờ duyệt,
@@ -229,7 +251,7 @@ Review chéo PR (mỗi PR cần 1 người duyệt):
   Q-4 [P0] T11  Video độ tin cậy: 2 request chọn offer đồng thời → 1 thành công; tin tự hết hạn;
                 job chạy trùng không sai; 48h tự hoàn tất; ảnh có câu lệnh bị gắn cờ. (T15.8)
                                                                           Làm: [Tên người làm]
-  Q-5 [P0] T11  Spec v1.1: gộp quyetdinh.txt (QĐ-01 → QĐ-36) vào spec. (T16.1)
+  Q-5 [P0] T11  Spec v1.1: gộp quyetdinh.txt (QĐ-01 → QĐ-43) vào spec. (T16.1)
                                                                           Làm: [Tên người làm]
   Q-6 [P0] T12  Sơ đồ kiến trúc AWS, data model (keys.ts), API, state machine. (T16.2)
                                                                           Làm: [Tên người làm]
@@ -271,11 +293,13 @@ TẢI VIỆC THEO TUẦN (để không ai quá tải)
   Cuối T11 : load test, video độ tin cậy, báo cáo chi phí, Well-Architected.
   T12      : tài liệu + demo.
 
-Kịch bản demo (cập nhật theo QĐ-34 → QĐ-36):
+Kịch bản demo (cập nhật theo code 22/10, QĐ-34 → QĐ-43):
   1. Người dùng đăng ký → gửi yêu cầu đối tác cấp 1 → Admin duyệt.
   2. Đăng laptop hỏng → AI (Nova Pro) gợi ý → sửa lại → đăng (dữ liệu nhãn được lưu).
-  3. Đơn vị thu mua cấp 2 trong 5 km nhận tin, báo giá; chủ tin chọn → giao dịch → bàn giao →
-     xác nhận 2 bên → đánh giá → trang Đối tác hiện phí tạm tính 10.000đ.
+  3. Đơn vị thu mua cấp 2 trong bán kính nhận tin, báo giá; chủ tin chọn → giao dịch → bàn giao →
+     một bên xác nhận giá cuối → bên kia Chấp nhận → đánh giá → trang Đối tác hiện phí tạm tính 10.000đ.
+  3a. Khách B, C, D nhắn tin + ra giá trong chat; người bán chấp nhận giá của D → tin rời Chợ, B và C được báo;
+      D hủy → 5 phút sau tin quay lại Chợ.
   3b. Admin lập hóa đơn tháng → người bán thấy mã chuyển khoản → Admin tài chính bấm "Đã thu".
   4. Ảnh in câu lệnh → bị gắn cờ → tin chờ duyệt → Admin xem chữ đọc được → từ chối.
   5. Cloud: dashboard, alarm, load test, chi phí, demo lỗi đồng thời.
@@ -285,9 +309,9 @@ Kịch bản demo (cập nhật theo QĐ-34 → QĐ-36):
 7. CHỜ PRODUCT OWNER QUYẾT (ảnh hưởng phân việc)
 =====================================================================
   Q1  Thanh toán: giữ offline đến hết dự án, hay nối lại ví + nạp / rút (ảnh hưởng A6, demo)?
-  Q2  Tin chờ duyệt quá 3 ngày: chỉ nhắc Admin, hay tự động từ chối (B8)?
+  Q2  [ĐÃ CHỐT — QĐ-36] Tin chờ duyệt quá 3 ngày: không tự quyết; B8 = nhắc Admin.
   Q3  Bộ dữ liệu AI có giữ ẢNH lâu dài không? (cần sửa điều khoản để người dùng đồng ý; hiện ảnh
-      tự xóa sau 120 ngày theo QĐ-27)
+      tự xóa 90 ngày sau khi upload theo QĐ-27)
   Q4  Chatbot FAQ bằng AI (đã đề xuất trước đây) có làm không?
 
 
@@ -336,4 +360,693 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
            ảnh chưa bị gắn cờ (tiếng Anh thì có). Đang đề xuất hướng sửa (xem plan/readmeall.md).
          Người làm: [Tên người làm]   Kiểm chứng: terraform apply · smoke-aws.py RUN f8b55c ALL PASS
 
-  ⚠ Các mục 18/10 – 19/10 nằm trên nhánh feature/doi-tac-2-cap (đã deploy dev, chưa gộp vào main).
+  20/10  Rà soát toàn website: 19 lỗi / mâu thuẫn + đề xuất sửa (plan/danhgia.txt). Sửa giao diện khối người bán
+         ở trang tin (email / nút nhắn tin), siết chỉ dẫn AI viết tiếng Việt đúng chính tả.
+         QĐ-38 ra giá trong chat: khách và người bán ra giá qua lại, bên kia bấm Chấp nhận → tạo giao dịch,
+         tin rời Chợ, khách khác + đơn vị thu mua được báo và chat của họ khóa; đang giao dịch vẫn ra giá mới được.
+         Hủy giao dịch = yêu cầu hủy, 5 phút sau tự hủy (rút lại / đồng ý hủy ngay được), tin quay lại Chợ.
+         Người làm: [Tên người làm]   Kiểm chứng: 112 test (chat.test.ts, transactions.test.ts) · chưa deploy dev
+
+  21/10  QĐ-39 chống né phí: hủy / thất bại rồi người bán gỡ tin trong 72 giờ → tự tính 10.000đ "nghi bán ngoài",
+         người bán khiếu nại, Admin tài chính miễn / giữ (hóa đơn chưa thu được tính lại). Cờ "nghi né phí" cho Admin
+         (≥ 2 lần hủy với cùng người mua, hoặc ≥ 3 lần hủy rồi gỡ tin trong 30 ngày) → bỏ qua / cảnh cáo / tạm ngừng.
+         Điều khoản lên 2026-10-21 (mọi người đồng ý lại).
+         Người làm: [Tên người làm]   Kiểm chứng: 117 test (feeEvasion.test.ts) · chưa deploy dev
+
+  21/10  Sửa 3 lỗi mức cao (plan/danhgia.txt): (1b) báo giá của đơn vị không được chọn hiện "đang giao dịch với người khác",
+         được báo, tin hoàn tất → hết hiệu lực; (2 + 3) QĐ-40 nợ phí quá hạn > 3 ngày không đăng tin mới, > 7 ngày khóa mọi
+         chức năng (chỉ còn màn hình thanh toán); người bán bị tạm ngừng → tin ẩn khỏi Chợ, không chốt / báo giá / chat mới.
+         Người làm: [Tên người làm]   Kiểm chứng: 119 test (billing, transactions, chat) · chưa deploy dev
+
+  21/10  Mục 11: Chợ phân trang thật (đọc con trỏ 7 ngày gần nhất theo từng đợt bằng khoảng sort key, không giới hạn
+         200 tin / tháng); Table.query có thêm skRange (BETWEEN / >= / <=).
+         QĐ-41 hạn mức tin đang mở cùng lúc: cấp 1 = 3, VIP 1 = 5, cấp 2 = 10; VIP 1 tự mua 10.000đ / 30 ngày (cộng dồn),
+         cộng vào hóa đơn tháng; thẻ "Hạn mức đăng tin" ở trang Đối tác, cảnh báo ở trang Đăng tin.
+         Người làm: [Tên người làm]   Kiểm chứng: 125 test (quota.test.ts, chat.test.ts, dynamoTable.test.ts) · chưa deploy dev
+
+  21/10  Sửa mục 6, 10, 20 (plan/danhgia.txt): nút tiền (Đã thu, Lập hóa đơn, Miễn / Giữ phí) chỉ hiện với Admin tài chính;
+         ghép đối tác đọc lại tin khi bị tranh chấp ghi (không còn lỗi 500 khi chủ tin hủy đúng lúc); Admin xem chat của
+         tin ở trang giao dịch (chỉ đọc, ghi log ai xem).
+         Người làm: [Tên người làm]   Kiểm chứng: 127 test (adminChat.test.ts) · chưa deploy dev
+
+  21/10  Mục 9: tin kết thúc (hủy / Admin gỡ / hết hạn) → báo giá còn mở hết hạn qua quoteMachine (vai SYSTEM),
+         gom về 1 hàm expireOpenQuotes — không còn chỗ nào gán trạng thái báo giá thẳng.
+         Người làm: [Tên người làm]   Kiểm chứng: 129 test (listings.test.ts) · chưa deploy dev
+
+  21/10  Mục 8: sửa chi nhánh / bảng giá dùng cùng điều kiện như thêm mới — đối tác bị tạm ngừng hoặc cấp 1 không sửa được;
+         trang Đối tác báo trước khi đang bị tạm ngừng.
+         Người làm: [Tên người làm]   Kiểm chứng: 131 test (partnerTiers.test.ts) · chưa deploy dev
+
+  21/10  QĐ-42 (mục 7): hoàn tất 2 bước — bên trước nhập giá cuối, bên kia chỉ bấm Chấp nhận (hoàn tất) hoặc Khiếu nại;
+         bỏ "2 bên nhập giá khác nhau tự sang tranh chấp"; thông báo ghi rõ giá cuối cần chấp nhận.
+         Người làm: [Tên người làm]   Kiểm chứng: 132 test (transactions.test.ts) · chưa deploy dev
+
+  22/10  Mục 7 (phần còn lại): khiếu nại mới → chuông "hộp thư chung Admin" trên web + log dispute_opened → CloudWatch alarm
+         reloop-dev-dispute-opened → email. SNS reloop-dev-alarms luôn tạo; scripts/make-admin.sh tự đăng ký email của Admin
+         (bấm Confirm trong email AWS). Cần chạy terraform apply (deploy.sh) để có alarm + SNS.
+         Người làm: [Tên người làm]   Kiểm chứng: 133 test · terraform validate OK · chưa deploy dev
+
+  22/10  QĐ-43 (mục 5): báo cáo vi phạm xử lý theo mức — Cảnh cáo / Gỡ tin + cảnh cáo / Gỡ tin + tạm ngừng (tin) /
+         Tạm ngừng (giao dịch) / Bỏ qua; cảnh cáo gửi đúng người vi phạm; tin đang giao dịch không gỡ được → báo Admin, báo cáo
+         vẫn mở; đường dẫn tới thứ bị báo cáo; chặn bấm nhầm tạm ngừng (số vi phạm 30 ngày, lý do bắt buộc, hỏi lại);
+         lý do soạn sẵn (chọn là điền). Ảnh nhạy cảm: ≥ 70% chặn + tính vi phạm; 50–70% nhãn nặng → tin chờ Admin duyệt.
+         Đếm vi phạm (cảnh cáo, gỡ tin, tạm ngừng, ảnh bị chặn, tin bị từ chối) ≥ 5 / 30 ngày → cờ cho Admin.
+         Người làm: [Tên người làm]   Kiểm chứng: 140 test (violations.test.ts) · chưa deploy dev
+
+  22/10  S3 Lifecycle: ảnh xóa 90 ngày sau khi upload (thay 120 ngày, tiết kiệm); điều khoản sửa "90 ngày sau khi tải lên";
+         menu "Ví (đang fix)" (danhgia mục 17, 18).
+         Người làm: [Tên người làm]   Kiểm chứng: terraform validate · typecheck + build web · chưa deploy dev
+
+  ⚠ Các mục từ 18/10 nằm trên nhánh feature/doi-tac-2-cap (chưa gộp vào main). Mục 18/10 – 19/10 đã deploy dev
+    (commit f1b8b71); mục từ 20/10 chưa commit, chưa deploy.
+
+  22/10  Đối chiếu toàn bộ tài liệu với code (chỉ sửa tài liệu): quyetdinh.txt (đánh dấu QĐ ví / giữ tiền TẠM NGƯNG,
+         sửa QĐ-02, 10, 13, 14, 15, 18, 20, 22, 26, 27, 28, state machine, TL-02/03/04/06), devdocx.txt, readmeall.md,
+         README.md; ghi chú tài liệu lịch sử (baton, giaiphap, task, plan/README.md).
+         Người làm: [Tên người làm]   Kiểm chứng: plan/danhgia.txt mục 13–16, 21–22
+
+
+=====================================================================
+9. DEVELOPER REFERENCE (MAN-PAGE)
+=====================================================================
+Trích trực tiếp từ code, đối chiếu lại ngày 2026-10-22. Code đổi → sửa mục này cùng PR.
+
+---------------------------------------------------------------------
+9.1 INFRASTRUCTURE & TERRAFORM                                infra/*.tf
+---------------------------------------------------------------------
+STATE      s3://reloop-tfstate-926583575243/dev/terraform.tfstate  (use_lockfile, encrypt)
+PROVIDERS  aws ~> 6.0 · archive ~> 2.7 · random ~> 3.6 · terraform >= 1.10
+TAGS       Project=ReLoop  Environment=${var.env}  ManagedBy=terraform
+PREFIX     local.name_prefix = "reloop-${var.env}"  → mặc định "reloop-dev"
+
+INPUT VARIABLES (variables.tf, monitoring.tf)
+  region                 string  "ap-southeast-1"
+  env                    string  "dev"
+  core_table_name        string  "reloop-core-table"           (bảng dựng sẵn, chỉ đọc)
+  image_bucket           string  "reloop-device-images"        (bucket dựng sẵn, chỉ đọc)
+  ai_model_id            string  "apac.amazon.nova-pro-v1:0"   ("" = tắt AI)
+  ai_guardrail_enabled   bool    true
+  billing_bank           object{bank_name,account_no,account_name}  mặc định rỗng
+  local_dev_origin       string  "http://localhost:5173"
+  alarm_email            string  ""                            (email nhận cảnh báo thêm; SNS luôn tạo, email Admin đăng ký qua make-admin.sh)
+
+COGNITO USER POOL
+  tf         aws_cognito_user_pool.main
+  aws name   reloop-dev-user-pool
+  tier       ESSENTIALS · deletion_protection ACTIVE · MFA OFF
+  sign-in    alias email · auto-verify email · username không phân biệt hoa/thường · factor PASSWORD
+  password   ≥ 8, hoa + thường + số + ký hiệu, mật khẩu tạm 7 ngày
+  schema     email (req) · phone_number (req) · address (req)   — không đổi được sau khi tạo
+  email      COGNITO_DEFAULT (~50 email/ngày), mã {####}
+  recovery   verified_email
+  trigger    post_confirmation → data.aws_lambda_function.post_confirmation
+             = "reloop-auth-post-confirmation" (Lambda nhóm, tạo USER#<sub>/PROFILE)
+             + aws_lambda_permission.cognito_post_confirmation
+  domain     aws_cognito_user_pool_domain.main = "reloop-dev-auth" (managed_login_version 1)
+             → https://reloop-dev-auth.auth.ap-southeast-1.amazoncognito.com
+  groups     aws_cognito_user_group.groups:
+               Admins (prec 1)        → admin
+               FinanceAdmins (prec 1) → admin_finance
+               Partners (prec 2), Owners (prec 3) → không dùng phân quyền (vai trò lấy từ DynamoDB)
+
+APP CLIENTS
+  aws_cognito_user_pool_client.web     name reloop-dev-web-client
+  aws_cognito_user_pool_client.mobile  name reloop-dev-mobile-client
+  chung      no secret · auth flows ALLOW_REFRESH_TOKEN_AUTH, ALLOW_USER_AUTH, ALLOW_USER_SRP_AUTH
+             OAuth code (PKCE ở frontend) · scopes email openid phone · IdP COGNITO
+             access/id token 60 phút · refresh 5 ngày · auth_session 3 phút
+             prevent_user_existence_errors ENABLED · token revocation ON
+  callback   <web_origin>/auth/callback, <local_dev_origin>/auth/callback
+  logout     <web_origin>/, <local_dev_origin>/   (chỉ web client)
+  JWT audience của API Gateway = CHỈ web client.
+
+S3 BUCKETS
+  reloop-device-images (var.image_bucket) — KHÔNG do Terraform tạo; TF chỉ quản lý lifecycle:
+    aws_s3_bucket_lifecycle_configuration.images
+      reloop-listing-images-unattached   prefix listings/ + tag state=pending → xóa sau 1 ngày
+      reloop-listing-images-retention    prefix listings/                    → xóa 90 ngày sau upload
+      reloop-abort-incomplete-uploads    prefix listings/ → abort multipart sau 1 ngày
+    Key ảnh: listings/<userId>/<id>.<jpg|png|webp>. Upload = presigned POST (CORS bucket cấu hình ngoài TF).
+  aws_s3_bucket.web  name reloop-dev-web-<account_id>
+    private, BucketOwnerEnforced, public access block 4/4
+    policy: chỉ cloudfront.amazonaws.com với AWS:SourceArn = distribution web
+  aws_cloudfront_distribution.web  OAC sigv4 · PriceClass_200 · http2and3 · redirect-to-https
+    cache Managed-CachingOptimized · 403/404 → /index.html (200) cho SPA
+
+DYNAMODB
+  data.aws_dynamodb_table.core  name reloop-core-table — KHÔNG do Terraform tạo/sửa.
+  attributes   PK, SK (bảng chính) · GSI "GSI1": GSI1PK, GSI1SK
+  TTL attr     ttl (epoch giây) — NOTIF (90 ngày), AIQUOTA (2 ngày), IMGFLAG (3 ngày)
+  IAM          GetItem, Query, PutItem, DeleteItem, ConditionCheckItem trên bảng + index/*
+               (TransactWriteItems dùng các quyền Put/Delete/ConditionCheck này). Không có Scan.
+
+API GATEWAY (HTTP API)
+  aws_apigatewayv2_api.api            name reloop-dev-api, protocol HTTP
+  CORS        origins [web_origin, local_dev_origin]
+              methods GET POST PATCH PUT DELETE OPTIONS
+              headers authorization, content-type, idempotency-key · max_age 3600
+  authorizer  aws_apigatewayv2_authorizer.cognito  JWT, identity $request.header.Authorization
+              issuer https://cognito-idp.<region>.amazonaws.com/<user_pool_id>
+              audience [web client id]
+  routes      "ANY /{proxy+}"      → Lambda, JWT bắt buộc
+              "OPTIONS /{proxy+}"  → Lambda, không auth (preflight, Lambda trả 204)
+  integration AWS_PROXY, payload 2.0
+  stage       $default, auto_deploy, throttle burst 50 / rate 20 rps
+
+LAMBDA FUNCTIONS
+  aws_lambda_function.api   name reloop-dev-api
+    runtime nodejs22.x · arm64 · handler index.handler · 512 MB · timeout 60 s
+    code    backend/dist/lambda → infra/build/api.zip (npm run build -w backend)
+    role    reloop-dev-api-lambda-role (policy "api-access"):
+              CoreTable   dynamodb:* (5 action ở trên)
+              ListingImages s3:Put/Get/PutTagging/GetTagging/DeleteObject  arn:…:reloop-device-images/listings/*
+              Bedrock     bedrock:InvokeModel  inference-profile/<ai_model_id> + foundation-model/*
+              Guardrail   bedrock:ApplyGuardrail  guardrail/* + guardrail-profile/*
+              Moderation  rekognition:DetectModerationLabels, DetectText
+              SelfInvoke  lambda:InvokeFunction  function:reloop-dev-api
+              Logs        logs:CreateLogStream, PutLogEvents
+    log     /aws/lambda/reloop-dev-api, retention 7 ngày
+    env     STAGE=aws AUTH_MODE=cognito TABLE_NAME IMAGE_BUCKET AI_MODEL_ID
+            BILLING_BANK_NAME BILLING_ACCOUNT_NO BILLING_ACCOUNT_NAME
+            AI_GUARDRAIL_ID AI_GUARDRAIL_VERSION NODE_OPTIONS=--enable-source-maps
+    triggers
+      API Gateway  aws_lambda_permission.apigw   (execution_arn/*/*)
+      EventBridge  aws_cloudwatch_event_rule.sweep  "reloop-dev-sweep"  rate(15 minutes)
+                   → event.source="aws.events" → app.sweeper.sweep()
+      Self async   InvocationType=Event, {source:"reloop.worker", task:"ai-analysis", ref}
+  reloop-auth-post-confirmation   Lambda nhóm (data source, Terraform chỉ cấp quyền Cognito gọi)
+
+BEDROCK GUARDRAIL                                                    (count = ai_guardrail_enabled ? 1 : 0)
+  aws_bedrock_guardrail.ai           name reloop-dev-ai-guardrail
+  aws_bedrock_guardrail_version.ai   → AI_GUARDRAIL_VERSION
+  tier         STANDARD (đa ngôn ngữ), cross-region profile apac.guardrail.v1:0
+  filters      SEXUAL, VIOLENCE, HATE, INSULTS   HIGH/HIGH  input TEXT+IMAGE, output TEXT
+               MISCONDUCT                        HIGH/HIGH  TEXT only
+               PROMPT_ATTACK                     input HIGH, output NONE
+  messages     input "Ảnh không phù hợp." · output "Kết quả không phù hợp."
+
+MONITORING (monitoring.tf)
+  namespace       ReLoop/dev
+  metric filters  UnhandledErrors, TimerFailures, AiFailures, NotifyFailures, ImagesRejected,
+                  ImagesTextFlagged, ListingsFlagged, TextCheckFailures, DisputesOpened,
+                  ImagesSensitiveSuspected, ViolationsRecorded   (khớp trường msg của log JSON)
+  alarms          reloop-dev-lambda-errors (≥3) · -lambda-throttles (≥1) · -api-5xx (≥5)
+                  -api-latency-p95 (>2000 ms) · -UnhandledErrors/-TimerFailures (≥1, 15') · -AiFailures (≥5, 15')
+                  -image-text-flagged-spike (>10 / 24h) · -dispute-opened (≥1 / 5 phút → email Admin)
+  SNS             reloop-dev-alarms (luôn có; output alarm_topic_arn) — scripts/make-admin.sh tự đăng ký email Admin
+  dashboard       reloop-dev-overview
+
+OUTPUTS
+  api_url  web_url  web_bucket  cloudfront_distribution_id  cognito_domain  web_client_id  user_pool_id
+  (+ dashboard URL và alarm_topic_arn ở monitoring.tf — make-admin.sh dùng alarm_topic_arn)
+
+---------------------------------------------------------------------
+9.2 ENVIRONMENT VARIABLES          backend/.env.example, backend/src/app.ts
+---------------------------------------------------------------------
+BACKEND (loadConfig)
+  Biến                  Kiểu                 Local mặc định        Ý nghĩa
+  STAGE                 'local'|'aws'        local                 aws → DynamoTable; local → MemoryTable
+  AUTH_MODE             'local'|'cognito'    local                 STAGE=aws bắt buộc cognito
+  PORT                  number               3001                  cổng server dev (local/server.ts)
+  TABLE_NAME            string               (trống)               bắt buộc khi STAGE=aws
+  DATA_FILE             string (path)        .data/db.json         file JSON của MemoryTable
+  IMAGE_BUCKET          string               (trống = tắt ảnh)     bật S3ImageStore + Rekognition
+  AI_MODEL_ID           string               (trống = tắt AI)      Bedrock model / inference profile
+  AI_GUARDRAIL_ID       string               (trống)               bật Guardrail cho AI + TextScreener (cần IMAGE_BUCKET)
+  AI_GUARDRAIL_VERSION  string               DRAFT (nếu thiếu)     version Guardrail
+  AWS_REGION            string               ap-southeast-1        region cho Bedrock client
+  BILLING_BANK_NAME     string               (trống)               ┐ cả 3 phải có → hiện TK nhận phí
+  BILLING_ACCOUNT_NO    string               (trống)               │ trên hóa đơn (QĐ-37)
+  BILLING_ACCOUNT_NAME  string               (trống)               ┘
+  LOG_SILENT            '1'                  (trống)               tắt log (test)
+  NODE_OPTIONS          string               —                     Lambda: --enable-source-maps
+  AWS_LAMBDA_FUNCTION_NAME  string (AWS đặt) —                     tên hàm cho self-invoke AI
+  DYNAMODB_TEST_TABLE   string               (trống)               chỉ test: chạy test với bảng thật
+  AWS_PROFILE           string               —                     local muốn dùng S3/Bedrock thật
+
+FRONTEND (Vite, import.meta.env) — không có .env.example; deploy.sh đặt từ terraform output
+  VITE_API_BASE           string   /api (proxy vite → http://localhost:3001)   = api_url
+  VITE_COGNITO_DOMAIN     string   (trống → đăng nhập giả x-dev-user)          = cognito_domain
+  VITE_COGNITO_CLIENT_ID  string   (trống)                                     = web_client_id
+  cognitoEnabled = DOMAIN && CLIENT_ID.
+
+LOCAL AUTH HEADERS (AUTH_MODE=local)
+  x-dev-user: <userId>   x-dev-email: <email>   x-dev-groups: admin,admin_finance
+
+---------------------------------------------------------------------
+9.3 DYNAMODB KEY PATTERNS                          backend/src/store/keys.ts
+---------------------------------------------------------------------
+Code dùng pk/sk/gsi1pk/gsi1sk; DynamoTable đổi sang PK/SK/GSI1PK/GSI1SK. Ký hiệu <x> = tham số.
+ISO = chuỗi thời gian ISO 8601; month = YYYY-MM; day = YYYY-MM-DD.
+
+USER
+  keys.userProfile(userId)                    USER#<userId>        PROFILE
+  keys.userPk(userId) / notificationPk        USER#<userId>        —   (hộp thư chung Admin: userId = 'ADMINS')
+  keys.savedLocation(userId, locationId)      USER#<userId>        LOC#<locationId>
+  keys.userTransaction(userId, at, txId)      USER#<userId>        TX#<ISO>#<txId>
+  keys.receivedReview(userId, at, txId)       USER#<userId>        RATING#<ISO>#<txId>
+  keys.userConversation(userId, convId)       USER#<userId>        CONV#<convId>
+  keys.listingConversation(lid, buyerId)      LISTING#<lid>        CONV#<buyerId>         (QĐ-38: ai đang hỏi tin)
+  keys.notification(userId, at, id)           USER#<userId>        NOTIF#<ISO>#<id>
+  keys.imageFlag(userId, imageKey)            USER#<userId>        IMGFLAG#<imageKey>     (ttl 3 ngày)
+  keys.aiAnalysis(userId, analysisId)         USER#<userId>        AI#<analysisId>
+  keys.aiQuota(userId, day)                   USER#<userId>        AIQUOTA#<day>          (ttl 2 ngày)
+  keys.listingFeeCounter(userId)              USER#<userId>        LISTINGFEE_COUNTER     (legacy)
+  keys.idempotency(userId, key)               IDEM#<userId>        <METHOD> <path> <Idempotency-Key>
+
+PARTNER                                       (partnerId = userId)
+  keys.partner(partnerId)                     PARTNER#<pid>        PROFILE
+  keys.partnerPk(partnerId)                   PARTNER#<pid>        —
+  keys.branch(pid, branchId)                  PARTNER#<pid>        BRANCH#<branchId>
+  keys.rule(pid, ruleId)                      PARTNER#<pid>        RULE#<ruleId>
+  keys.partnerRequest(pid, at, lid, bid)      PARTNER#<pid>        REQ#<ISO>#<listingId>#<branchId>
+
+LISTING / QUOTE / MATCH / FEED
+  keys.listing(listingId)                     LISTING#<lid>        META
+  keys.listingPk(listingId)                   LISTING#<lid>        —
+  keys.match(lid, branchId)                   LISTING#<lid>        MATCH#<branchId>
+  keys.quote(lid, quoteId)                    LISTING#<lid>        QUOTE#<quoteId>
+  keys.listingFee(lid)                        LISTING#<lid>        FEE                    (legacy)
+  keys.feedItem(month, at, lid)               FEED#<month>         <ISO>#<lid>
+  keys.feedPk(month)                          FEED#<month>         —
+  keys.listingReview(at, lid)                 REVIEWQ#LISTING      <ISO>#<lid>
+  keys.listingReviewPk()                      REVIEWQ#LISTING      —
+
+TRANSACTION
+  keys.transaction(txId)                      TX#<txId>            META
+  keys.transactionPk(txId)                    TX#<txId>            —
+  keys.transactionEvent(txId, at, seq)        TX#<txId>            EVENT#<ISO>#<seq 3 chữ số>
+  keys.review(txId, by)                       TX#<txId>            REVIEW#<OWNER|PARTNER>
+  keys.hold(txId)                             TXN#<txId>           HOLD                   (ví — legacy)
+
+CHAT
+  keys.conversation(convId)                   CONV#<convId>        META
+  keys.conversationPk(convId)                 CONV#<convId>        —
+  keys.chatMessage(convId, at, seq, id)       CONV#<convId>        MSG#<ISO>#<seq 8 chữ số>#<id>
+
+BILLING (QĐ-37)
+  keys.feeLine(userId, month, txId)           USER#<userId>        FEE#<month>#<txId>
+  keys.invoice(userId, month)                 USER#<userId>        INVOICE#<month>
+  keys.feeMonthMember(month, userId)          FEEMONTH#<month>     <userId>
+  keys.feeMonthPk(month)                      FEEMONTH#<month>     —
+  keys.billingRun(month)                      SYSTEM               BILLINGRUN#<month>
+  (FeeLine.kind = TRANSACTION | SUSPECTED_OFFLINE | VIP_PLAN (id 'VIP<id>'); khiếu nại → GSI1 FEEAPPEAL#STATUS#<OPEN|RESOLVED>)
+
+CHỐNG NÉ PHÍ & VI PHẠM (QĐ-39, QĐ-43)
+  keys.dealEnded(sellerId, at, txId)          USER#<sellerId>      DEALEND#<ISO>#<txId>
+  keys.suspicion(sellerId, at, txId)          USER#<sellerId>      SUSPECT#<ISO>#<txId>
+  keys.riskFlag(userId)                       RISK#<userId>        META   (GSI1 RISK#STATUS#<OPEN|RESOLVED>)
+  keys.violation(userId, at, id)              USER#<userId>        VIOL#<ISO>#<id>   (QĐ-43, đếm vi phạm 30 ngày)
+
+AI LABEL (bộ dữ liệu nhãn)
+  keys.aiLabel(month, at, lid)                AILABEL#<month>      <ISO>#<lid>
+  keys.aiLabelPk(month)                       AILABEL#<month>      —
+
+REPORT
+  keys.report(reportId)                       REPORT#<reportId>    META
+
+TIMER (job nền)                               bucket = ISO.slice(0,13) = YYYY-MM-DDTHH
+  keys.timer(bucket, kind, id)                TIMER#<bucket>       <kind>#<id>
+  keys.timerPk(bucket)                        TIMER#<bucket>       —
+  kind ∈ LISTING_EXPIRE | TX_REMIND | TX_AUTO_COMPLETE | TX_CANCEL (5 phút, ghi đè được)
+
+WALLET / LEDGER (giữ lại, chưa nối — thanh toán offline)
+  keys.wallet(ownerId)                        WALLET#<ownerId>     BALANCE
+  keys.walletLedgerPk(ownerId)                WALLET#<ownerId>     —
+  keys.walletLedgerLine(ownerId, at, jid)     WALLET#<ownerId>     LEDGER#<ISO>#<journalId>
+  keys.journal(journalId)                     JOURNAL#<jid>        META
+  keys.bankBalance()                          SYSTEM               BANK
+
+GSI1 (index "GSI1")
+  gsi1.byStatus(entity, status, at)           <entity>#STATUS#<status>    <at>
+  gsi1.statusPk(entity, status)               <entity>#STATUS#<status>    —
+    dùng: PARTNER#STATUS#<PENDING|APPROVED|REJECTED|SUSPENDED>   sk createdAt
+          INVOICE#STATUS#<ISSUED|PAID>                           sk <month>#<userId>
+          REPORT#STATUS#<OPEN|RESOLVED>                          sk createdAt
+          TX#STATUS#DISPUTED   (gán trực tiếp ở transactionService)  sk ISO
+          FEEAPPEAL#STATUS#<OPEN|RESOLVED>                       sk thời điểm khiếu nại
+          RISK#STATUS#<OPEN|RESOLVED>                            sk openedAt
+  gsi1.geo(geohash, pid, bid)                 GEO4#<geohash4>             BRANCH#<pid>#<bid>
+  gsi1.geoPk(geohash)                         GEO4#<geohash4>             —
+  gsi1.ownerListing(ownerId, at)              OWNER#<ownerId>             LISTING#<ISO>
+  gsi1.ownerListingPk(ownerId)                OWNER#<ownerId>             —
+  (ví) 'WALLETS' / <ownerId>  — gán trực tiếp ở ledger.ts, dùng cho reconcile()
+
+---------------------------------------------------------------------
+9.4 CORE BOILERPLATE & HELPER SIGNATURES
+---------------------------------------------------------------------
+STATE MACHINE                                   backend/src/domain/stateMachines.ts
+  type Actor = 'OWNER' | 'PARTNER' | 'ADMIN' | 'SYSTEM'
+  interface StateMachine<S extends string> {
+    readonly name: string;
+    canTransition(from: S, to: S, actor: Actor): boolean;
+    assertTransition(from: S, to: S, actor: Actor): void;   // 409 INVALID_STATE_TRANSITION | 403 FORBIDDEN
+    nextStates(from: S): S[];
+  }
+  export listingMachine, quoteMachine, transactionMachine
+
+  vd: listingMachine.assertTransition(listing.status, 'CANCELLED', 'OWNER');
+      const next = { ...listing, status: 'CANCELLED' };
+
+  Listing                                        (cạnh: from → to [actors])
+    PENDING_REVIEW → ACTIVE            [ADMIN]
+    PENDING_REVIEW → CANCELLED         [ADMIN, OWNER]
+    ACTIVE         → MATCHED           [SYSTEM]
+    ACTIVE         → EXPIRED           [SYSTEM]
+    ACTIVE         → CANCELLED         [OWNER, ADMIN]
+    MATCHED        → COMPLETED         [SYSTEM]
+    MATCHED        → ACTIVE            [SYSTEM]   (giao dịch hủy/thất bại, còn hạn)
+    MATCHED        → EXPIRED           [SYSTEM]   (giao dịch hủy/thất bại, hết hạn)
+
+  Quote
+    ESTIMATED              → CONFIRMATION_REQUESTED  [OWNER]
+    CONFIRMATION_REQUESTED → CONFIRMED_OFFER         [PARTNER]
+    CONFIRMATION_REQUESTED → REJECTED                [PARTNER]
+    CONFIRMED_OFFER        → SELECTED                [OWNER]
+    CONFIRMED_OFFER        → WITHDRAWN               [PARTNER]
+    {ESTIMATED, CONFIRMATION_REQUESTED, CONFIRMED_OFFER} → EXPIRED      [SYSTEM]
+    {ESTIMATED, CONFIRMATION_REQUESTED, CONFIRMED_OFFER} → INVALIDATED  [SYSTEM, ADMIN]
+
+  Transaction   (giao dịch mới bắt đầu ở HANDOVER_PENDING; AWAITING_PAYMENT chỉ để dành cho ví)
+    AWAITING_PAYMENT         → HANDOVER_PENDING          [SYSTEM]
+    AWAITING_PAYMENT         → CANCELLED                 [SYSTEM, OWNER, PARTNER]
+    HANDOVER_PENDING         → PRICE_ADJUSTMENT_PENDING  [PARTNER]
+    PRICE_ADJUSTMENT_PENDING → HANDOVER_PENDING          [OWNER]
+    HANDOVER_PENDING         → AWAITING_COUNTERPARTY     [OWNER, PARTNER]
+    AWAITING_COUNTERPARTY    → COMPLETED                 [OWNER, PARTNER, SYSTEM]  (SYSTEM = hết 48h)
+    AWAITING_COUNTERPARTY    → DISPUTED                  [OWNER, PARTNER]
+    HANDOVER_PENDING         → CANCELLED                 [OWNER, PARTNER]
+    {HANDOVER_PENDING, PRICE_ADJUSTMENT_PENDING} → FAILED [OWNER, PARTNER]
+    DISPUTED                 → COMPLETED | FAILED        [ADMIN]
+    Hủy (QĐ-38): cancel → cancelRequest {by, reason, effectiveAt = +5 phút}; tới hạn (job TX_CANCEL / khi đọc)
+    hoặc bên kia /cancel/confirm → CANCELLED (kiểm tra cạnh HANDOVER_PENDING → CANCELLED với vai người yêu cầu).
+    Hoàn tất (QĐ-42): bước 2 "Chấp nhận" dùng giá cuối của bên xác nhận trước (finalPrice gửi kèm bị bỏ qua).
+
+TABLE / OPTIMISTIC LOCKING            backend/src/store/table.ts, retry.ts
+  interface Item { pk: string; sk: string; version?: number; gsi1pk?: string; gsi1sk?: string; [k: string]: unknown }
+  type Condition = { kind: 'notExists' } | { kind: 'versionEquals'; version: number } | { kind: 'versionMissing' }
+  type WriteOp   = { type: 'put'; item: Item; condition?: Condition }
+                 | { type: 'delete'; pk: string; sk: string; condition?: Condition }
+  interface QueryOptions { index?: 'gsi1'; skPrefix?: string; skRange?: { from?: string; to?: string };
+                           limit?: number; ascending?: boolean }   // skRange gồm cả 2 đầu: BETWEEN / >= / <=
+  interface Table {
+    get<T extends Item>(pk: string, sk: string): Promise<T | undefined>;
+    query<T extends Item>(pk: string, options?: QueryOptions): Promise<T[]>;
+    transact(ops: WriteOp[]): Promise<void>;   // nguyên tử, ≤ 100 ops, lỗi điều kiện → ConditionFailedError
+  }
+  class ConditionFailedError extends Error { readonly failedKeys: string[] }
+  const MAX_TRANSACT_OPS = 100
+  putVersioned(item: Item, expectedVersion: number): WriteOp
+      // expectedVersion 0 → notExists; khác 0 → versionEquals; item ghi ra version = expectedVersion + 1
+  putNew(item: Item): WriteOp                       // condition notExists
+  withOptimisticRetry<T>(attempt: () => Promise<T>, maxAttempts = 5): Promise<T>
+      // chỉ bắt ConditionFailedError; hết lượt → 409 CONCURRENT_UPDATE; attempt() phải đọc lại mỗi lần
+  Bản cài: DynamoTable(tableName, client?) — get/query bảng chính ConsistentRead; GSI eventual.
+           MemoryTable(filePath?) — dev/test; dump(): Item[].
+
+  vd:
+    const k = keys.partner(pid);
+    await withOptimisticRetry(async () => {
+      const cur = await table.get<Partner>(k.pk, k.sk);
+      if (!cur) throw notFound('đối tác');
+      await table.transact([putVersioned({ ...cur, contactEmail }, cur.version ?? 0)]);
+    });
+
+APP ERROR                                     backend/src/shared/errors.ts
+  class AppError extends Error {
+    constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown)
+  }
+  badRequest(code, message, details?)  → 400
+  unauthenticated()                    → 401 UNAUTHENTICATED
+  forbidden(message?)                  → 403 FORBIDDEN
+  notFound(what)                       → 404 NOT_FOUND
+  conflict(code, message, details?)    → 409
+  Response JSON: { code, message, details? }
+
+  vd: throw conflict('LISTING_NOT_ACTIVE', 'Tin không còn mở');
+
+  MÃ LỖI (grep toàn backend/src)
+  400  IDEMPOTENCY_KEY_REQUIRED IMAGES_REQUIRED IMAGE_NOT_MODERATED IMAGE_REQUIRED INVALID_AMOUNT
+       INVALID_BODY INVALID_CONTACT_EMAIL INVALID_CONTENT_TYPE INVALID_FULL_NAME INVALID_IMAGE_KEYS
+       INVALID_JSON INVALID_MONTH INVALID_NOTE INVALID_PHONE INVALID_PRICE_RANGE INVALID_QUERY
+       INVALID_TIME INVALID_WEIGHT_KG PAYEE_REQUIRED PRICE_NOT_LOWER PROFILE_NOT_FOUND
+       TERMS_VERSION_MISMATCH
+       + INVALID_<FIELD> sinh tự động từ shared/validate.ts (field camelCase → SNAKE, vd
+         priceMin → INVALID_PRICE_MIN)
+  401  UNAUTHENTICATED
+  403  FORBIDDEN PARTNER_REQUIRED INVOICE_OVERDUE ACCOUNT_LOCKED_UNPAID
+  404  NOT_FOUND ROUTE_NOT_FOUND
+  409  ADJUSTMENT_LIMIT AI_DAILY_LIMIT ALREADY_CONFIRMED CHAT_CLOSED CONCURRENT_UPDATE
+       INVALID_STATE INVALID_STATE_TRANSITION INVOICE_ALREADY_PAID LISTING_NOT_ACTIVE
+       LISTING_NOT_PENDING_REVIEW LOCATION_LIMIT MONTH_NOT_ENDED NOT_DUE NO_PROPOSAL
+       OFFER_ALREADY_OPEN OFFER_NOT_SELECTABLE OWN_PROPOSAL PARTNER_ALREADY_REVIEWED
+       PARTNER_INVALID_STATUS PARTNER_NOT_APPLIED PARTNER_NOT_PENDING PARTNER_NO_BRANCH
+       REPORT_RESOLVED REQUEST_IN_PROGRESS REVIEW_NOT_ALLOWED
+       (QĐ-38) CANCEL_PENDING NO_CANCEL_REQUEST OWN_CANCEL_REQUEST OFFER_NOT_PENDING OWN_OFFER
+       OFFER_NOT_ALLOWED
+       (QĐ-39) FEE_NOT_APPEALABLE APPEAL_EXISTS APPEAL_NOT_OPEN RISK_FLAG_RESOLVED
+       (QĐ-40) SELLER_UNAVAILABLE PARTNER_UNAVAILABLE
+       (QĐ-41) LISTING_QUOTA_REACHED (details {open, limit, plan}) VIP_NOT_AVAILABLE
+       (QĐ-43) LISTING_IN_TRANSACTION NO_VIOLATOR CANNOT_SUSPEND · 400 NOTE_REQUIRED INVALID_ACTION
+  403  (QĐ-40) INVOICE_OVERDUE (nợ > 3 ngày, không đăng tin mới) · ACCOUNT_LOCKED_UNPAID (nợ > 7 ngày, khóa mọi route
+       trừ allowWhenLocked: GET /me, POST /me/accept-terms, GET /fees, GET /billing/me, POST /billing/fees/…/appeal,
+       /notifications*, GET /partners/me; trang /admin/* không bị khóa)
+       (ví, legacy) HOLD_ALREADY_SETTLED HOLD_FROZEN HOLD_INVALID_STATUS HOLD_NOT_ACTIVE
+       HOLD_PAYER_MISMATCH INSUFFICIENT_FUNDS LISTING_FEE_NOT_REFUNDABLE PAYEE_AMOUNT_EXCEEDS_HOLD
+  422  IMAGE_REJECTED            (details.labels)
+  500  INTERNAL_ERROR
+  503  AI_DISABLED IMAGES_DISABLED
+  Frontend: ApiError(status, code, message); lỗi upload S3 → UPLOAD_FAILED; không parse được → HTTP_ERROR.
+
+ADAPTERS
+  ImageStore                                  backend/src/storage/imageStore.ts
+    interface UploadTicket { key: string; url: string; fields: Record<string,string>; expiresInSeconds: number }
+    interface ImageStore {
+      readonly enabled: boolean;
+      createUpload(userId: string, contentType: unknown): Promise<UploadTicket>;
+      viewUrl(key: string): Promise<string>;                 // presigned GET 3600 s
+      markAttached(keys: string[]): Promise<void>;           // tag state=attached
+      markModerated(key: string): Promise<void>;             // tag moderation=passed
+      assertModerated(keys: string[]): Promise<void>;        // 400 IMAGE_NOT_MODERATED
+      remove(key: string): Promise<void>;
+      read(key: string): Promise<{ mediaType: 'image/jpeg'|'image/png'|'image/webp'; data: string }>;
+    }
+    impl S3ImageStore(bucket) · DisabledImageStore (503 IMAGES_DISABLED)
+    const IMAGE_TYPES jpeg|png|webp · MAX_IMAGE_BYTES 5 MB · MAX_IMAGES_PER_LISTING 6 · presign 300 s
+    userImagePrefix(userId) = 'listings/<userId>/'
+    assertOwnImageKeys(userId: string, value: unknown): string[]
+    moderateUpload(images, moderator, userId, rawKey,
+                   onRejected: (key, labels) => void | Promise<void>,
+                   flagging?: { screener?: TextScreener; onFlagged(key, text, kind?: 'TEXT' | 'SENSITIVE'): Promise<void> })
+      : Promise<{ key: string; allowed: true; flagged: boolean }>
+      // ảnh bị chặn → xóa + 422 IMAGE_REJECTED; nghi nhạy cảm (review) → onFlagged(…, 'SENSITIVE'); chữ bất thường → 'TEXT'
+
+  ImageModerator (Rekognition)                backend/src/storage/moderator.ts
+    interface ImageModerator { readonly enabled: boolean; check(key: string): Promise<ModerationResult> }
+    interface ModerationResult { allowed: boolean; review?: boolean; labels: { name: string; confidence: number }[] }
+    classifyModeration(labels: { name; parent?; confidence }[]): ModerationResult
+      // nhãn chặn ≥ REJECT_CONFIDENCE (70) → allowed false; nhãn NẶNG ≥ REVIEW_CONFIDENCE (50) → review true (QĐ-43)
+    impl RekognitionModerator(bucket)  DetectModerationLabels, MinConfidence 50 → classifyModeration · DisabledModerator
+
+  TextScreener (Rekognition DetectText + Guardrail, QĐ-36)   backend/src/storage/textScreener.ts
+    interface TextScreener { readonly enabled: boolean; check(key: string): Promise<TextScreenResult> }
+    interface TextScreenResult { flagged: boolean; text: string }
+    impl RekognitionGuardrailScreener(bucket, guardrail: GuardrailRef, awsRegion)
+         LINE confidence ≥ 80, text ≤ 2000 ký tự, < 12 ký tự (bỏ khoảng trắng) → không gọi Guardrail
+         flagged = ApplyGuardrail(source INPUT).action === 'GUARDRAIL_INTERVENED'
+    · DisabledTextScreener
+
+  Analyzer (Bedrock)                          backend/src/ai/analyzer.ts
+    interface ImageInput { mediaType: 'image/jpeg'|'image/png'|'image/webp'; data: string /* base64 */ }
+    interface AiResult {
+      isElectronicDevice: boolean; isInappropriate: boolean; category: Category;
+      brand: string | null; model: string | null; condition: Condition; visibleDamage: string[];
+      suggestedTitle: string; suggestedDescription: string; confidence: 'low'|'medium'|'high';
+    }
+    interface Analyzer { readonly enabled: boolean; readonly modelId?: string; analyze(images: ImageInput[]): Promise<AiResult> }
+    interface GuardrailRef { id: string; version: string }
+    impl BedrockAnalyzer(modelId, awsRegion, guardrail?, client?)
+         Converse API, tool "record_device_analysis" (toolChoice ép JSON), maxTokens 2048, temperature 0
+         stopReason 'guardrail_intervened' → throw
+    · DisabledAnalyzer
+    validateResult(input: unknown): AiResult      // kiểm tra lại output model
+    AI_DAILY_LIMIT = 20 lượt / user / ngày (modules/ai/aiService.ts)
+
+    vd: const r = await analyzer.analyze([await images.read(key)]);
+
+  Ledger (ví — giữ lại, chưa nối)              backend/src/modules/wallet/ledger.ts
+    type Bucket = 'available' | 'held'
+    type JournalType = 'HOLD' | 'SETTLE' | 'LISTING_FEE' | 'LISTING_FEE_REFUND'
+    interface JournalLine { ownerId: string; bucket: Bucket; delta: number }
+    interface PostingPlan { type: JournalType; lines: JournalLine[]; bankDelta: number;
+                            ref?: Record<string,string>; extraOps?: WriteOp[] }
+    interface PostResult { journal: Journal; alreadyPosted: boolean }
+    class Ledger(table: Table, clock: Clock)
+      post(journalId: string, plan: () => Promise<PostingPlan>): Promise<PostResult>
+          // journalId = khóa idempotency; Σ delta = bankDelta; delta nguyên ≠ 0; số dư âm → 409 INSUFFICIENT_FUNDS
+      getWallet(ownerId) · getJournal(journalId) · getBankBalance() · listLedger(ownerId, limit = 50)
+      reconcile(): { ok, walletTotal, bankBalance, totals, negative }
+    REVENUE_OWNER = 'REVENUE'
+
+    vd: await ledger.post(`hold-${txId}`, async () => ({
+          type: 'HOLD', bankDelta: 0,
+          lines: [{ ownerId, bucket: 'available', delta: -amount }, { ownerId, bucket: 'held', delta: amount }],
+        }));
+
+  AuthProvider                                backend/src/auth/auth.ts
+    interface Principal { userId: string; email?: string; groups: string[] }
+    interface AuthProvider { authenticate(event: APIGatewayProxyEventV2): Principal | undefined }
+    impl LocalAuthProvider (x-dev-*) · CognitoAuthProvider (JWT claims sub/email/cognito:groups)
+    requireGroup(principal, 'admin' | 'admin_finance'): void   // 403 FORBIDDEN
+
+  Router                                      backend/src/http/router.ts
+    Route = { method; path; auth: 'public'; handle(ctx) }
+          | { method; path; auth: 'required'; idempotent?: boolean; allowWhenLocked?: boolean; handle(ctx: AuthedContext) }
+    createApiHandler({ routes, auth, table, clock, guard?: AccessGuard })
+    type AccessGuard = (principal, route: { method; path }) => Promise<void>
+      // app.ts: route /admin/* bỏ qua; còn lại billing.assertNotLocked (nợ > 7 ngày → 403 ACCOUNT_LOCKED_UNPAID)
+    Idempotency-Key: ≤ 100 ký tự; khóa IDEM#<userId> / "<METHOD> <path> <key>";
+      IN_PROGRESS trùng → 409 REQUEST_IN_PROGRESS; DONE → trả lại response cũ; handler lỗi → xóa khóa.
+    Response bỏ các trường pk, sk, gsi1pk, gsi1sk.
+
+  SERVICE HELPERS thêm từ 20/10 (gọi từ service khác / route)
+    ListingService.current(listingId)              tin đã chốt mốc quá hạn của giao dịch (tự hủy sau 5 phút)
+    ListingService.openListingCount(ownerId)       số tin đang mở (PENDING_REVIEW / ACTIVE còn hạn / MATCHED)
+    ListingService.quoteView(q, l)                 báo giá hiển thị + takenByOther
+    ListingService.notifyTaken(lid, title, exclude) báo "tin đã có người chốt"
+    ListingService.adminHide(lid, note?, { notify? }) MATCHED → 409 LISTING_IN_TRANSACTION
+    TransactionService.chatDealOps / agreeChatPrice / withdrawCancel / confirmCancel / finalizeCancel
+    BillingService.debtStatus(userId) → { level: NONE|WARNING|NO_POSTING|FULL, invoice?, overdueAmount, daysOverdue }
+    BillingService.assertCanPost / assertNotLocked / suspectedFeeOps / vipFeeOps / appeal / resolveAppeal
+    PartnerService.requireSeller / isAvailable / listingQuota(partner) → { plan: BASIC|VIP1|BUSINESS, limit } / buyVip
+    RiskService.recordViolation(userId, kind, ref, note?) / violationCount / evaluate / listOpen / resolve
+    NotificationService.notifyAdmins(input)        hộp thư chung ADMIN_INBOX = 'ADMINS'
+    ChatService.sendOffer / respondOffer / adminListingChats
+
+---------------------------------------------------------------------
+9.5 API ENDPOINTS CHEAT SHEET     backend/src/http/routes.ts ↔ frontend/src/lib/api.ts
+---------------------------------------------------------------------
+Mọi route: auth 'required' (JWT Cognito / x-dev-user). Không có route public.
+Idem = bắt buộc header Idempotency-Key. Quyền "Admin"/"Finance" = requireGroup trong route;
+quyền chủ tin / đối tác / bên giao dịch kiểm tra trong service.
+lib/api.ts chỉ có api<T>(method, path, {body?, idempotencyKey?}), newIdempotencyKey(),
+uploadImage(file) — cột FE ghi nơi gọi api().
+
+Method Path                                              Quyền           Idem Body / Query chính                                   FE (nơi gọi)
+------ ------------------------------------------------- --------------- ---- ---------------------------------------------------- ------------------------------
+HỒ SƠ
+(L) = vẫn dùng được khi tài khoản bị khóa do nợ > 7 ngày (allowWhenLocked).
+GET    /me                                               User (L)        -    —                                                    TermsGate, ProfilePage
+PATCH  /me                                               User            -    {fullName?, phone?}                                  ProfilePage
+POST   /me/accept-terms                                  User (L)        -    {version}  (TERMS_VERSION='2026-10-21')              TermsGate
+ĐỊA ĐIỂM
+GET    /locations                                        User            -    —                                                    CreateListingPage, ProfilePage
+POST   /locations                                        User            -    {name, location{lat,lng,address}, area, isDefault?}  CreateListingPage
+PATCH  /locations/{id}                                   User (chủ)      -    {name?, location?, area?, isDefault?}                ProfilePage
+DELETE /locations/{id}                                   User (chủ)      -    —                                                    ProfilePage
+CHAT
+POST   /listings/{id}/conversations                      User            -    {partnerId?}                                         ListingDetailPage, FeedPage
+GET    /conversations                                    User            -    —                                                    ChatPage
+GET    /conversations/{id}/messages                      Thành viên      -    ?after=<cursor>                                      ChatBox
+POST   /conversations/{id}/messages                      Thành viên      -    {text}                                               ChatBox
+POST   /conversations/{id}/read                          Thành viên      -    —                                                    ChatBox
+POST   /conversations/{id}/offers                        Thành viên      -    {price ≥ 1000}  → message kind OFFER                 ChatBox (QĐ-38)
+POST   /conversations/{id}/offers/{offerId}/accept       Bên kia         YES  —  → {message, transactionId?}                   ChatBox
+POST   /conversations/{id}/offers/{offerId}/reject       Bên kia         -    —                                                    ChatBox
+BÁO CÁO VI PHẠM
+POST   /reports                                          User            -    {targetType, targetId, reason}                       ReportButton
+PHÍ / VÍ
+GET    /fees                                             User (L)        -    —                                                    (chưa dùng)
+GET    /billing/me                                       User (L)        -    —  (+ debt, suspected, postingLockDays, fullLockDays) BillingCard, App, CreateListingPage
+POST   /billing/fees/{month}/{transactionId}/appeal      Người bán (L)   -    {reason ≥ 10 ký tự}                                  BillingCard (QĐ-39)
+GET    /wallet                                           User            -    —                                                    WalletPage
+GET    /wallet/ledger                                    User            -    —                                                    WalletPage
+ẢNH / AI
+POST   /uploads/presign                                  User            -    {contentType: image/jpeg|png|webp}                   uploadImage() (api.ts)
+POST   /uploads/moderate                                 User            -    {key}  → {key, allowed, flagged}                     uploadImage() (api.ts)
+GET    /features                                         User            -    —  → {images, ai, textCheck}                         CreateListingPage
+POST   /ai/analyses                                      User            -    {imageKeys[]}  → 202                                 CreateListingPage
+GET    /ai/analyses/{id}                                 User (chủ)      -    —                                                    CreateListingPage (polling)
+TIN ĐĂNG
+POST   /listings                                         Đối tác đã duyệt YES {title, category, brand?, model?, condition,          CreateListingPage
+                                                         (nợ ≤ 3 ngày,         description, unit, quantity, weightKg?,
+                                                         còn hạn mức)
+                                                                               handoverMethods[], location, area, imageKeys[],
+                                                                               aiAnalysisId?}
+GET    /feed                                             User            -    ?cursor=                                             FeedPage
+GET    /listings/mine                                    User            -    —                                                    MyListingsPage
+GET    /listings/{id}                                    Chủ/đối tác/xem -    —  → role OWNER|PARTNER|VIEWER                       ListingDetailPage, FeedPage
+POST   /listings/{id}/cancel                             Chủ tin         -    —                                                    ListingDetailPage (act)
+POST   /listings/{id}/quotes/{quoteId}/request-confirmation Chủ tin      -    —                                                    ListingDetailPage (act)
+BÁO GIÁ (đối tác)
+POST   /listings/{id}/quotes/{quoteId}/confirm           Đối tác của quote -  {price, note?, validHours?}                          ListingDetailPage (act)
+POST   /listings/{id}/quotes/{quoteId}/reject            Đối tác của quote -  {note?}                                              ListingDetailPage (act)
+POST   /listings/{id}/quotes/{quoteId}/withdraw          Đối tác của quote -  —                                                    ListingDetailPage (act)
+POST   /listings/{id}/offers                             Đối tác cấp 2   YES  {branchId, price, note?, validHours?}                ListingDetailPage (act, idem)
+GIAO DỊCH
+POST   /transactions                                     Chủ tin         YES  {listingId, quoteId}                                 ListingDetailPage
+GET    /transactions                                     User            -    —                                                    TransactionsPage
+GET    /transactions/{id}                                Hai bên / Admin -    —                                                    TransactionDetailPage
+PUT    /transactions/{id}/handover-plan                  Hai bên         -    {method, time(ISO), place, note?}                    TransactionDetailPage (act)
+POST   /transactions/{id}/handover-plan/accept           Bên còn lại     -    —                                                    TransactionDetailPage (act)
+POST   /transactions/{id}/price-adjustment               Bên mua         -    {price, reason, imageKeys[]}                         TransactionDetailPage (act)
+POST   /transactions/{id}/price-adjustment/accept        Chủ tin         -    —                                                    TransactionDetailPage (act)
+POST   /transactions/{id}/price-adjustment/reject        Chủ tin         -    —                                                    TransactionDetailPage (act)
+POST   /transactions/{id}/confirm-completion             Hai bên         -    bước 1 {finalPrice?}; bước 2 (Chấp nhận) không body   TransactionDetailPage (act)
+POST   /transactions/{id}/dispute                        Hai bên         -    {reason}                                             TransactionDetailPage (act)
+POST   /transactions/{id}/cancel                         Hai bên         -    {reason}  → cancelRequest, tự hủy sau 5 phút         TransactionDetailPage (act)
+POST   /transactions/{id}/cancel/withdraw                Người yêu cầu   -    —                                                    TransactionDetailPage (act)
+POST   /transactions/{id}/cancel/confirm                 Bên kia         -    —  → CANCELLED ngay                                  TransactionDetailPage (act)
+POST   /transactions/{id}/report-failure                 Hai bên         -    {reason, note?}                                      TransactionDetailPage (act)
+POST   /transactions/{id}/review                         Hai bên         -    {rating, comment?}                                   TransactionDetailPage (act)
+THÔNG BÁO
+GET    /notifications                                    User (L)        -    —                                                    NotificationBell
+GET    /notifications/unread-count                       User (L)        -    —                                                    NotificationBell
+POST   /notifications/read-all                           User (L)        -    —                                                    NotificationBell
+POST   /notifications/{id}/read                          User (chủ) (L)  -    —                                                    NotificationBell
+ĐỐI TÁC
+GET    /partners/{id}/public                             User            -    —  (404 nếu chưa APPROVED)                           (chưa dùng)
+POST   /partners/apply                                   User            -    {tier, businessType, businessName, licenseNo?,       PartnerPage
+                                                                               contactEmail}
+GET    /partners/me                                      User (L)        -    —  → {partner, branches, rules, quota}               App, CreateListingPage, PartnerPage
+POST   /partners/me/vip                                  Đối tác cấp 1   YES  —  → {partner, charged}  (VIP 1, QĐ-41)              PartnerPage (QuotaCard)
+PATCH  /partners/me/contact                              Đối tác         -    {contactEmail}                                       PartnerPage
+GET    /partners/me/requests                             Đối tác         -    —                                                    PartnerPage
+POST   /partners/me/branches                             Cấp 2, không    -    {name, location, radiusKm, categories[],             PartnerPage
+                                                         bị tạm ngừng
+                                                                               conditions[], handoverMethods[], active?}
+PATCH  /partners/me/branches/{id}                        Đối tác cấp 2   -    (các field trên, tùy chọn)                           PartnerPage
+POST   /partners/me/rules                                Đối tác cấp 2   -    {branchId, category, conditions[], unit, minPrice,   PartnerPage
+                                                                               maxPrice, minQuantity?, active?}
+PATCH  /partners/me/rules/{id}                           Đối tác cấp 2   -    {conditions?, minPrice?, maxPrice?, minQuantity?,    PartnerPage
+                                                                               active?}
+ADMIN
+GET    /admin/partners                                   Admin           -    ?status=PENDING|APPROVED|REJECTED|SUSPENDED          AdminPage
+POST   /admin/partners/{id}/review                       Admin           -    {approve: boolean, note?}                            AdminPage (call)
+POST   /admin/partners/{id}/suspend                      Admin           -    {note?}                                              AdminPage (call)
+POST   /admin/partners/{id}/reactivate                   Admin           -    —                                                    AdminPage (call)
+GET    /admin/invoices                                   Admin           -    ?status=ISSUED|PAID                                  AdminPage
+POST   /admin/invoices/{userId}/{month}/paid             Finance         -    {note?}                                              AdminPage
+POST   /admin/billing/issue                              Finance         -    {month: YYYY-MM}                                     AdminPage
+GET    /admin/notifications                              Admin           -    —  (hộp thư chung Admin: tranh chấp mới…)            NotificationBell (admin)
+GET    /admin/notifications/unread-count                 Admin           -    —                                                    NotificationBell (admin)
+POST   /admin/notifications/read-all                     Admin           -    —                                                    NotificationBell (admin)
+POST   /admin/notifications/{id}/read                    Admin           -    —  (1 Admin đọc = cả nhóm đã đọc)                    NotificationBell (admin)
+GET    /admin/listings/{id}/chats                        Admin           -    —  → {listing, conversations[{conversation, messages}]}  TransactionDetailPage (Admin, chỉ đọc, log admin_chat_viewed)
+GET    /admin/fee-appeals                                Admin           -    —                                                    AdminPage (QĐ-39)
+POST   /admin/fee-appeals/{userId}/{month}/{transactionId}/resolve  Finance  -  {waive: boolean, note?}  → {line, refundDue}        AdminPage
+GET    /admin/risk-flags                                 Admin           -    —                                                    AdminPage
+POST   /admin/risk-flags/{userId}/resolve                Admin           -    {action: DISMISS|WARN|SUSPEND, note?}                AdminPage
+GET    /admin/listings/review                            Admin           -    —                                                    AdminPage
+POST   /admin/listings/{id}/review                       Admin           -    {approve: boolean, note (bắt buộc khi từ chối)}      AdminPage
+GET    /admin/reports                                    Admin           -    —  (+ target {title, link}, violator {name, violations30d})  AdminPage
+POST   /admin/reports/{id}/resolve                       Admin           -    {action: DISMISS|WARN|HIDE_AND_WARN|HIDE_AND_SUSPEND|  AdminPage
+                                                                               SUSPEND, note (bắt buộc ≥ 5 ký tự khi tạm ngừng)}
+GET    /admin/stats                                      Admin           -    —                                                    AdminPage
+GET    /admin/disputes                                   Admin           -    —                                                    AdminPage
+POST   /admin/transactions/{id}/resolve                  Admin           -    {outcome: COMPLETED|FAILED, finalPrice (khi          AdminPage
+                                                                               COMPLETED), note}
+
+Admin = Cognito group Admins (claim → 'admin'); Finance = FinanceAdmins (→ 'admin_finance').
+Ngoài HTTP: EventBridge sweep 15' (LISTING_EXPIRE, TX_REMIND, TX_AUTO_COMPLETE, TX_CANCEL, lập hóa đơn tháng trước)
+            và worker AI async (source reloop.worker, task ai-analysis).

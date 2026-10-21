@@ -9,7 +9,7 @@ import { putNew, type Item, type Table, type WriteOp } from '../../store/table';
  * Job quét định kỳ đọc các ngăn từ 72 giờ trước tới hiện tại, xử lý mốc đã tới hạn rồi xóa.
  * Mọi xử lý đều kiểm tra lại trạng thái hiện tại → chạy trễ / chạy trùng không gây sai (T10.2).
  */
-export type TimerKind = 'LISTING_EXPIRE' | 'TX_REMIND' | 'TX_AUTO_COMPLETE';
+export type TimerKind = 'LISTING_EXPIRE' | 'TX_REMIND' | 'TX_AUTO_COMPLETE' | 'TX_CANCEL';
 
 export interface Timer extends Item {
   kind: TimerKind;
@@ -20,8 +20,10 @@ export interface Timer extends Item {
 const bucketOf = (iso: string) => iso.slice(0, 13); // YYYY-MM-DDTHH
 const LOOKBACK_HOURS = 72;
 
-export function timerOp(kind: TimerKind, targetId: string, dueAt: string): WriteOp {
-  return putNew({ ...keys.timer(bucketOf(dueAt), kind, targetId), kind, targetId, dueAt } satisfies Timer);
+/** overwrite: mốc có thể đặt lại nhiều lần cho cùng đối tượng (vd yêu cầu hủy → rút → yêu cầu lại). */
+export function timerOp(kind: TimerKind, targetId: string, dueAt: string, overwrite = false): WriteOp {
+  const item = { ...keys.timer(bucketOf(dueAt), kind, targetId), kind, targetId, dueAt } satisfies Timer;
+  return overwrite ? { type: 'put', item } : putNew(item);
 }
 
 export type TimerHandler = (timer: Timer) => Promise<void>;

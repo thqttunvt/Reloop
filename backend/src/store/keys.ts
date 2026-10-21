@@ -64,6 +64,8 @@ export const keys = {
     sk: `MSG#${at}#${String(seq).padStart(8, '0')}#${id}`,
   }),
   userConversation: (userId: string, conversationId: string) => ({ pk: `USER#${userId}`, sk: `CONV#${conversationId}` }),
+  /** Mọi người đang hỏi về một tin — để báo khi tin đã có người chốt giá (QĐ-38). */
+  listingConversation: (listingId: string, buyerId: string) => ({ pk: `LISTING#${listingId}`, sk: `CONV#${buyerId}` }),
 
   // Phí dịch vụ theo tháng (QĐ-37)
   feeLine: (userId: string, month: string, transactionId: string) => ({ pk: `USER#${userId}`, sk: `FEE#${month}#${transactionId}` }),
@@ -73,6 +75,16 @@ export const keys = {
   invoice: (userId: string, month: string) => ({ pk: `USER#${userId}`, sk: `INVOICE#${month}` }),
   /** Đánh dấu job lập hóa đơn của tháng đã chạy. */
   billingRun: (month: string) => ({ pk: 'SYSTEM', sk: `BILLINGRUN#${month}` }),
+
+  // Chống né phí (QĐ-39)
+  /** Giao dịch của người bán bị hủy / thất bại do hai bên — xét cờ "cùng người mua". */
+  dealEnded: (sellerId: string, at: string, transactionId: string) => ({ pk: `USER#${sellerId}`, sk: `DEALEND#${at}#${transactionId}` }),
+  /** Lần "hủy giao dịch rồi gỡ tin trong 72 giờ" bị tính phí nghi vấn. */
+  suspicion: (sellerId: string, at: string, transactionId: string) => ({ pk: `USER#${sellerId}`, sk: `SUSPECT#${at}#${transactionId}` }),
+  /** Một lần vi phạm (QĐ-43): cảnh cáo / gỡ tin / tạm ngừng từ báo cáo, ảnh bị chặn, tin bị Admin từ chối. */
+  violation: (userId: string, at: string, id: string) => ({ pk: `USER#${userId}`, sk: `VIOL#${at}#${id}` }),
+  /** Cờ "nghi né phí" của một người bán (1 bản ghi / người, mở lại khi có sự việc mới). */
+  riskFlag: (userId: string) => ({ pk: `RISK#${userId}`, sk: 'META' }),
 
   // Hẹn giờ việc nền (Epic 10)
   timer: (bucket: string, kind: string, id: string) => ({ pk: `TIMER#${bucket}`, sk: `${kind}#${id}` }),

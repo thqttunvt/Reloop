@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { BillingCard } from './components/BillingCard';
 import { NotificationBell } from './components/NotificationBell';
 import { TermsGate } from './components/TermsGate';
 import { CALLBACK_PATH, completeLogin, logoutUrl } from './lib/cognito';
-import { api, type Partner } from './lib/api';
+import { ACCOUNT_LOCKED_EVENT, api, type BillingSummary, type Partner } from './lib/api';
 import { loadSession, saveSession, type Session } from './lib/session';
 import { AdminPage } from './pages/AdminPage';
 import { ChatPage, ConversationsPage } from './pages/ChatPage';
@@ -33,6 +34,20 @@ export function App() {
       .then((r) => setPartnerApproved(r.partner?.status === 'APPROVED'))
       .catch(() => undefined);
   }, [session, isCallback, location.pathname === '/partner']); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Nợ phí quá hạn > 7 ngày → chỉ còn màn hình thanh toán phí (QĐ-40). Hỏi lại khi đổi trang / khi API báo khóa.
+  const [locked, setLocked] = useState(false);
+  const checkLock = useCallback(() => {
+    if (!session || isCallback) return;
+    api<BillingSummary>('GET', '/billing/me')
+      .then((b) => setLocked(b.debt.level === 'FULL'))
+      .catch(() => undefined);
+  }, [session, isCallback]);
+  useEffect(checkLock, [checkLock, location.pathname]);
+  useEffect(() => {
+    window.addEventListener(ACCOUNT_LOCKED_EVENT, checkLock);
+    return () => window.removeEventListener(ACCOUNT_LOCKED_EVENT, checkLock);
+  }, [checkLock]);
 
   // Cognito chuyển về /auth/callback?code=... → đổi code lấy token
   useEffect(() => {
@@ -73,12 +88,12 @@ export function App() {
           <NavLink to="/partner" className={({ isActive }) => `${isActive ? 'active' : ''} ${partnerApproved ? '' : 'nav-cta'}`}>
             {partnerApproved ? 'Đối tác' : 'Làm đối tác'}
           </NavLink>
-          <NavLink to="/wallet">Ví</NavLink>
+          <NavLink to="/wallet">Ví (đang fix)</NavLink>
           <NavLink to="/profile">Hồ sơ</NavLink>
           {isAdmin && <NavLink to="/admin">Admin</NavLink>}
         </nav>
         <span className="who">
-          <NotificationBell />
+          <NotificationBell admin={session.groups.includes('admin')} />
           {session.label}
           <button className="link" onClick={signOut}>
             {session.kind === 'cognito' ? 'Đăng xuất' : 'Đổi người dùng'}
@@ -87,6 +102,21 @@ export function App() {
       </header>
       <main>
         <TermsGate>
+        {locked && !location.pathname.startsWith('/admin') ? (
+          <div className="stack">
+            <div className="notice bad">
+              <strong>Tài khoản tạm khóa do chưa thanh toán phí dịch vụ.</strong> Hóa đơn đã quá hạn trên 7 ngày. Hãy chuyển khoản theo hướng dẫn bên dưới
+              — các chức năng khác sẽ hoạt động trở lại ngay khi Admin xác nhận đã nhận tiền.
+              {isAdmin && (
+                <>
+                  {' '}
+                  <Link to="/admin">Vào trang Admin</Link>
+                </>
+              )}
+            </div>
+            <BillingCard />
+          </div>
+        ) : (
         <Routes>
           <Route path="/feed" element={<FeedPage userId={session.userId} />} />
           <Route path="/listings" element={<MyListingsPage />} />
@@ -102,6 +132,7 @@ export function App() {
           {isAdmin && <Route path="/admin" element={<AdminPage />} />}
           <Route path="*" element={<Navigate to="/feed" replace />} />
         </Routes>
+        )}
         </TermsGate>
       </main>
     </div>

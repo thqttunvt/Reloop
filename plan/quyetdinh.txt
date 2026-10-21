@@ -3,6 +3,9 @@ RELOOP — NHẬT KÝ QUYẾT ĐỊNH (Tech Lead × Product Owner)
 Ghi lại các quyết định đã chốt trong buổi hỏi đáp. Quyết định ở đây GHI ĐÈ lên
 spec v1.0, baton.txt và giaiphap.txt nếu có mâu thuẫn.
 Ngày bắt đầu: 2026-10-10 · Cập nhật lần 2: chuyển từ ký quỹ từng giao dịch sang VÍ NỘI BỘ.
+ĐỐI CHIẾU CODE 2026-10-22: mọi QĐ dưới đây đã được soát lại theo code hiện tại. QĐ nào code không làm được
+đánh dấu [TẠM NGƯNG] / [ĐÃ THAY] kèm dòng "Code hiện tại:" ghi đúng hành vi của code. Khi QĐ và code lệch nhau,
+CODE là chuẩn — sửa tài liệu, hoặc ghi lỗi vào plan/danhgia.txt nếu muốn sửa code.
 
 Thuật ngữ dùng trong file:
   • Bên TRẢ (payer)  : bên bỏ tiền ra trong giao dịch.
@@ -18,9 +21,12 @@ Thuật ngữ dùng trong file:
 QĐ-01  Nhân lực & thời gian
        3–4 người, khoảng 3 tháng → timeline 12 tuần (giaiphap.txt F3).
 
-QĐ-02  Mô hình doanh thu (cập nhật 2026-10-11 — thay "chưa thu phí")
-       ReLoop thu 2 loại phí để có kinh phí duy trì (chi tiết QĐ-32, QĐ-33).
-       Tiền phí chuyển vào ví doanh thu REVENUE của ReLoop, vẫn nằm trong bất biến đối soát.
+QĐ-02  Mô hình doanh thu (cập nhật 2026-10-22 theo code — bản 2026-10-11 dùng QĐ-32, QĐ-33 đã bị thay)
+       Code hiện tại (modules/billing): ReLoop thu qua HÓA ĐƠN THÁNG, người bán chuyển khoản, Admin tài chính xác nhận:
+         • 10.000đ / giao dịch hoàn tất, người bán trả (QĐ-37);
+         • 10.000đ phí "nghi bán ngoài ReLoop" khi hủy giao dịch rồi gỡ tin trong 72 giờ (QĐ-39);
+         • 10.000đ / 30 ngày gói VIP 1 của đối tác cấp 1 (QĐ-41).
+       Không qua ví: ví doanh thu REVENUE và sổ cái vẫn còn trong code nhưng không được dùng.
 
 QĐ-29  Hai chiều giao dịch, dùng chung ví và cơ chế giữ tiền:
        • Chiều THU MUA (Partner trả → Owner nhận): làm trong MVP, đúng spec + kịch bản demo §25.
@@ -28,19 +34,27 @@ QĐ-29  Hai chiều giao dịch, dùng chung ví và cơ chế giữ tiền:
          còn thời gian. Cần thêm module Partner đăng sản phẩm tái chế.
        • Data model hỗ trợ cả hai chiều ngay từ đầu: Transaction có direction, payerId, payeeId;
          ví và sổ cái không phân biệt chiều.
+       • Code hiện tại: Transaction.direction luôn = 'BUYBACK' (bên mua trả, người bán nhận). Bên mua là đối tác cấp 2
+         (luồng báo giá) hoặc BẤT KỲ người đã đăng nhập (ra giá trong chat, QĐ-38) — kể cả mua tin do đối tác cấp 2
+         đăng. Chưa có module riêng cho đối tác đăng sản phẩm tân trang; thanh toán offline, không qua ví.
 
-QĐ-10  Partner phải là doanh nghiệp / cơ sở kinh doanh
+QĐ-10  [ĐÃ THAY BẰNG QĐ-34 — nay chỉ áp cho ĐỐI TÁC CẤP 2] Partner phải là doanh nghiệp / cơ sở kinh doanh
        Bắt buộc giấy phép kinh doanh, có hóa đơn chứng từ. Không nhận cá nhân làm Partner.
+       Code hiện tại: cấp 2 chỉ chọn loại hình Doanh nghiệp / Hộ kinh doanh; cá nhân được làm ĐỐI TÁC CẤP 1 (QĐ-34).
+       Cả 2 cấp khai số giấy tờ (licenseNo 5–30 ký tự); chưa có upload ảnh giấy tờ (task B2).
 
 QĐ-11  Bán kính: trần cứng 5 km. Partner chọn 1–5 km cho mỗi chi nhánh
        (hai bên cần gặp mặt để bàn giao).
 
 QĐ-12  Bỏ phân giai đoạn ưu tiên 24h. Listing: ACTIVE → MATCHED → COMPLETED,
-       ACTIVE → EXPIRED (7 ngày) | CANCELLED.
+       ACTIVE → EXPIRED (7 ngày) | CANCELLED. (Code có thêm PENDING_REVIEW của QĐ-36 — sơ đồ đầy đủ ở mục 5.)
 
 QĐ-13  AI và Matching chạy nền (bất đồng bộ) + frontend polling.
+       Code hiện tại: AI chạy nền (Lambda tự gọi async, 202 + polling). MATCHING CHƯA chạy nền — chạy ngay trong
+       request đăng tin / Admin duyệt tin (≤ 9 query GSI1); chuyển sang nền là task B7.
 
 QĐ-17  Ngân sách: 20–50 USD/tháng cho AWS + dịch vụ ngoài. AWS Budgets cảnh báo 50/80/100%.
+       Code hiện tại: Terraform CHƯA có AWS Budgets (task O2); cảnh báo vận hành qua CloudWatch alarm → SNS email.
 
 QĐ-21  Lùi xuống "làm nếu còn thời gian":
        • Reputation nâng cao (Quote Accuracy, Price Reduction Rate, cờ giá bất thường).
@@ -52,42 +66,50 @@ QĐ-21  Lùi xuống "làm nếu còn thời gian":
 =====================================================================
 2. TIỀN — MÔ HÌNH VÍ NỘI BỘ  (thay thế QĐ-03 → QĐ-06 bản cũ)
 =====================================================================
+[TẠM NGƯNG CẢ MỤC — từ 2026-10-16 hai bên THANH TOÁN TRỰC TIẾP khi bàn giao (offline).]
+Code hiện tại: chỉ còn modules/wallet (sổ cái 2 phần available / held, bút toán HOLD / SETTLE / LISTING_FEE /
+LISTING_FEE_REFUND, có test) + 2 API chỉ xem GET /wallet, GET /wallet/ledger. KHÔNG có nạp, rút, VietQR, webhook
+ngân hàng, khai / xác minh STK, OTP, đóng băng tiền. Giao dịch không giữ tiền. Các QĐ trong mục này giữ lại để
+nối ví sau này; dòng "Code hiện tại" ở từng QĐ ghi điều code đang làm.
 
-QĐ-03  Mọi giao dịch đều đi qua VÍ NỘI BỘ của ReLoop, tiền được GIỮ cho tới khi hoàn tất.
+QĐ-03  [TẠM NGƯNG] Mọi giao dịch đều đi qua VÍ NỘI BỘ của ReLoop, tiền được GIỮ cho tới khi hoàn tất.
+       Code hiện tại: Transaction.paymentMode = 'OFFLINE'; không bút toán nào được ghi khi giao dịch.
        • Thay đổi so với spec §1.3 ("ReLoop không xử lý thanh toán").
        • Demo dùng tiền thật, tài khoản ngân hàng của chính nhóm.
        • ⚠ Pháp lý: giữ số dư cho người dùng (ví điện tử) và giữ tiền hộ / chi hộ đều là
          dịch vụ trung gian thanh toán cần giấy phép NHNN. Báo cáo cuối phải ghi rõ:
          chạy thương mại cần hợp tác với đơn vị có giấy phép.
 
-QĐ-04  NẠP tiền vào ví
+QĐ-04  [TẠM NGƯNG — không có trong code] NẠP tiền vào ví
        • Người dùng nhập số tiền → hệ thống sinh VietQR tới TK ReLoop, nội dung chứa mã nạp
          riêng (vd RLN-8F3K2).
        • Dịch vụ theo dõi biến động số dư (SePay / payOS / Casso) bắn webhook → khớp mã →
          cộng vào số dư KHẢ DỤNG ngay.
        • Sai mã / không có mã → hàng đợi đối soát của Admin.
 
-QĐ-30  Cấu trúc số dư mỗi ví:
+QĐ-30  [TẠM NGƯNG] Cấu trúc số dư mỗi ví (code hiện tại chỉ có 2 phần available / held, không có withdrawing):
          Khả dụng (available)  — dùng để thanh toán hoặc rút.
          Đang giữ (held)       — đã trừ cho giao dịch, chưa hoàn tất.
          Đang rút (withdrawing) — đã tạo lệnh rút, chờ Admin chuyển.
        Hạn mức (chỉnh bằng cấu hình): nạp tối thiểu 10.000đ, số dư tối đa 20.000.000đ,
        rút tối thiểu 50.000đ.
 
-QĐ-05  THANH TOÁN giao dịch (giữ tiền)
+QĐ-05  [TẠM NGƯNG] THANH TOÁN giao dịch (giữ tiền)
+       Code hiện tại: không có bước thanh toán — giao dịch tạo ra ở trạng thái HANDOVER_PENDING (chờ bàn giao) ngay.
        • Sau khi Owner chọn offer, bên TRẢ bấm "Thanh toán" → hệ thống chuyển tiền từ
          Khả dụng sang Đang giữ (trừ tiền ngay).
        • Không đủ số dư → hiện QR nạp đúng phần còn thiếu, nạp xong mới thanh toán được.
        • Hạn thanh toán: 12 giờ sau khi offer được chọn (QĐ-14).
        • Owner chỉ đi bàn giao khi tiền đã được giữ.
 
-QĐ-06  MỞ KHÓA khi hoàn tất — TỰ ĐỘNG
+QĐ-06  [TẠM NGƯNG] MỞ KHÓA khi hoàn tất — TỰ ĐỘNG
+       Code hiện tại: hoàn tất chỉ đổi trạng thái + ghi phí 10.000đ cho người bán (QĐ-37), không chuyển tiền.
        • Khi hai bên cùng xác nhận hoàn thành (hoặc hết 48h im lặng theo QĐ-18):
          hệ thống TỰ ĐỘNG chuyển tiền từ Đang giữ của bên trả sang Khả dụng của bên nhận.
          Không cần Admin. Diễn ra tức thì (chỉ là bút toán trong sổ cái).
        • Phần chênh lệch (giảm giá, cân thiếu) tự động trả về Khả dụng của bên trả.
 
-QĐ-31  RÚT tiền về ngân hàng
+QĐ-31  [TẠM NGƯNG — không có trong code] RÚT tiền về ngân hàng
        • Rút bất kỳ lúc nào, chỉ phần Khả dụng.
        • Chỉ rút về STK đã được Admin xác minh: TÊN CHỦ TÀI KHOẢN phải trùng tên đã đăng ký
          (Partner: tên doanh nghiệp trên giấy phép; Owner: họ tên trên hồ sơ).
@@ -96,23 +118,31 @@ QĐ-31  RÚT tiền về ngân hàng
        • Cam kết xử lý trong 24 giờ (QĐ-23).
        • Thiết kế interface PayoutProvider để sau thay bằng API chi hộ tự động.
 
-QĐ-07  Giao dịch không thành sau khi đã giữ tiền → trả 100% về Khả dụng của bên trả
+QĐ-07  [TẠM NGƯNG phần tiền] Giao dịch không thành sau khi đã giữ tiền → trả 100% về Khả dụng của bên trả
        (tự động). Không phạt tiền. Bên có lỗi bị ghi vào chỉ số uy tín.
+       Code hiện tại: hủy / thất bại → tin mở lại nếu còn hạn (hết hạn thì EXPIRED); không có tiền để hoàn.
+       Uy tín: tỉ lệ hoàn tất / tỉ lệ hủy do chính người đó (180 ngày, hiện khi ≥ 5 giao dịch kết thúc).
+       Hủy / thất bại do hai bên còn được dùng để chống né phí (QĐ-39).
 
 QĐ-08  Tranh chấp → tiền Đang giữ bị ĐÓNG BĂNG. Hai bên nộp bằng chứng. Admin quyết trong
        7 ngày: chuyển cho bên nhận / trả bên trả / chia theo giá điều chỉnh.
+       Code hiện tại: tranh chấp chỉ mở được khi một bên đã xác nhận giá cuối và bên kia bấm "Khiếu nại" (ghi lý do
+       ≥ 5 ký tự) trong 48 giờ (QĐ-42). Không đóng băng tiền (offline); CHƯA có upload bằng chứng (task B3).
+       Admin được báo qua chuông hộp thư chung + email CloudWatch; Admin xem chat của tin rồi kết luận COMPLETED
+       (nhập giá cuối, tính phí 10.000đ) hoặc FAILED, kèm ghi chú. Code không tự đếm hạn 7 ngày.
 
-QĐ-09  Xác minh danh tính
+QĐ-09  [TẠM NGƯNG] Xác minh danh tính
+       Code hiện tại: không có OTP; SĐT không bắt buộc, không xác minh (QĐ-34); không có STK.
        • Mọi người dùng: xác minh số điện thoại bằng OTP trước khi nạp tiền.
        • STK rút tiền phải được Admin xác minh tên chủ TK (QĐ-31).
 
-QĐ-19  Owner khai STK khi rút tiền lần đầu (không bắt buộc lúc đăng tin hay chọn offer,
+QĐ-19  [TẠM NGƯNG — không có trong code] Owner khai STK khi rút tiền lần đầu (không bắt buộc lúc đăng tin hay chọn offer,
        vì tiền giờ về ví trước).
 
-QĐ-24  Partner khai STK doanh nghiệp khi đăng ký; tên chủ TK phải khớp giấy phép kinh doanh;
+QĐ-24  [TẠM NGƯNG — không có trong code; form đối tác không có ô STK] Partner khai STK doanh nghiệp khi đăng ký; tên chủ TK phải khớp giấy phép kinh doanh;
        Admin duyệt cùng hồ sơ.
 
-QĐ-23  Cam kết xử lý lệnh rút trong 24 giờ. CloudWatch alarm khi lệnh quá 20 giờ chưa xử lý.
+QĐ-23  [TẠM NGƯNG — không có lệnh rút] Cam kết xử lý lệnh rút trong 24 giờ. CloudWatch alarm khi lệnh quá 20 giờ chưa xử lý.
 
 
 QĐ-32  [ĐÃ THAY BẰNG QĐ-37] HOA HỒNG GIAO DỊCH: 10% giá cuối, tối thiểu 5.000đ (chỉnh bằng cấu hình).
@@ -152,7 +182,7 @@ QĐ-35  AI PHÂN TÍCH ẢNH: AMAZON NOVA PRO (chốt 2026-10-19, thay Claude Ha
        • Chỉ gửi ảnh + chỉ dẫn cố định, không có chữ người dùng nhập. Bedrock Guardrail bật cho mỗi lần gọi
          (lọc nội dung ảnh/chữ; PROMPT_ATTACK chỉ áp cho phần chữ). Rekognition vẫn kiểm duyệt ảnh khi upload.
        • Bộ dữ liệu nhãn: khi đăng tin có dùng AI, lưu "AI gợi ý ↔ người đăng chốt" + các trường đã sửa
-         (AILABEL#<tháng>) để sau MVP cân nhắc tinh chỉnh model. Ảnh vẫn theo vòng đời 120 ngày (QĐ-27).
+         (AILABEL#<tháng>) để sau MVP cân nhắc tinh chỉnh model. Ảnh vẫn theo vòng đời 90 ngày sau khi upload (QĐ-27).
        • Đổi lại model khác (vd Claude) chỉ cần đổi biến ai_model_id — cùng Converse API.
 
 QĐ-36  GẮN CỜ ẢNH CÓ CHỮ BẤT THƯỜNG → TIN CHỜ ADMIN DUYỆT (chốt 2026-10-19)
@@ -170,6 +200,8 @@ QĐ-36  GẮN CỜ ẢNH CÓ CHỮ BẤT THƯỜNG → TIN CHỜ ADMIN DUYỆT (
        • Lớp bảo vệ chính vẫn là: schema cố định + backend validate + người đăng xác nhận form.
 
 QĐ-37  PHÍ DỊCH VỤ 10.000đ / GIAO DỊCH HOÀN TẤT, TÍNH THEO THÁNG (chốt 2026-10-19 — THAY QĐ-32 và QĐ-33)
+       • Code hiện tại: hóa đơn = tổng các dòng phí còn tính tiền trong tháng (giao dịch hoàn tất, phí nghi bán ngoài
+         QĐ-39, gói VIP 1 QĐ-41); "số giao dịch" trên hóa đơn không đếm dòng VIP; dòng được miễn (khiếu nại) = 0đ.
        • Mỗi giao dịch COMPLETED (hai bên xác nhận, tự hoàn tất 48h, hoặc Admin kết luận hoàn tất) tính
          10.000đ. Hủy / thất bại: không tính. Ghi phí cùng transaction đổi trạng thái → mỗi giao dịch 1 lần.
        • NGƯỜI BÁN trả (người đăng tin — đối tác cấp 1 hoặc cấp 2). Bên thu mua không trả.
@@ -178,79 +210,185 @@ QĐ-37  PHÍ DỊCH VỤ 10.000đ / GIAO DỊCH HOÀN TẤT, TÍNH THEO THÁNG (
        • Tháng tính theo giờ Việt Nam (UTC+7). Ngày 1 hằng tháng job nền lập hóa đơn tháng trước:
          số giao dịch × 10.000đ, mã nội dung chuyển khoản RLFxxxxxx, hạn 7 ngày. Admin tài chính cũng lập tay được.
        • Người bán chuyển khoản; Admin (quyền admin_finance, TL-05) đối chiếu mã + số tiền rồi bấm "Đã thu".
-       • Quá hạn 7 ngày chưa trả → khóa đăng tin và báo giá (mã lỗi INVOICE_OVERDUE) cho tới khi trả.
+       • [ĐÃ THAY BẰNG QĐ-40] Quá hạn 7 ngày chưa trả → khóa đăng tin và báo giá (mã lỗi INVOICE_OVERDUE) cho tới khi trả.
        • Điều khoản thêm mục Phí dịch vụ → TERMS_VERSION 2026-10-19, mọi người đồng ý lại.
+
+QĐ-38  RA GIÁ TRONG CHAT + HỦY GIAO DỊCH SAU 5 PHÚT (chốt 2026-10-20)
+       • Mọi người đã đăng nhập (khách) nhắn tin với người bán từ Chợ. Trong chat, CẢ HAI BÊN gửi được
+         "lời ra giá" (số tiền VND). Mỗi cuộc trò chuyện giữ 1 lời ra giá đang chờ; gửi lời mới thay lời cũ.
+         Bên còn lại bấm Chấp nhận / Từ chối (không tự chấp nhận lời của mình).
+       • Chấp nhận khi tin đang mở → tạo giao dịch nguồn CHAT với người mua đó (người bán = chủ tin, phí 10.000đ
+         QĐ-37 vẫn tính khi hoàn tất). Tin → MATCHED, rời Chợ. Khách khác đang hỏi và đơn vị thu mua đã được match
+         nhận thông báo "đã có người chốt giá"; chat của họ khóa (chỉ xem lại). Luồng báo giá của đối tác cấp 2 giữ nguyên.
+       • Code: lời ra giá ≥ 1.000đ; nút Chấp nhận bắt buộc Idempotency-Key. Chat mới / ra giá chỉ khi người bán còn
+         hoạt động (không bị tạm ngừng / khóa do nợ — QĐ-40).
+       • Đang giao dịch (chờ bàn giao): hai bên tiếp tục ra giá trong chat; chấp nhận → đổi giá thỏa thuận
+         (không giới hạn tăng / giảm như QĐ-15 — QĐ-15 vẫn áp cho nút "Đề nghị điều chỉnh giá").
+       • Hủy giao dịch: một bên bấm Hủy → "yêu cầu hủy", 5 phút sau TỰ HỦY dù bên kia muốn hay không.
+         Trong 5 phút: người yêu cầu rút lại được; bên kia bấm "Đồng ý hủy ngay" được; các thao tác khác bị khóa.
+         Hủy xong → tin mở lại trên Chợ nếu còn hạn (tính ngay khi có người xem, không chờ job 15 phút).
+       • Né phí (hủy trên web rồi giao dịch bên ngoài): xử lý ở QĐ-39.
+
+QĐ-39  CHỐNG NÉ PHÍ 10.000đ: TÍNH PHÍ KHI CÓ DẤU HIỆU + CỜ CHO ADMIN (chốt 2026-10-21; hướng C + B ở plan/danhgia.txt;
+       hướng A — hiện chỉ số uy tín — làm sau)
+       • C — PHÍ NGHI BÁN NGOÀI: giao dịch bị HỦY hoặc BÁO THẤT BẠI bởi hai bên (không tính Admin kết luận tranh chấp)
+         → tin mở lại; nếu trong 72 GIỜ sau đó NGƯỜI BÁN TỰ GỠ TIN (không bán cho ai khác) → coi như đã bán ngoài,
+         tự cộng 10.000đ vào phí tháng hiện tại của người bán (dòng phí loại "nghi bán ngoài ReLoop") + thông báo.
+         Tin tự hết hạn / Admin gỡ: không tính. Trước khi gỡ, web cảnh báo người bán.
+       • Người bán KHIẾU NẠI được 1 lần cho mỗi dòng phí nghi vấn (ghi lý do). Admin tài chính (admin_finance) xem
+         và quyết: MIỄN → dòng phí về 0đ (hóa đơn chưa thu được tính lại; đã thu thì hoàn tay) / GIỮ phí.
+       • B — CỜ "NGHI NÉ PHÍ" cho Admin, xét trong 30 ngày gần nhất (chỉ đếm sự việc sau lần Admin xử lý cờ trước):
+           – từ 2 giao dịch hủy / thất bại giữa CÙNG người bán và CÙNG người mua, hoặc
+           – từ 3 lần "hủy rồi gỡ tin" (phí nghi vấn ở trên).
+         Admin xem lịch sử rồi chọn: Bỏ qua / Cảnh cáo (gửi thông báo) / Tạm ngừng đối tác.
+       • Quy định phí thay đổi → TERMS_VERSION 2026-10-21, mọi người đồng ý lại (QĐ-28).
+
+QĐ-40  NỢ PHÍ QUÁ HẠN: KHÓA THEO 2 MỨC (chốt 2026-10-21 — thay dòng "khóa đăng tin và báo giá" của QĐ-37)
+       • Tính từ HẠN THANH TOÁN của hóa đơn (hóa đơn lập ngày 1, hạn 7 ngày). Hằng số: postingLockDays = 3, fullLockDays = 7.
+       • Quá hạn ≤ 3 ngày: chỉ cảnh báo trên thẻ Phí dịch vụ.
+       • Quá hạn > 3 ngày: KHÔNG ĐĂNG TIN MỚI (INVOICE_OVERDUE). Tin đang có, chat, báo giá, giao dịch vẫn bình thường.
+       • Quá hạn > 7 ngày: KHÓA MỌI CHỨC NĂNG (ACCOUNT_LOCKED_UNPAID) — web chỉ còn màn hình "cần thanh toán phí"
+         (xem hóa đơn + mã chuyển khoản, khiếu nại phí, thông báo, hồ sơ). Tin của người đó ẩn khỏi Chợ; người khác
+         không chốt / báo giá / chat mới với họ; chủ tin không chọn được báo giá của đơn vị đang bị khóa (PARTNER_UNAVAILABLE).
+         Trang Admin không bị ảnh hưởng. Admin tài chính bấm "Đã thu" → mở khóa ngay.
+       • Người bán bị Admin TẠM NGỪNG (mục 3 danhgia) xử lý giống mức khóa: tin ẩn khỏi Chợ, người ngoài không xem được,
+         không chốt / báo giá / chat mới (SELLER_UNAVAILABLE); mở lại → tin hiện lại. Giao dịch đang chạy vẫn làm tiếp được.
+       • Điều khoản (TERMS_VERSION 2026-10-21) ghi rõ 2 mức khóa.
+
+QĐ-41  HẠN MỨC TIN ĐANG MỞ + GÓI VIP 1 (chốt 2026-10-21)
+       • Đếm TIN ĐANG MỞ CÙNG LÚC: chờ duyệt (PENDING_REVIEW), đang mở (ACTIVE, chưa hết hạn), đang giao dịch (MATCHED).
+         Tin bán xong / hết hạn / bị hủy → trả lại suất. Đủ hạn mức → không đăng thêm (LISTING_QUOTA_REACHED).
+       • Đối tác cấp 1: 3 tin. Cấp 1 có gói VIP 1: 5 tin. Đối tác cấp 2 (ký hợp đồng với ReLoop): 10 tin.
+       • Cấp 1 vẫn đăng tin bán và mua lại được (ra giá trong chat với tin của bất kỳ người bán nào, kể cả cấp 2 — QĐ-38).
+         Cấp 2 có thêm: chi nhánh, bảng giá, nhận tin phù hợp, báo giá thu mua.
+       • VIP 1: chỉ cấp 1; tự bấm mua ở trang Đối tác; 10.000đ / 30 ngày, có hiệu lực ngay; mua khi còn hạn → cộng dồn
+         thêm 30 ngày. Tiền gói cộng vào phí tháng (hóa đơn ngày 1, QĐ-37) như một dòng phí riêng (không tính là giao dịch).
+         Nợ quá hạn > 3 ngày (QĐ-40) không mua được. Hết VIP: tin đang mở giữ nguyên, chỉ không đăng thêm khi đã ≥ 3 tin.
+       • Để sau: "thu cũ đổi mới" và các quyền thêm của cấp 2 (thiết kế riêng).
+
+QĐ-42  HOÀN TẤT GIAO DỊCH 2 BƯỚC: XÁC NHẬN GIÁ → CHẤP NHẬN (chốt 2026-10-21 — thay "2 bên cùng nhập giá cuối" của giaiphap C7)
+       • Bên xác nhận TRƯỚC nhập giá cuối + bấm "Xác nhận đã bàn giao xong" → chờ bên kia.
+       • Bên còn lại KHÔNG nhập lại giá: bấm "Chấp nhận" → hoàn tất ngay với giá đó; không đồng ý → "Khiếu nại" (ghi lý do)
+         → tranh chấp, Admin quyết (QĐ-08). Im lặng 48 giờ → tự hoàn tất với giá đó (QĐ-18, giữ nguyên).
+       • Bỏ cơ chế "2 bên nhập 2 giá khác nhau → tự sang tranh chấp".
+
+QĐ-43  XỬ LÝ VI PHẠM THEO MỨC + ĐẾM VI PHẠM + ẢNH NGHI NHẠY CẢM CHỜ DUYỆT (chốt 2026-10-22)
+       • Báo cáo vi phạm — Admin chọn theo mức (người vi phạm: chủ tin nếu báo cáo tin; bên kia nếu báo cáo giao dịch):
+           Cảnh cáo · Gỡ tin + cảnh cáo (chỉ báo cáo tin) · Gỡ tin + tạm ngừng (tin) / Tạm ngừng (giao dịch) · Bỏ qua.
+         Người vi phạm nhận thông báo kèm lý do của Admin. Tin đang giao dịch không gỡ được → báo lỗi cho Admin,
+         báo cáo VẪN MỞ. Trang Admin có đường dẫn tới tin / giao dịch bị báo cáo.
+       • Chặn bấm nhầm tạm ngừng: hiện số vi phạm 30 ngày của người đó cạnh nút; tạm ngừng BẮT BUỘC ghi lý do
+         (gửi cho người bị ngừng); hỏi lại, nhấn mạnh khi người đó chưa có vi phạm nào; tạm ngừng mở lại được (mục Duyệt đối tác).
+       • Ảnh nhạy cảm (Rekognition, nhãn khỏa thân / bạo lực / ma túy / biểu tượng thù địch…):
+           ≥ 70% → chặn, xóa ảnh (như cũ) + tính 1 vi phạm;
+           50–70% với nhóm nhãn NẶNG → gắn cờ "nghi ảnh nhạy cảm", tin chờ Admin duyệt tay (cùng hàng đợi QĐ-36);
+           nhãn nhẹ (gợi cảm, cử chỉ thô…) giữ ngưỡng 70%. Metric ImagesSensitiveSuspected để chỉnh ngưỡng sau khi chạy thật.
+       • ĐẾM VI PHẠM: cảnh cáo / gỡ tin / tạm ngừng từ báo cáo, ảnh bị chặn, tin bị Admin từ chối khi duyệt.
+         ≥ 5 lần trong 30 ngày → cờ cho Admin (cùng danh sách cờ QĐ-39), Admin bỏ qua / cảnh cáo / tạm ngừng.
 
 
 =====================================================================
 3. GIAO DỊCH & GIÁ
 =====================================================================
 
-QĐ-14  Hạn thanh toán: 12 giờ sau khi offer được chọn. Quá hạn → Transaction CANCELLED
+QĐ-14  [TẠM NGƯNG phần thanh toán] Hạn thanh toán: 12 giờ sau khi offer được chọn. Quá hạn → Transaction CANCELLED
        (lỗi bên trả, tính vào uy tín), Listing mở lại nếu còn hạn; offer khác còn hiệu lực
        vẫn chọn được.
+       Code hiện tại: không có hạn thanh toán (AWAITING_PAYMENT còn trong state machine nhưng không dùng). Phần
+       "giao dịch hủy → tin mở lại, offer khác còn hiệu lực vẫn chọn được" vẫn đúng (báo giá được giữ, chỉ hiện
+       "đang giao dịch với người khác" trong lúc tin MATCHED).
 
 QĐ-15  Điều chỉnh giá khi kiểm tra (chiều THU MUA): chỉ GIẢM, bắt buộc lý do + ảnh,
        tối đa 2 lần, Owner phải đồng ý. Đồng ý → phần chênh lệch tự trả về ví Partner khi
        hoàn tất. Từ chối → giữ giá cũ hoặc Partner báo thất bại (hoàn 100%).
+       Code hiện tại: nút "Đề nghị điều chỉnh giá" chỉ BÊN MUA dùng; giá mới < giá thỏa thuận, lý do ≥ 5 ký tự,
+       ≥ 1 ảnh (khi bật ảnh), tối đa 2 lần; chủ tin đồng ý (đổi giá) / từ chối (giữ giá) → quay lại chờ bàn giao.
+       Không có ví nên không hoàn chênh lệch. Đổi giá tự do (tăng / giảm) thì dùng ra giá trong chat (QĐ-38).
 
 QĐ-16  Partner xác nhận với giá khác khoảng dự kiến: vẫn là CONFIRMED_OFFER, hiển thị cảnh báo.
        Owner bấm Chọn = chấp nhận.
 
 QĐ-25  Đơn vị giá: THEO CÁI và THEO KG; chỉ VND, số nguyên.
 
-QĐ-26  Hàng theo kg: giữ = đơn giá × khối lượng ước tính × 1,2. Giá cuối theo cân thực tế,
+QĐ-26  [TẠM NGƯNG phần giữ tiền] Hàng theo kg: giữ = đơn giá × khối lượng ước tính × 1,2. Giá cuối theo cân thực tế,
        Owner đồng ý. Phần thừa tự trả về ví bên trả. Vượt số đã giữ → bên trả thanh toán thêm
        từ ví trước khi hoàn tất.
+       Code hiện tại: tin theo kg bắt buộc khối lượng ước tính; giá dự kiến = đơn giá bảng giá × kg ước tính.
+       Giá cuối do bên xác nhận trước nhập, bên kia Chấp nhận (QĐ-42). Không giữ tiền.
 
 QĐ-18  Một bên xác nhận hoàn thành, bên kia im lặng: nhắc ở 24h, quá 48h tự hoàn tất và
        tự mở khóa tiền (QĐ-06). Trong 48h bên kia được khiếu nại → QĐ-08.
+       Code hiện tại: nhắc ở 24h, quá 48h tự hoàn tất với GIÁ CUỐI bên xác nhận trước đã nhập (job nền 15 phút +
+       tự hoàn tất khi có người mở giao dịch); không có tiền để mở khóa; phí 10.000đ ghi khi hoàn tất.
 
-QĐ-20  SĐT, địa chỉ chi tiết chỉ mở cho nhau SAU KHI tiền đã được giữ.
+QĐ-20  [ĐÃ ĐIỀU CHỈNH theo code] SĐT, địa chỉ chi tiết chỉ mở cho nhau SAU KHI tiền đã được giữ.
+       Code hiện tại: mở cho hai bên NGAY KHI tạo giao dịch — người bán: tên, email, SĐT hồ sơ, địa chỉ / vị trí ghim
+       của tin; bên mua: tên, email, SĐT, chi nhánh + địa chỉ chi nhánh (nếu là đối tác). Trước đó người khác chỉ thấy
+       khu vực (phường / quận) và khoảng cách làm tròn 0,5 km. Liên hệ của người bán là đối tác (tên, email, SĐT nếu có)
+       hiện công khai trên tin (QĐ-34).
 
 QĐ-22  Đánh giá HAI CHIỀU (1–5 sao + nhận xét), mỗi bên 1 lần / giao dịch, sau khi kết thúc.
+       Code hiện tại: giao dịch COMPLETED hoặc FAILED, trong 14 ngày sau khi kết thúc; nhận xét không bắt buộc
+       (≤ 1.000 ký tự); nhãn VERIFIED_TRANSACTION / ADMIN_RESOLVED / FAILED_TRANSACTION. Điểm trung bình chỉ tính
+       đánh giá của giao dịch hoàn tất, 180 ngày, hiện khi ≥ 3 đánh giá. Chưa có sửa / phản hồi đánh giá (task B4).
 
 
 =====================================================================
 4. DỮ LIỆU & PHÁP LÝ
 =====================================================================
 
-QĐ-27  Lưu trữ: ảnh Listing xóa 90 ngày sau khi kết thúc; ảnh rác xóa sau 24h;
-       sổ cái, lệnh nạp / rút, bằng chứng tranh chấp giữ lâu dài. Xóa tài khoản = ẩn danh hóa,
-       và chỉ được xóa khi ví về 0 và không có giao dịch đang mở.
+QĐ-27  [ĐÃ ĐIỀU CHỈNH theo code] Lưu trữ. Bản cũ: "ảnh Listing xóa 90 ngày sau khi kết thúc; ảnh rác xóa sau 24h;
+       sổ cái, lệnh nạp / rút, bằng chứng tranh chấp giữ lâu dài; xóa tài khoản = ẩn danh hóa".
+       Code hiện tại:
+         • S3 (infra/storage.tf, prefix listings/): ảnh chưa gắn vào tin (tag state=pending) xóa sau 1 NGÀY;
+           mọi ảnh (tin đăng, ảnh đề nghị giảm giá) xóa 90 NGÀY SAU KHI UPLOAD (chỉnh từ 120 ngày ngày 2026-10-22
+           để tiết kiệm; tin mở tối đa 7 ngày nên ảnh còn ≈ 80 ngày sau khi tin kết thúc); multipart dở dang hủy sau 1 ngày.
+         • DynamoDB TTL (thuộc tính ttl): thông báo 90 ngày; lượt AI theo ngày 2 ngày; cờ ảnh lúc upload 3 ngày.
+         • Giao dịch, sự kiện, đánh giá, phí, hóa đơn, vi phạm, báo cáo, chat: giữ, không tự xóa.
+         • CHƯA có xóa tài khoản / ẩn danh hóa trong code.
+       • Điều khoản trên web ghi đúng: "ảnh tin đăng được xóa 90 ngày sau khi tải lên".
 
 QĐ-28  Bắt buộc đồng ý Điều khoản sử dụng + Chính sách quyền riêng tư + Điều khoản ví & giữ tiền.
        Lưu phiên bản + thời điểm đồng ý. Ghi rõ là dự án thực tập.
+       Code hiện tại: Điều khoản sử dụng + Chính sách quyền riêng tư (không còn phần ví — thanh toán offline), gồm
+       phí dịch vụ, chống né phí, hạn mức tin / VIP 1, khóa khi nợ phí. TERMS_VERSION = 2026-10-21; lưu
+       terms {version, acceptedAt} trong hồ sơ. Web chặn mọi trang tới khi đồng ý; backend chặn đăng ký đối tác,
+       đăng tin, chọn báo giá, chốt giá trong chat khi chưa đồng ý bản hiện hành.
 
 
 =====================================================================
 5. STATE MACHINE (thay §15 của spec)
 =====================================================================
 
-LISTING:  PENDING_REVIEW → ACTIVE (Admin duyệt) | CANCELLED (Admin từ chối / Owner hủy)   (QĐ-36)
-          ACTIVE → MATCHED → COMPLETED
-          ACTIVE → EXPIRED (7 ngày) | CANCELLED (Owner)
-          MATCHED → ACTIVE (giao dịch hủy/thất bại, còn hạn) | EXPIRED (hết hạn)
+Nguồn: backend/src/domain/stateMachines.ts (bảng luật đầy đủ kèm người được chuyển: plan/devdocx.txt mục 9.4).
 
-QUOTE:    như giaiphap.txt B1 (có INVALIDATED).
+LISTING:  PENDING_REVIEW → ACTIVE (Admin duyệt) | CANCELLED (Admin từ chối / Owner hủy / Admin gỡ)   (QĐ-36, QĐ-43)
+          ACTIVE → MATCHED (chốt giao dịch) → COMPLETED (giao dịch hoàn tất)
+          ACTIVE → EXPIRED (7 ngày) | CANCELLED (Owner hủy / Admin gỡ)
+          MATCHED → ACTIVE (giao dịch hủy / thất bại, còn hạn) | EXPIRED (hết hạn)
+          Tin MATCHED không gỡ được (LISTING_IN_TRANSACTION).
 
-TRANSACTION:
-  AWAITING_PAYMENT ──(bên trả bấm Thanh toán, đủ số dư)──▶ HANDOVER_PENDING
-  AWAITING_PAYMENT ──(quá 12h / hủy)──────────────────────▶ CANCELLED
-  HANDOVER_PENDING ──(đề nghị điều chỉnh giá)─────────────▶ PRICE_ADJUSTMENT_PENDING
-  PRICE_ADJUSTMENT_PENDING ──(Owner đồng ý / từ chối)──────▶ HANDOVER_PENDING
-  HANDOVER_PENDING ──(một bên xác nhận hoàn thành)────────▶ AWAITING_COUNTERPARTY (48h)
-  AWAITING_COUNTERPARTY ──(bên kia xác nhận / quá 48h)────▶ COMPLETED   → tự mở khóa tiền
-  AWAITING_COUNTERPARTY ──(bên kia khiếu nại)─────────────▶ DISPUTED    → đóng băng tiền
-  HANDOVER_PENDING ──(hủy trước khi gặp)──────────────────▶ CANCELLED   → trả tiền bên trả
-  HANDOVER_PENDING / PRICE_ADJUSTMENT_PENDING ──(báo thất bại)▶ FAILED  → trả tiền bên trả
-  DISPUTED ──(Admin quyết, ≤ 7 ngày)──────────────────────▶ COMPLETED | FAILED
+QUOTE:    ESTIMATED → CONFIRMATION_REQUESTED (Owner) → CONFIRMED_OFFER | REJECTED (Partner)
+          CONFIRMED_OFFER → SELECTED (Owner) | WITHDRAWN (Partner)
+          3 trạng thái còn mở → EXPIRED (hệ thống: tin kết thúc, quá hạn trả lời 24h / hạn offer)
+                              → INVALIDATED (hệ thống / Admin; tin hoàn tất → báo giá còn mở hiển thị INVALIDATED)
 
-LỆNH NẠP (TopUp):   CREATED → CREDITED (webhook khớp) | EXPIRED (quá 24h không có tiền)
-LỆNH RÚT (Withdrawal): REQUESTED → PROCESSING (Admin đang chuyển) → PAID (webhook tiền ra)
-                       → FAILED (trả lại Khả dụng)
+TRANSACTION (code hiện tại — thanh toán offline):
+  (tạo giao dịch: chọn báo giá / chấp nhận giá trong chat) ─▶ HANDOVER_PENDING
+  HANDOVER_PENDING ──(bên mua đề nghị giảm giá)────────────▶ PRICE_ADJUSTMENT_PENDING
+  PRICE_ADJUSTMENT_PENDING ──(chủ tin đồng ý / từ chối)─────▶ HANDOVER_PENDING
+  HANDOVER_PENDING ──(một bên xác nhận + nhập giá cuối)────▶ AWAITING_COUNTERPARTY (48h, nhắc 24h)
+  AWAITING_COUNTERPARTY ──(bên kia Chấp nhận / quá 48h)────▶ COMPLETED   → ghi phí 10.000đ (QĐ-37)
+  AWAITING_COUNTERPARTY ──(bên kia Khiếu nại)──────────────▶ DISPUTED    → báo Admin (chuông + email)
+  HANDOVER_PENDING ──(yêu cầu hủy, tự hủy sau 5 phút)──────▶ CANCELLED   (QĐ-38)
+  HANDOVER_PENDING / PRICE_ADJUSTMENT_PENDING ──(báo thất bại)▶ FAILED
+  DISPUTED ──(Admin kết luận)──────────────────────────────▶ COMPLETED | FAILED
+  AWAITING_PAYMENT: còn trong bảng luật cho ví sau này, KHÔNG dùng (giao dịch mới bắt đầu ở HANDOVER_PENDING).
 
-SỔ CÁI (append-only, bút toán kép — mỗi lần chuyển ghi 1 dòng trừ + 1 dòng cộng):
+LỆNH NẠP / LỆNH RÚT: [TẠM NGƯNG — không có trong code].
+
+SỔ CÁI [TẠM NGƯNG — code chỉ còn HOLD, SETTLE, LISTING_FEE, LISTING_FEE_REFUND trên 2 phần available / held;
+        không được gọi trong luồng hiện tại] (append-only, bút toán kép — mỗi lần chuyển ghi 1 dòng trừ + 1 dòng cộng):
   TOPUP        ngân hàng ReLoop      → ví.available
   HOLD         ví.available (bên trả) → ví.held (bên trả)
   RELEASE      ví.held (bên trả)      → ví.available (bên nhận)
@@ -262,7 +400,7 @@ SỔ CÁI (append-only, bút toán kép — mỗi lần chuyển ghi 1 dòng tr�
   FREEZE/UNFREEZE  đánh dấu trên khoản held của giao dịch tranh chấp
   WITHDRAW     ví.available           → ví.withdrawing → ngân hàng ReLoop (khi PAID)
 
-BẤT BIẾN KIỂM TRA HẰNG NGÀY (job đối soát + CloudWatch alarm nếu lệch):
+BẤT BIẾN KIỂM TRA HẰNG NGÀY [code có Ledger.reconcile() nhưng CHƯA có job / alarm chạy nó]:
   Tổng (available + held + withdrawing) của mọi ví
     = Số dư thực tế TK ngân hàng ReLoop dành cho ví.
   Không ví nào có số dư âm.
@@ -284,14 +422,22 @@ TL-01  Tìm chi nhánh theo vị trí: geohash độ chính xác 4 (ô ~39 × 19
 TL-02  Tiền là số nguyên VND. Sổ cái append-only, bút toán kép; số dư ví là bản tổng hợp
        cập nhật CÙNG TransactWriteItems với bút toán và có ConditionExpression
        "available >= số tiền" → không bao giờ âm, không trừ trùng khi bấm 2 lần.
-TL-03  Webhook ngân hàng: endpoint công khai không dùng JWT, xác thực bằng chữ ký / API key
-       của nhà cung cấp; idempotent theo mã giao dịch ngân hàng; lưu raw payload để đối soát.
+       Code hiện tại (Ledger, đang không dùng): số dư ghi bằng putVersioned (điều kiện version) cùng transaction với
+       bút toán; số dư âm bị chặn trong code (409 INSUFFICIENT_FUNDS); journalId là khóa chống ghi trùng.
+       Phí dịch vụ hiện ghi bằng dòng phí FEE#<tháng>#<id> (putNew) cùng transaction đổi trạng thái → 1 lần / giao dịch.
+TL-03  [TẠM NGƯNG — không có trong code; mọi route đều cần JWT] Webhook ngân hàng: endpoint công khai không dùng JWT,
+       xác thực bằng chữ ký / API key của nhà cung cấp; idempotent theo mã giao dịch ngân hàng; lưu raw payload để đối soát.
 TL-04  Mọi thao tác tiền (thanh toán, rút, Admin quyết tranh chấp) bắt buộc Idempotency-Key
        và ghi audit log (ai, lúc nào, IP).
+       Code hiện tại: Idempotency-Key bắt buộc ở 5 route — POST /listings, POST /listings/{id}/offers, POST /transactions,
+       POST /conversations/{id}/offers/{offerId}/accept, POST /partners/me/vip. (Admin quyết tranh chấp, Đã thu, Miễn phí
+       KHÔNG bắt buộc key.) Log JSON mỗi request: method, path, status, userId, thời gian xử lý — KHÔNG ghi IP, header,
+       body. Log riêng: admin_chat_viewed, invoice_paid, fee_appeal_resolved, risk_flag_resolved, violation_recorded…
 TL-05  API Admin cho tiền tách quyền riêng (role admin_finance) để demo nguyên tắc
        least privilege.
-TL-06  API bổ sung, quy ước API, thiết kế DynamoDB, lịch EventBridge: theo giaiphap.txt
-       mục C, E2, E3; bổ sung nhóm API ví:
+TL-06  [ĐÃ ĐIỀU CHỈNH] API bổ sung, quy ước API, thiết kế DynamoDB, lịch EventBridge: theo giaiphap.txt
+       mục C, E2, E3. Code hiện tại: danh sách API, khóa DynamoDB, lịch job đầy đủ ở plan/devdocx.txt mục 9;
+       nhóm API ví chỉ còn GET /wallet và GET /wallet/ledger. Danh sách ví dự kiến bên dưới [TẠM NGƯNG]:
          GET  /wallet                       (số dư 3 phần)
          GET  /wallet/ledger?cursor=        (lịch sử bút toán)
          POST /wallet/topups                (tạo lệnh nạp + VietQR)

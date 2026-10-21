@@ -25,6 +25,8 @@ export type WriteOp =
 export interface QueryOptions {
   index?: 'gsi1';
   skPrefix?: string;
+  /** Khoảng sort key, gồm cả 2 đầu (BETWEEN / >= / <=). Không dùng chung với skPrefix. */
+  skRange?: { from?: string; to?: string };
   limit?: number;
   /** false = sort key giảm dần (mới nhất trước) */
   ascending?: boolean;

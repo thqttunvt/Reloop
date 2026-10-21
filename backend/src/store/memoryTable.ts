@@ -25,11 +25,12 @@ export class MemoryTable implements Table {
   }
 
   async query<T extends Item>(pk: string, options: QueryOptions = {}): Promise<T[]> {
-    const { index, skPrefix = '', limit, ascending = true } = options;
+    const { index, skPrefix = '', skRange, limit, ascending = true } = options;
     const pkField = index === 'gsi1' ? 'gsi1pk' : 'pk';
     const skField = index === 'gsi1' ? 'gsi1sk' : 'sk';
+    const inRange = (sk: string) => (!skRange?.from || sk >= skRange.from) && (!skRange?.to || sk <= skRange.to);
     const matched = [...this.items.values()]
-      .filter((it) => it[pkField] === pk && String(it[skField] ?? '').startsWith(skPrefix))
+      .filter((it) => it[pkField] === pk && String(it[skField] ?? '').startsWith(skPrefix) && inRange(String(it[skField] ?? '')))
       .sort((a, b) => String(a[skField]).localeCompare(String(b[skField])));
     if (!ascending) matched.reverse();
     return (limit ? matched.slice(0, limit) : matched).map((it) => structuredClone(it) as T);

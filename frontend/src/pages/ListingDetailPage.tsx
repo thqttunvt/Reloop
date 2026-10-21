@@ -8,11 +8,24 @@ import {
   CONDITION_LABEL,
   HANDOVER_LABEL,
   LISTING_STATUS_LABEL,
+  PARTNER_TIER_LABEL,
   QUOTE_STATUS_LABEL,
   UNIT_LABEL,
   statusTone,
 } from '../lib/catalog';
 import { dateTime, errorText, km, vnd } from '../lib/format';
+
+/** Gỡ tin trong 72 giờ sau khi giao dịch bị hủy / thất bại → tính phí nghi bán ngoài (QĐ-39): cảnh báo trước. */
+const removeWarning = (l: ListingDetail['listing']) => {
+  const deal = l.lastEndedDeal;
+  const deadline = deal ? Date.parse(deal.at) + 72 * 3600_000 : 0;
+  if (!deal || Date.now() >= deadline) return 'Hủy tin này?';
+  return (
+    `Tin vừa có giao dịch bị ${deal.status === 'CANCELLED' ? 'hủy' : 'báo thất bại'} lúc ${dateTime(deal.at)}.\n` +
+    `Gỡ tin trước ${dateTime(new Date(deadline).toISOString())} sẽ bị coi như đã bán bên ngoài ReLoop và tính phí 10.000đ ` +
+    '(bạn có thể khiếu nại nếu không phải vậy).\n\nVẫn gỡ tin?'
+  );
+};
 
 export function ListingDetailPage() {
   const { id } = useParams();
@@ -95,25 +108,33 @@ export function ListingDetailPage() {
           Đăng {dateTime(l.createdAt)} · hết hạn {dateTime(l.expiresAt)}
         </p>
         {role !== 'OWNER' && (
-          <>
-            <p>
-              Người bán: <strong>{data.seller.displayName}</strong>
-              {data.sellerReputation && (
-                <span className="muted">
-                  {' '}
-                  ·{' '}
-                  {data.sellerReputation.averageRating === null
-                    ? 'chưa đủ đánh giá'
-                    : `${data.sellerReputation.averageRating}★ (${data.sellerReputation.reviewCount})`}
-                </span>
-              )}
-            </p>
+          <div className="seller-box">
+            <div className="seller">
+              <span className="avatar">{data.seller.displayName.charAt(0).toUpperCase()}</span>
+              <div>
+                <div>
+                  <span className="muted small">Người bán</span> <strong>{data.seller.displayName}</strong>
+                </div>
+                <div className="muted small">
+                  {data.seller.tier && `${PARTNER_TIER_LABEL[data.seller.tier]} · `}
+                  {!data.sellerReputation || data.sellerReputation.averageRating === null
+                    ? 'Chưa đủ đánh giá'
+                    : `${data.sellerReputation.averageRating}★ (${data.sellerReputation.reviewCount} đánh giá)`}
+                </div>
+              </div>
+            </div>
             <ContactLine contact={data.seller.contact} />
-            <div className="row">
-              {['ACTIVE', 'MATCHED'].includes(l.status) && <button onClick={() => void chat()}>💬 Nhắn tin với người bán</button>}
+            {l.status === 'MATCHED' && !l.activeTransactionId && (
+              <div className="notice warn">Tin đã có người chốt giá. Tin sẽ quay lại Chợ nếu giao dịch bị hủy.</div>
+            )}
+            <div className="row actions">
+              {/* Tin đã có người chốt → chỉ người mua trong giao dịch còn nhắn được (QĐ-38) */}
+              {(l.status === 'ACTIVE' || (l.status === 'MATCHED' && l.activeTransactionId)) && (
+                <button onClick={() => void chat()}>💬 {l.status === 'ACTIVE' ? 'Nhắn tin / ra giá với người bán' : 'Nhắn tin với người bán'}</button>
+              )}
               <ReportButton targetType="LISTING" targetId={l.listingId} />
             </div>
-          </>
+          </div>
         )}
         {data.images.length > 0 && (
           <div className="gallery">
@@ -131,8 +152,8 @@ export function ListingDetailPage() {
         )}
         {role === 'OWNER' && l.status === 'PENDING_REVIEW' && (
           <div className="notice warn">
-            <strong>⏳ Tin đang chờ Admin duyệt (thường 1–3 ngày).</strong> Ảnh có chữ bất thường nên tin chưa hiện trên Chợ và chưa gửi tới đơn vị thu
-            mua. Khi được duyệt, tin mở 7 ngày tính từ lúc duyệt.
+            <strong>⏳ Tin đang chờ Admin duyệt (thường 1–3 ngày).</strong> Ảnh cần kiểm tra (chữ bất thường hoặc nghi nội dung nhạy cảm) nên tin chưa
+            hiện trên Chợ và chưa gửi tới đơn vị thu mua. Khi được duyệt, tin mở 7 ngày tính từ lúc duyệt.
           </div>
         )}
         {role === 'OWNER' && l.status === 'CANCELLED' && l.moderated && (
@@ -140,7 +161,7 @@ export function ListingDetailPage() {
         )}
         {role === 'OWNER' && (l.status === 'ACTIVE' || l.status === 'PENDING_REVIEW') && (
           <div className="row">
-            <button className="danger" onClick={() => confirm('Hủy tin này?') && void act(`${base}/cancel`)}>
+            <button className="danger" onClick={() => confirm(removeWarning(l)) && void act(`${base}/cancel`)}>
               Hủy tin
             </button>
           </div>
@@ -193,7 +214,11 @@ function QuoteCard({ q, reputation, children }: { q: Quote; reputation?: Reputat
         <strong>
           {q.partnerName} — {q.branchName}
         </strong>
-        <span className={`badge ${statusTone(q.status)}`}>{QUOTE_STATUS_LABEL[q.status]}</span>
+        {q.takenByOther ? (
+          <span className="badge warn">Tin đang giao dịch với người khác</span>
+        ) : (
+          <span className={`badge ${statusTone(q.status)}`}>{QUOTE_STATUS_LABEL[q.status]}</span>
+        )}
       </div>
       <div className="muted">
         {km(q.distanceKm)}
@@ -251,7 +276,10 @@ function PartnerPanel({ data, act }: { data: ListingDetail; act: (path: string, 
             </h3>
             {quotes.map((q) => (
               <QuoteCard key={q.quoteId} q={q}>
-                {q.status === 'CONFIRMATION_REQUESTED' && (
+                {q.takenByOther && (
+                  <span className="muted small">Chủ tin đã chọn người khác. Báo giá của bạn được giữ lại — nếu giao dịch đó bị hủy, chủ tin có thể chọn lại.</span>
+                )}
+                {!q.takenByOther && q.status === 'CONFIRMATION_REQUESTED' && (
                   <>
                     <input
                       type="number"
@@ -265,7 +293,7 @@ function PartnerPanel({ data, act }: { data: ListingDetail; act: (path: string, 
                     </button>
                   </>
                 )}
-                {q.status === 'CONFIRMED_OFFER' && (
+                {!q.takenByOther && q.status === 'CONFIRMED_OFFER' && (
                   <button className="danger" onClick={() => void act(`${base}/quotes/${q.quoteId}/withdraw`)}>
                     Rút báo giá
                   </button>

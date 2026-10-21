@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type ChatMessage, type Conversation } from '../lib/api';
-import { dateTime, errorText } from '../lib/format';
+import { Link } from 'react-router-dom';
+import { api, newIdempotencyKey, type ChatMessage, type Conversation } from '../lib/api';
+import { dateTime, errorText, vnd } from '../lib/format';
 
-/** Khung chat dùng chung (trang Tin nhắn và cột phải của Chợ). Polling 5 giây/lần khi tab đang mở. */
+/**
+ * Khung chat dùng chung (trang Tin nhắn và cột phải của Chợ). Polling 5 giây/lần khi tab đang mở.
+ * Ra giá trong chat (QĐ-38): bên kia bấm Chấp nhận → tạo giao dịch (tin đang mở) hoặc đổi giá (đang giao dịch).
+ */
 export function ChatBox({ conversationId, userId, onLoaded }: { conversationId: string; userId: string; onLoaded?: (c: Conversation) => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conv, setConv] = useState<Conversation | null>(null);
   const [open, setOpen] = useState(true);
+  const [transactionId, setTransactionId] = useState<string>();
   const [text, setText] = useState('');
+  const [price, setPrice] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const lastAt = useRef<string | undefined>(undefined);
@@ -17,9 +24,14 @@ export function ChatBox({ conversationId, userId, onLoaded }: { conversationId: 
   const poll = useCallback(async () => {
     try {
       const q = lastAt.current ? `?after=${encodeURIComponent(lastAt.current)}` : '';
-      const r = await api<{ conversation: Conversation; open: boolean; items: ChatMessage[] }>('GET', `/conversations/${conversationId}/messages${q}`);
+      const r = await api<{ conversation: Conversation; open: boolean; transactionId?: string; items: ChatMessage[] }>(
+        'GET',
+        `/conversations/${conversationId}/messages${q}`,
+      );
       onLoadedRef.current?.(r.conversation);
+      setConv(r.conversation);
       setOpen(r.open);
+      setTransactionId(r.transactionId);
       if (r.items.length) {
         lastAt.current = r.items[r.items.length - 1]!.at;
         setMessages((ms) => {
@@ -47,13 +59,10 @@ export function ChatBox({ conversationId, userId, onLoaded }: { conversationId: 
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
 
-  const send = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!text.trim()) return;
+  const run = async (fn: () => Promise<unknown>) => {
     setSending(true);
     try {
-      await api('POST', `/conversations/${conversationId}/messages`, { body: { text: text.trim() } });
-      setText('');
+      await fn();
       await poll();
     } catch (err) {
       setError(errorText(err));
@@ -62,27 +71,104 @@ export function ChatBox({ conversationId, userId, onLoaded }: { conversationId: 
     }
   };
 
+  const send = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    void run(async () => {
+      await api('POST', `/conversations/${conversationId}/messages`, { body: { text: text.trim() } });
+      setText('');
+    });
+  };
+
+  const offer = (e: React.FormEvent) => {
+    e.preventDefault();
+    void run(async () => {
+      await api('POST', `/conversations/${conversationId}/offers`, { body: { price: Number(price) } });
+      setPrice('');
+    });
+  };
+
+  const respond = (offerId: string, accept: boolean) =>
+    run(() =>
+      api('POST', `/conversations/${conversationId}/offers/${offerId}/${accept ? 'accept' : 'reject'}`, {
+        idempotencyKey: accept ? newIdempotencyKey() : undefined,
+      }),
+    );
+
+  const pending = conv?.pendingOffer;
+
   return (
     <div className="chat">
+      {transactionId && (
+        <div className="notice ok-note">
+          Hai bên đang giao dịch tin này. <Link to={`/transactions/${transactionId}`}>Xem giao dịch →</Link>
+        </div>
+      )}
       <div className="messages" ref={list}>
-        {messages.length === 0 && <p className="muted">Hãy gửi lời chào và câu hỏi về thiết bị.</p>}
-        {messages.map((m) => (
-          <div key={m.messageId} className={`bubble ${m.senderId === userId ? 'mine' : ''}`}>
-            <span>{m.text}</span>
-            <span className="time">{dateTime(m.at)}</span>
-          </div>
-        ))}
+        {messages.length === 0 && <p className="muted">Hãy gửi lời chào, hỏi về thiết bị, rồi ra giá khi đã thống nhất.</p>}
+        {messages.map((m) =>
+          m.kind === 'SYSTEM' ? (
+            <div key={m.messageId} className="chat-system">
+              {m.text} · {dateTime(m.at)}
+            </div>
+          ) : m.kind === 'OFFER' ? (
+            <div key={m.messageId} className={`bubble offer ${m.senderId === userId ? 'mine' : ''}`}>
+              <span className="small">{m.senderId === userId ? 'Bạn ra giá' : m.senderRole === 'OWNER' ? 'Người bán ra giá' : 'Người mua ra giá'}</span>
+              <strong className="offer-price">{vnd(m.price ?? 0)}</strong>
+              {pending?.offerId === m.offerId ? (
+                m.senderId === userId ? (
+                  <span className="small">Đang chờ bên kia trả lời…</span>
+                ) : (
+                  open && (
+                    <span className="row">
+                      <button disabled={sending} onClick={() => void respond(m.offerId!, true)}>
+                        Chấp nhận
+                      </button>
+                      <button className="secondary" disabled={sending} onClick={() => void respond(m.offerId!, false)}>
+                        Từ chối
+                      </button>
+                    </span>
+                  )
+                )
+              ) : (
+                <span className="small">Đã trả lời / được thay bằng giá mới</span>
+              )}
+              <span className="time">{dateTime(m.at)}</span>
+            </div>
+          ) : (
+            <div key={m.messageId} className={`bubble ${m.senderId === userId ? 'mine' : ''}`}>
+              <span>{m.text}</span>
+              <span className="time">{dateTime(m.at)}</span>
+            </div>
+          ),
+        )}
       </div>
       {error && <p className="error">{error}</p>}
       {open ? (
-        <form className="row" onSubmit={send}>
-          <input className="grow" value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập tin nhắn…" maxLength={1000} />
-          <button type="submit" disabled={sending || !text.trim()}>
-            Gửi
-          </button>
-        </form>
+        <>
+          <form className="row" onSubmit={send}>
+            <input className="grow" value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập tin nhắn…" maxLength={1000} />
+            <button type="submit" disabled={sending || !text.trim()}>
+              Gửi
+            </button>
+          </form>
+          <form className="row" onSubmit={offer}>
+            <input
+              className="grow"
+              type="number"
+              min={1000}
+              step={1000}
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder={transactionId ? 'Đề nghị giá mới (VND)' : 'Ra giá (VND), vd 200000'}
+            />
+            <button type="submit" className="secondary" disabled={sending || Number(price) < 1000}>
+              {transactionId ? 'Đề nghị giá mới' : 'Ra giá'}
+            </button>
+          </form>
+        </>
       ) : (
-        <p className="muted">Tin đã kết thúc — cuộc trò chuyện chỉ còn để xem lại.</p>
+        <p className="muted">Tin đã có người chốt hoặc đã kết thúc — cuộc trò chuyện chỉ còn để xem lại.</p>
       )}
     </div>
   );

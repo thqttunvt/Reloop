@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HOUR_MS } from '../src/shared/clock';
+import { keys } from '../src/store/keys';
 import { ADMIN, approvedPartner, listingBody, post, type T } from './fixtures';
 import { makeTestApp } from './helpers';
 
@@ -95,10 +96,20 @@ describe('Bàn giao, điều chỉnh giá, hoàn tất (T9.4–T9.6)', () => {
     expect((await t.call('GET', `/transactions/${txId}`, { user: 'owner' })).body.transaction.status).toBe('COMPLETED');
   });
 
-  it('giá cuối 2 bên khác nhau → tranh chấp → Admin quyết (giaiphap C7, B6)', async () => {
+  it('bên kia chỉ bấm Chấp nhận → hoàn tất đúng giá bên xác nhận trước nhập, không phải nhập lại (mục 7 danhgia)', async () => {
+    const { t, txId } = await withTransaction();
+    await post(t, `/transactions/${txId}/confirm-completion`, 'owner', { finalPrice: 380_000 });
+    const notes = (await t.call('GET', '/notifications', { user: 'near' })).body.items.map((n: { title: string }) => n.title);
+    expect(notes.some((x: string) => x.includes('giá cuối 380.000đ') && x.includes('Chấp nhận'))).toBe(true);
+    // Gửi kèm giá khác cũng bị bỏ qua: bước 2 chỉ là chấp nhận
+    const done = (await post(t, `/transactions/${txId}/confirm-completion`, 'near', { finalPrice: 1 })).body;
+    expect(done).toMatchObject({ status: 'COMPLETED', finalPrice: 380_000 });
+  });
+
+  it('không đồng ý giá cuối → Khiếu nại → tranh chấp → Admin quyết (giaiphap B6)', async () => {
     const { t, txId, listingId } = await withTransaction();
     await post(t, `/transactions/${txId}/confirm-completion`, 'owner', { finalPrice: 400_000 });
-    expect((await post(t, `/transactions/${txId}/confirm-completion`, 'near', { finalPrice: 300_000 })).body.status).toBe('DISPUTED');
+    expect((await post(t, `/transactions/${txId}/dispute`, 'near', { reason: 'Giá cuối thực tế chỉ 300.000đ' })).body.status).toBe('DISPUTED');
     const queue = await t.call('GET', '/admin/disputes', ADMIN);
     expect(queue.body.items.map((x: { transactionId: string }) => x.transactionId)).toEqual([txId]);
     expect((await t.call('GET', '/admin/disputes', { user: 'owner' })).status).toBe(403);
@@ -111,10 +122,42 @@ describe('Bàn giao, điều chỉnh giá, hoàn tất (T9.4–T9.6)', () => {
 });
 
 describe('Hủy / thất bại (T9.7)', () => {
-  it('hủy trước khi gặp → tin mở lại; offer khác vẫn chọn được', async () => {
+  it('hủy = yêu cầu hủy, 5 phút sau tự hủy dù bên kia không đồng ý → tin mở lại (QĐ-38)', async () => {
     const { t, txId, listingId } = await withTransaction();
-    expect((await post(t, `/transactions/${txId}/cancel`, 'near', { reason: 'Bận đột xuất' })).body).toMatchObject({ status: 'CANCELLED', cancel: { by: 'PARTNER' } });
+    const requested = (await post(t, `/transactions/${txId}/cancel`, 'near', { reason: 'Bận đột xuất' })).body;
+    expect(requested).toMatchObject({ status: 'HANDOVER_PENDING', cancelRequest: { by: 'PARTNER', reason: 'Bận đột xuất' } });
+    // Trong 5 phút: thao tác khác bị khóa, hủy lần nữa cũng không được
+    expect((await post(t, `/transactions/${txId}/confirm-completion`, 'owner')).body.code).toBe('CANCEL_PENDING');
+    expect((await post(t, `/transactions/${txId}/cancel`, 'owner', { reason: 'Tôi cũng hủy' })).body.code).toBe('CANCEL_PENDING');
+    expect(await listingStatus(t, listingId)).toBe('MATCHED');
+
+    t.clock.advance(5 * 60_000);
+    expect(await listingStatus(t, listingId)).toBe('ACTIVE'); // tin quay lại ngay khi có người xem, không chờ job
+    expect((await t.call('GET', `/transactions/${txId}`, { user: 'owner' })).body.transaction).toMatchObject({ status: 'CANCELLED', cancel: { by: 'PARTNER' } });
+    expect((await t.call('GET', `/transactions/${txId}`, { user: 'owner' })).body.transaction.cancelRequest).toBeUndefined();
+  });
+
+  it('người yêu cầu rút lại trong 5 phút; bên kia đồng ý thì hủy ngay; job nền cũng tự hủy', async () => {
+    const { t, txId, listingId } = await withTransaction();
+    await post(t, `/transactions/${txId}/cancel`, 'owner', { reason: 'Đổi ý' });
+    expect((await post(t, `/transactions/${txId}/cancel/withdraw`, 'near')).status).toBe(403); // không phải người yêu cầu
+    expect((await post(t, `/transactions/${txId}/cancel/confirm`, 'owner')).body.code).toBe('OWN_CANCEL_REQUEST');
+    expect((await post(t, `/transactions/${txId}/cancel/withdraw`, 'owner')).body.cancelRequest).toBeUndefined();
+    t.clock.advance(10 * 60_000);
+    expect(await listingStatus(t, listingId)).toBe('MATCHED'); // đã rút → không tự hủy
+
+    // Yêu cầu lại (cùng giờ → mốc hẹn giờ ghi đè được), bên kia đồng ý → hủy ngay
+    await post(t, `/transactions/${txId}/cancel`, 'owner', { reason: 'Đổi ý thật' });
+    expect((await post(t, `/transactions/${txId}/cancel/confirm`, 'near')).body.status).toBe('CANCELLED');
     expect(await listingStatus(t, listingId)).toBe('ACTIVE');
+
+    // Job nền: yêu cầu hủy quá 5 phút → hủy, không cần ai mở trang
+    const other = await withTransaction();
+    await post(other.t, `/transactions/${other.txId}/cancel`, 'owner', { reason: 'Đổi ý' });
+    other.t.clock.advance(6 * 60_000);
+    expect((await other.t.app.sweeper.sweep()).processed).toBeGreaterThan(0);
+    const k = keys.transaction(other.txId);
+    expect((await other.t.table.get<{ pk: string; sk: string; status: string }>(k.pk, k.sk))?.status).toBe('CANCELLED'); // đọc thẳng bảng
   });
 
   it('báo thất bại khi tin đã hết hạn → tin EXPIRED', async () => {
@@ -154,5 +197,74 @@ describe('Thông báo (Epic 11)', () => {
     // Owner nhận thông báo khi đối tác xác nhận giá
     const ownerTypes = (await t.call('GET', '/notifications', { user: 'owner' })).body.items.map((n: { type: string }) => n.type);
     expect(ownerTypes).toContain('QUOTE_CONFIRMED');
+  });
+});
+
+describe('Báo giá khi tin đã có người chốt (mục 1b danhgia)', () => {
+  it('đơn vị không được chọn: báo giá hiện "đang giao dịch với người khác", được báo; tin hoàn tất → hết hiệu lực', async () => {
+    const { t } = await withConfirmedOffer();
+    // Đơn vị thứ 2 → tin mới được match cả "near" và "near2", cả hai xác nhận giá
+    await approvedPartner(t, 'near2', { location: { lat: 10.871, lng: 106.804, address: 'gần' } });
+    const second = (await post(t, '/listings', 'owner', listingBody())).body;
+    const quotes = (await t.call('GET', `/listings/${second.listingId}`, { user: 'owner' })).body.quotes;
+    for (const q of quotes) {
+      await post(t, `/listings/${second.listingId}/quotes/${q.quoteId}/request-confirmation`, 'owner');
+      await post(t, `/listings/${second.listingId}/quotes/${q.quoteId}/confirm`, q.partnerId, { price: 400_000 });
+    }
+    const chosen = quotes.find((q: { partnerId: string }) => q.partnerId === 'near');
+    const tx = (await post(t, '/transactions', 'owner', { listingId: second.listingId, quoteId: chosen.quoteId })).body;
+
+    const asLoser = (await t.call('GET', `/listings/${second.listingId}`, { user: 'near2' })).body.quotes[0];
+    expect(asLoser).toMatchObject({ status: 'CONFIRMED_OFFER', takenByOther: true }); // vẫn giữ để chọn lại nếu giao dịch hủy (QĐ-14)
+    expect((await t.call('GET', `/listings/${second.listingId}`, { user: 'near' })).body.quotes[0]).toMatchObject({ status: 'SELECTED', takenByOther: false });
+    const request = (await t.call('GET', '/partners/me/requests', { user: 'near2' })).body.items.find((r: { listingId: string }) => r.listingId === second.listingId);
+    expect(request.quotes[0].takenByOther).toBe(true);
+    expect((await t.call('GET', '/notifications', { user: 'near2' })).body.items.map((n: { type: string }) => n.type)).toContain('LISTING_TAKEN');
+
+    await post(t, `/transactions/${tx.transactionId}/confirm-completion`, 'owner');
+    await post(t, `/transactions/${tx.transactionId}/confirm-completion`, 'near');
+    expect((await t.call('GET', `/listings/${second.listingId}`, { user: 'near2' })).body.quotes[0]).toMatchObject({ status: 'INVALIDATED', takenByOther: false });
+  });
+});
+
+describe('Người bán bị Admin tạm ngừng (mục 3 danhgia)', () => {
+  it('tin ẩn khỏi Chợ, người ngoài không xem được, đơn vị thu mua không xác nhận / gửi báo giá được; mở lại thì hiện lại', async () => {
+    const { t, listingId, quoteId } = await withConfirmedOffer();
+    const second = (await post(t, '/listings', 'owner', listingBody())).body;
+    const q2 = (await t.call('GET', `/listings/${second.listingId}`, { user: 'owner' })).body.quotes[0];
+    await post(t, `/listings/${second.listingId}/quotes/${q2.quoteId}/request-confirmation`, 'owner');
+    const feed = async () => (await t.call('GET', '/feed', { user: 'buyer' })).body.items.map((i: { listing: { listingId: string } }) => i.listing.listingId);
+    expect(await feed()).toContain(listingId);
+
+    await t.call('POST', '/admin/partners/owner/suspend', { ...ADMIN, body: { note: 'Vi phạm' } });
+    expect(await feed()).not.toContain(listingId);
+    expect((await t.call('GET', `/listings/${listingId}`, { user: 'buyer' })).status).toBe(404);
+    expect((await post(t, `/listings/${second.listingId}/quotes/${q2.quoteId}/confirm`, 'near', { price: 300_000 })).body.code).toBe('SELLER_UNAVAILABLE');
+    const match = (await t.call('GET', `/listings/${second.listingId}`, { user: 'near' })).body.matches[0];
+    expect((await post(t, `/listings/${second.listingId}/offers`, 'near', { branchId: match.branchId, price: 300_000 })).body.code).toBe('SELLER_UNAVAILABLE');
+    expect((await post(t, '/transactions', 'owner', { listingId, quoteId })).body.code).toBe('PARTNER_REQUIRED');
+    expect((await post(t, `/listings/${listingId}/conversations`, 'buyer')).body.code).toBe('CHAT_CLOSED');
+
+    await t.call('POST', '/admin/partners/owner/reactivate', ADMIN);
+    expect(await feed()).toContain(listingId);
+    expect((await post(t, '/transactions', 'owner', { listingId, quoteId })).status).toBe(201);
+  });
+});
+
+describe('Báo Admin khi có khiếu nại mới (mục 7 danhgia)', () => {
+  it('khiếu nại → chuông hộp thư chung Admin; một Admin đọc = cả nhóm đã đọc; người thường không xem được', async () => {
+    const { t, txId } = await withTransaction();
+    await post(t, `/transactions/${txId}/confirm-completion`, 'owner', { finalPrice: 400_000 });
+    await post(t, `/transactions/${txId}/dispute`, 'near', { reason: 'Máy thiếu linh kiện' });
+
+    const inbox = (await t.call('GET', '/admin/notifications', ADMIN)).body.items;
+    expect(inbox).toEqual([
+      expect.objectContaining({ type: 'ADMIN_DISPUTE', body: 'Người mua khiếu nại — Máy thiếu linh kiện', link: `/transactions/${txId}`, read: false }),
+    ]);
+    const admin2 = { user: 'admin2', groups: ['admin'] };
+    expect((await t.call('GET', '/admin/notifications/unread-count', admin2)).body.count).toBe(1);
+    await t.call('POST', `/admin/notifications/${inbox[0].notificationId}/read`, ADMIN);
+    expect((await t.call('GET', '/admin/notifications/unread-count', admin2)).body.count).toBe(0);
+    expect((await t.call('GET', '/admin/notifications', { user: 'owner' })).status).toBe(403);
   });
 });

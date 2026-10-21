@@ -172,3 +172,27 @@ describe('Xác nhận giá & offer (T7.3, T7.4)', () => {
     expect((await t.call('GET', '/listings/mine', { user: 'owner' })).body.items[0].status).toBe('EXPIRED');
   });
 });
+
+describe('Tin kết thúc → báo giá còn mở hết hạn qua bảng luật (mục 9 danhgia)', () => {
+  it('hủy tin: báo giá đang mở → EXPIRED (ghi thật vào bảng), báo giá đã kết thúc giữ nguyên', async () => {
+    const t = makeTestApp();
+    await approvedPartner(t, 'near');
+    await approvedPartner(t, 'near2', { location: { lat: 10.871, lng: 106.804, address: 'gần' } });
+    const { listingId } = (await post(t, '/listings', 'owner', listingBody())).body;
+    const quotes = (await t.call('GET', `/listings/${listingId}`, { user: 'owner' })).body.quotes;
+    const rejected = quotes.find((q: { partnerId: string }) => q.partnerId === 'near2');
+    await post(t, `/listings/${listingId}/quotes/${rejected.quoteId}/request-confirmation`, 'owner');
+    await post(t, `/listings/${listingId}/quotes/${rejected.quoteId}/reject`, 'near2', {});
+
+    await post(t, `/listings/${listingId}/cancel`, 'owner');
+    const stored = await t.table.query<{ pk: string; sk: string; partnerId: string; status: string }>(`LISTING#${listingId}`, { skPrefix: 'QUOTE#' });
+    expect(Object.fromEntries(stored.map((q) => [q.partnerId, q.status]))).toEqual({ near: 'EXPIRED', near2: 'REJECTED' });
+  });
+
+  it('bảng luật: chỉ HỆ THỐNG cho báo giá hết hạn, và chỉ từ trạng thái còn mở', async () => {
+    const { quoteMachine } = await import('../src/domain/stateMachines');
+    expect(quoteMachine.canTransition('CONFIRMED_OFFER', 'EXPIRED', 'SYSTEM')).toBe(true);
+    expect(quoteMachine.canTransition('CONFIRMED_OFFER', 'EXPIRED', 'OWNER')).toBe(false);
+    expect(() => quoteMachine.assertTransition('SELECTED', 'EXPIRED', 'SYSTEM')).toThrow(/không thể chuyển/);
+  });
+});

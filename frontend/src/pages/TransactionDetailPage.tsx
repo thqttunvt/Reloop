@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ReportButton } from '../components/ReportButton';
-import { ApiError, api, uploadImage, type TransactionDetail } from '../lib/api';
+import { ApiError, api, uploadImage, type ChatMessage, type Conversation, type TransactionDetail } from '../lib/api';
 import { FAILURE_LABEL, HANDOVER_LABEL, PARTY_LABEL, TX_STATUS_LABEL, statusTone } from '../lib/catalog';
 import { dateTime, errorText, vnd } from '../lib/format';
 
@@ -24,6 +24,14 @@ export function TransactionDetailPage() {
     const timer = setInterval(() => document.visibilityState === 'visible' && void load(), 30_000);
     return () => clearInterval(timer);
   }, [load]);
+
+  // Đang chờ hủy: tải lại đúng lúc hết 5 phút để thấy giao dịch đã hủy (QĐ-38)
+  const cancelAt = d?.transaction.cancelRequest?.effectiveAt;
+  useEffect(() => {
+    if (!cancelAt) return;
+    const timer = setTimeout(() => void load(), Math.max(0, Date.parse(cancelAt) - Date.now()) + 1500);
+    return () => clearTimeout(timer);
+  }, [cancelAt, load]);
 
   const act = async (method: string, path: string, body?: unknown) => {
     try {
@@ -59,6 +67,12 @@ export function TransactionDetailPage() {
         </p>
         <p className="muted">
           Thanh toán trực tiếp khi bàn giao. <Link to={`/listings/${t.listingId}`}>Xem tin đăng</Link>
+          {t.conversationId && me !== 'ADMIN' && (
+            <>
+              {' '}
+              · <Link to={`/chat/${t.conversationId}`}>Nhắn tin / ra giá mới</Link>
+            </>
+          )}
         </p>
         {me !== 'ADMIN' && <ReportButton targetType="TRANSACTION" targetId={t.transactionId} />}
         <div className="grid2">
@@ -70,9 +84,10 @@ export function TransactionDetailPage() {
             <span className="muted">{d.contacts.owner.address}</span>
           </div>
           <div className="quote">
-            <strong>Đối tác</strong>
+            <strong>{t.source === 'CHAT' ? 'Người mua' : 'Đối tác'}</strong>
             <span>
-              {d.contacts.partner.businessName} — {d.contacts.partner.branchName}
+              {d.contacts.partner.businessName}
+              {d.contacts.partner.branchName && ` — ${d.contacts.partner.branchName}`}
             </span>
             {d.contacts.partner.email && <span>{d.contacts.partner.email}</span>}
             <span>{d.contacts.partner.phone ?? 'chưa khai SĐT'}</span>
@@ -81,10 +96,17 @@ export function TransactionDetailPage() {
         </div>
       </section>
 
-      {me !== 'ADMIN' && open && <HandoverCard d={d} act={act} />}
-      {me !== 'ADMIN' && <PriceCard d={d} act={act} />}
-      {me !== 'ADMIN' && open && <CompletionCard d={d} act={act} />}
+      {t.cancelRequest ? (
+        <CancelRequestCard d={d} act={act} />
+      ) : (
+        <>
+          {me !== 'ADMIN' && open && <HandoverCard d={d} act={act} />}
+          {me !== 'ADMIN' && <PriceCard d={d} act={act} />}
+          {me !== 'ADMIN' && open && <CompletionCard d={d} act={act} />}
+        </>
+      )}
       <OutcomeCard d={d} />
+      {me === 'ADMIN' && <AdminChatsCard listingId={t.listingId} />}
       {me !== 'ADMIN' && <ReviewCard d={d} act={act} />}
 
       <section className="card">
@@ -106,6 +128,34 @@ export function TransactionDetailPage() {
 }
 
 type Act = (method: string, path: string, body?: unknown) => Promise<void>;
+
+/** Một bên đã bấm hủy → 5 phút sau tự hủy (QĐ-38). */
+function CancelRequestCard({ d, act }: { d: TransactionDetail; act: Act }) {
+  const r = d.transaction.cancelRequest!;
+  const mine = r.by === d.role;
+  return (
+    <section className="card">
+      <div className="notice warn">
+        <strong>{mine ? 'Bạn đã yêu cầu hủy giao dịch' : `${PARTY_LABEL[r.by]} yêu cầu hủy giao dịch`}</strong>: {r.reason}
+        <br />
+        Giao dịch tự hủy lúc <strong>{dateTime(r.effectiveAt)}</strong>, tin sẽ quay lại Chợ nếu còn hạn. Trong lúc chờ, các thao tác khác tạm khóa.
+      </div>
+      {d.role !== 'ADMIN' && (
+        <div className="row">
+          {mine ? (
+            <button className="secondary" onClick={() => void act('POST', '/cancel/withdraw')}>
+              Rút yêu cầu hủy
+            </button>
+          ) : (
+            <button className="danger" onClick={() => void act('POST', '/cancel/confirm')}>
+              Đồng ý hủy ngay
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function HandoverCard({ d, act }: { d: TransactionDetail; act: Act }) {
   const plan = d.transaction.handoverPlan;
@@ -269,18 +319,18 @@ function CompletionCard({ d, act }: { d: TransactionDetail; act: Act }) {
   const [reason, setReason] = useState('');
   const [failReason, setFailReason] = useState('OTHER');
   const confirmedByMe = !!t.completion[me];
-  const confirmedByOther = !!t.completion[me === 'OWNER' ? 'PARTNER' : 'OWNER'];
+  /** Bên kia xác nhận trước → mình chỉ Chấp nhận giá đó hoặc Khiếu nại (mục 7 danhgia) */
+  const otherConfirm = t.completion[me === 'OWNER' ? 'PARTNER' : 'OWNER'];
 
   return (
     <section className="card">
       <h2>Kết thúc giao dịch</h2>
-      {confirmedByOther && !confirmedByMe && t.counterpartyDeadline && (
-        <p className="warn-text">
-          Bên kia đã xác nhận hoàn tất. Hãy xác nhận hoặc khiếu nại trước {dateTime(t.counterpartyDeadline)} — quá hạn hệ thống tự hoàn tất.
+      {confirmedByMe && (
+        <p className="muted">
+          Bạn đã xác nhận giá cuối {vnd(t.completion[me]!.finalPrice)}. Đang chờ bên kia chấp nhận (quá 48 giờ hệ thống tự hoàn tất).
         </p>
       )}
-      {confirmedByMe && <p className="muted">Bạn đã xác nhận. Đang chờ bên kia (tối đa 48 giờ).</p>}
-      {!confirmedByMe && (t.status === 'HANDOVER_PENDING' || t.status === 'AWAITING_COUNTERPARTY') && (
+      {t.status === 'HANDOVER_PENDING' && !confirmedByMe && (
         <div className="row">
           <label>
             Giá cuối đã nhận / trả (VND)
@@ -289,18 +339,28 @@ function CompletionCard({ d, act }: { d: TransactionDetail; act: Act }) {
           <button onClick={() => void act('POST', '/confirm-completion', { finalPrice: Number(finalPrice) })}>Xác nhận đã bàn giao xong</button>
         </div>
       )}
-      {t.status === 'AWAITING_COUNTERPARTY' && !confirmedByMe && (
-        <div className="row">
-          <input placeholder="Lý do khiếu nại" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <button className="danger" onClick={() => void act('POST', '/dispute', { reason })} disabled={reason.trim().length < 5}>
-            Khiếu nại
-          </button>
-        </div>
+      {t.status === 'AWAITING_COUNTERPARTY' && otherConfirm && !confirmedByMe && (
+        <>
+          <div className="notice warn">
+            Bên kia xác nhận đã bàn giao với giá cuối <strong>{vnd(otherConfirm.finalPrice)}</strong>. Bấm <strong>Chấp nhận</strong> để hoàn tất, hoặc{' '}
+            <strong>Khiếu nại</strong> nếu không đúng — trước {t.counterpartyDeadline && dateTime(t.counterpartyDeadline)}, quá hạn hệ thống tự hoàn tất
+            với giá này.
+          </div>
+          <div className="row">
+            <button onClick={() => void act('POST', '/confirm-completion')}>Chấp nhận — hoàn tất giao dịch</button>
+          </div>
+          <div className="row">
+            <input className="grow" placeholder="Lý do khiếu nại (ít nhất 5 ký tự)" value={reason} onChange={(e) => setReason(e.target.value)} />
+            <button className="danger" onClick={() => void act('POST', '/dispute', { reason })} disabled={reason.trim().length < 5}>
+              Khiếu nại
+            </button>
+          </div>
+        </>
       )}
       {t.status === 'HANDOVER_PENDING' && (
         <div className="row">
-          <button className="danger" onClick={() => { const r = prompt('Lý do hủy?'); if (r) void act('POST', '/cancel', { reason: r }); }}>
-            Hủy (trước khi gặp)
+          <button className="danger" onClick={() => { const r = prompt('Lý do hủy? Giao dịch sẽ tự hủy sau 5 phút (bạn rút lại được trong lúc chờ).'); if (r) void act('POST', '/cancel', { reason: r }); }}>
+            Hủy giao dịch
           </button>
         </div>
       )}
@@ -378,6 +438,53 @@ function ReviewCard({ d, act }: { d: TransactionDetail; act: Act }) {
           <input placeholder="Nhận xét" value={comment} onChange={(e) => setComment(e.target.value)} />
           <button onClick={() => void act('POST', '/review', { rating, comment: comment || undefined })}>Gửi đánh giá</button>
         </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Admin xem mọi cuộc trò chuyện về tin của giao dịch (chỉ đọc) — khi xét tranh chấp, khiếu nại phí, cờ nghi né phí.
+ * Chỉ tải khi Admin bấm xem; mỗi lần xem được ghi log (mục 20 danhgia).
+ */
+function AdminChatsCard({ listingId }: { listingId: string }) {
+  const [data, setData] = useState<{ conversations: { conversation: Conversation; messages: ChatMessage[] }[] } | null>(null);
+  const [error, setError] = useState('');
+  const show = async () => {
+    try {
+      setData(await api('GET', `/admin/listings/${listingId}/chats`));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+  return (
+    <section className="card">
+      <h2>Tin nhắn về tin này (Admin xem)</h2>
+      <p className="muted small">Chỉ đọc. Mỗi lần xem được ghi lại (admin nào xem, lúc nào) để đối chiếu khi cần.</p>
+      {error && <p className="error">{error}</p>}
+      {!data ? (
+        <button className="secondary" onClick={() => void show()}>
+          Xem các cuộc trò chuyện
+        </button>
+      ) : data.conversations.length === 0 ? (
+        <p className="muted">Không có cuộc trò chuyện nào.</p>
+      ) : (
+        data.conversations.map(({ conversation: c, messages }) => (
+          <details key={c.conversationId} className="quote">
+            <summary>
+              Người bán ↔ {c.partnerName} · {messages.length} tin nhắn
+            </summary>
+            <div className="messages">
+              {messages.map((m) => (
+                <div key={m.messageId} className={m.kind === 'SYSTEM' ? 'chat-system' : `bubble ${m.senderRole === 'OWNER' ? 'mine' : ''}`}>
+                  <span className="small">{m.senderRole === 'OWNER' ? 'Người bán' : c.partnerName}</span>
+                  <span>{m.kind === 'OFFER' ? `Ra giá ${vnd(m.price ?? 0)}` : m.text}</span>
+                  <span className="time">{dateTime(m.at)}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        ))
       )}
     </section>
   );
