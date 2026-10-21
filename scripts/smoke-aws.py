@@ -2,9 +2,13 @@
 (bỏ qua API Gateway), chạy trọn luồng đối tác → đăng tin → matching → báo giá → giao dịch → thông báo,
 rồi dọn dữ liệu test. Vị trí test ở biển gần Cà Mau để không trùng dữ liệu thật.
 
-Dùng:  AWS_PROFILE=reloop AWS_REGION=ap-southeast-1 python scripts/smoke-aws.py
+Dùng:  AWS_PROFILE=reloop AWS_REGION=ap-southeast-1 python scripts/smoke-aws.py [--cleanup]
+       Mặc định GIỮ dữ liệu test trên web (nhóm dùng để test / fix bug). --cleanup: tạm ngừng tài khoản test
+       → tin test ẩn khỏi Chợ (không xóa gì).
 """
 import json, os, struct, subprocess, sys, tempfile, urllib.request, uuid, zlib
+
+sys.stdout.reconfigure(encoding='utf-8')  # console Windows (cp1252) không in được tiếng Việt
 
 SP = tempfile.mkdtemp(prefix='reloop-smoke-')
 RUN = uuid.uuid4().hex[:6]
@@ -58,7 +62,7 @@ def check(name, cond, extra=''):
 check.failed = False
 
 terms = call('GET', '/me', OWNER)[1]['currentTermsVersion']
-for u in (OWNER, PARTNER):
+for u in (OWNER, PARTNER, f'smoke-buyer-{RUN}'):  # khách mua cũng phải đồng ý điều khoản mới chốt được (QĐ-28)
     call('POST', '/me/accept-terms', u, {'version': terms})
 s, b = call('POST', '/partners/apply', PARTNER, {'tier': 'BUSINESS', 'businessType': 'ENTERPRISE', 'businessName': f'[TEST] Smoke {RUN}',
                                                    'licenseNo': '0000000000', 'contactEmail': f'smoke-{RUN}@example.com'})
@@ -114,18 +118,33 @@ s, b = call('POST', f'/listings/{lid}/quotes/{qid}/confirm', PARTNER, {'price': 
 check('confirm quote', s == 200 and b['status'] == 'CONFIRMED_OFFER', b)
 s, tx = call('POST', '/transactions', OWNER, {'listingId': lid, 'quoteId': qid}, idem=True)
 check('select offer -> transaction', s == 201 and tx['status'] == 'HANDOVER_PENDING', tx)
+# QĐ-38: hủy = yêu cầu hủy (tự hủy sau 5 phút); bên kia "Đồng ý hủy ngay" → hủy luôn, tin mở lại
 s, b = call('POST', f"/transactions/{tx['transactionId']}/cancel", OWNER, {'reason': 'smoke test cleanup'})
-check('cancel transaction -> listing reopens', s == 200 and b['status'] == 'CANCELLED', b)
+check('request cancel (5-minute delay)', s == 200 and b['status'] == 'HANDOVER_PENDING' and b.get('cancelRequest'), b)
+s, b = call('POST', f"/transactions/{tx['transactionId']}/cancel/confirm", PARTNER)
+s2, d = call('GET', f'/listings/{lid}', OWNER)
+check('counterpart confirms cancel -> listing reopens', s == 200 and b['status'] == 'CANCELLED' and d['listing']['status'] == 'ACTIVE', [b, d.get('listing', {}).get('status')])
+# QĐ-38: khách ra giá trong chat → người bán chấp nhận → giao dịch; hủy lại để dọn
+s, offer = call('POST', f"/conversations/{bconv['conversationId']}/offers", BUYER, {'price': 120000})
+check('buyer price offer in chat', s == 201 and offer.get('kind') == 'OFFER', offer)
+s, deal = call('POST', f"/conversations/{bconv['conversationId']}/offers/{offer['offerId']}/accept", OWNER, idem=True)
+check('seller accepts offer -> transaction', s == 200 and deal.get('transactionId'), deal)
+call('POST', f"/transactions/{deal['transactionId']}/cancel", BUYER, {'reason': 'smoke test cleanup'})
+s, b = call('POST', f"/transactions/{deal['transactionId']}/cancel/confirm", OWNER)
+check('cancel chat deal', s == 200 and b['status'] == 'CANCELLED', b)
 s, b = call('GET', '/notifications/unread-count', PARTNER)
 check('notifications', s == 200 and b['count'] >= 3, b)
 
-# Dọn: hủy tin, tạm ngừng đối tác test
-s, b = call('POST', f'/listings/{lid}/cancel', OWNER)
-check('cleanup: cancel listing', s == 200, b)
-subprocess.run(['aws', 's3api', 'delete-object', '--bucket', 'reloop-device-images', '--key', IMG], capture_output=True, shell=(os.name == 'nt'))
-s, b = call('POST', f'/admin/partners/{PARTNER}/suspend', ADMIN, {'note': 'smoke test'}, groups=['Admins'])
-check('cleanup: suspend test partner', s == 200, b)
-s, b = call('POST', f'/admin/partners/{OWNER}/suspend', ADMIN, {'note': 'smoke test'}, groups=['Admins'])
-check('cleanup: suspend test seller', s == 200, b)
+# Mặc định GIỮ dữ liệu test. --cleanup: KHÔNG gỡ tin (vừa hủy giao dịch → gỡ trong 72 giờ bị tính phí nghi bán ngoài,
+# QĐ-39); tạm ngừng tài khoản test → tin tự ẩn khỏi Chợ (QĐ-40), mở lại được ở trang Admin.
+if '--cleanup' in sys.argv:
+    s, b = call('POST', f'/admin/partners/{PARTNER}/suspend', ADMIN, {'note': 'smoke test'}, groups=['Admins'])
+    check('cleanup: suspend test partner', s == 200, b)
+    s, b = call('POST', f'/admin/partners/{OWNER}/suspend', ADMIN, {'note': 'smoke test'}, groups=['Admins'])
+    check('cleanup: suspend test seller', s == 200, b)
+    s, feed = call('GET', '/feed', BUYER)
+    check('cleanup: test listing hidden from feed', s == 200 and all(i['listing']['listingId'] != lid for i in feed['items']), feed)
+else:
+    print(f'Giữ dữ liệu test: tin {lid} (người bán {OWNER}) vẫn trên Chợ')
 print('RUN', RUN, 'FAILED' if check.failed else 'ALL PASS')
 sys.exit(1 if check.failed else 0)
