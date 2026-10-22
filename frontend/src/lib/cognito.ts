@@ -38,6 +38,37 @@ export async function startLogin(): Promise<void> {
   window.location.assign(`${DOMAIN}/oauth2/authorize?${params}`);
 }
 
+/**
+ * Quên mật khẩu theo email: gọi thẳng API công khai của Cognito (app client không có secret).
+ * Pool dùng email làm alias nên Username = email được. Email chưa đăng ký vẫn trả "thành công"
+ * (prevent_user_existence_errors) → không lộ email nào có tài khoản.
+ */
+const REGION = DOMAIN?.match(/\.auth\.([a-z0-9-]+)\.amazoncognito\.com/)?.[1] ?? 'ap-southeast-1';
+
+const IDP_ERRORS: Record<string, string> = {
+  CodeMismatchException: 'Mã xác minh không đúng',
+  ExpiredCodeException: 'Mã đã hết hạn — hãy bấm "Lấy mã" lại',
+  InvalidPasswordException: 'Mật khẩu cần ít nhất 8 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt',
+  LimitExceededException: 'Thử quá nhiều lần — vui lòng đợi vài phút',
+  TooManyRequestsException: 'Thử quá nhiều lần — vui lòng đợi vài phút',
+};
+
+async function idp(action: 'ForgotPassword' | 'ConfirmForgotPassword', body: Record<string, string>): Promise<void> {
+  const res = await fetch(`https://cognito-idp.${REGION}.amazonaws.com/`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-amz-json-1.1', 'x-amz-target': `AWSCognitoIdentityProviderService.${action}` },
+    body: JSON.stringify({ ClientId: CLIENT_ID, ...body }),
+  });
+  if (res.ok) return;
+  const err = (await res.json().catch(() => ({}))) as { __type?: string; message?: string };
+  const type = err.__type?.split('#').pop() ?? '';
+  throw new Error(IDP_ERRORS[type] ?? err.message ?? `Lỗi ${res.status}`);
+}
+
+export const sendResetCode = (email: string) => idp('ForgotPassword', { Username: email });
+export const confirmReset = (email: string, code: string, password: string) =>
+  idp('ConfirmForgotPassword', { Username: email, ConfirmationCode: code, Password: password });
+
 export function logoutUrl(): string {
   const params = new URLSearchParams({ client_id: CLIENT_ID!, logout_uri: `${window.location.origin}/` });
   return `${DOMAIN}/logout?${params}`;

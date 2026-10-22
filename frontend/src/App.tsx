@@ -10,6 +10,7 @@ import { AdminPage } from './pages/AdminPage';
 import { ChatPage, ConversationsPage } from './pages/ChatPage';
 import { CreateListingPage } from './pages/CreateListingPage';
 import { FeedPage } from './pages/FeedPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ListingDetailPage } from './pages/ListingDetailPage';
 import { LoginPage } from './pages/LoginPage';
 import { MyListingsPage } from './pages/MyListingsPage';
@@ -69,7 +70,9 @@ export function App() {
   };
 
   if (isCallback) return <div className="center">Đang đăng nhập…</div>;
-  if (!session) return <LoginPage onSignIn={signIn} error={loginError} />;
+  if (!session) {
+    return location.pathname === '/forgot-password' ? <ForgotPasswordPage /> : <LoginPage onSignIn={signIn} error={loginError} />;
+  }
 
   const isAdmin = session.groups.includes('admin') || session.groups.includes('admin_finance');
   return (

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { cognitoEnabled, startLogin } from '../lib/cognito';
 import type { Session } from '../lib/session';
 
@@ -23,6 +24,7 @@ export function LoginPage({ onSignIn, error }: { onSignIn: (s: Session) => void;
           {error && <p className="error">{error}</p>}
           <div className="row">
             <button onClick={() => void startLogin()}>Đăng nhập / Đăng ký</button>
+            <Link to="/forgot-password">Quên mật khẩu?</Link>
           </div>
         </section>
         <section className="steps">

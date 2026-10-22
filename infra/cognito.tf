@@ -108,7 +108,16 @@ resource "aws_lambda_permission" "cognito_post_confirmation" {
 resource "aws_cognito_user_pool_domain" "main" {
   domain                = "${local.name_prefix}-auth"
   user_pool_id          = aws_cognito_user_pool.main.id
-  managed_login_version = 1 # Hosted UI cổ điển, giống pool cũ
+  # Managed login (v2): có nút hiện mật khẩu, quên mật khẩu theo email (Hosted UI cổ điển hỏi "Username")
+  managed_login_version = 2
+}
+
+# Managed login bắt buộc có branding cho từng app client — dùng giao diện mặc định của Cognito
+resource "aws_cognito_managed_login_branding" "clients" {
+  for_each                    = { web = aws_cognito_user_pool_client.web.id, mobile = aws_cognito_user_pool_client.mobile.id }
+  user_pool_id                = aws_cognito_user_pool.main.id
+  client_id                   = each.value
+  use_cognito_provided_values = true
 }
 
 locals {
