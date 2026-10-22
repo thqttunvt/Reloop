@@ -25,6 +25,7 @@ Tiền **không qua ReLoop**: hai bên thanh toán trực tiếp khi bàn giao. 
 |---|---|---|
 | `docx/readmeall.md` | File này: tổng hợp ngữ cảnh và tiến độ | Đọc đầu tiên |
 | `docx/let.md` | Tóm tắt toàn dự án để lên plan trang quản trị (Admin): quyền, API Admin, hàng đợi, hạn chế | Giao việc trang Admin |
+| `docx/letd.md` | Plan trang Admin mới (giao việc): khóa cần thêm, route con, thứ tự A0 → A6, điểm cần PO quyết | Giao việc trang Admin |
 | `quyetdinh.txt` | **43 quyết định** (QĐ-01 → QĐ-43, TL-xx), đã đối chiếu với code 2026-10-22; QĐ ví / giữ tiền đánh dấu TẠM NGƯNG | **Cao nhất** (sau code) |
 | `devdocx.txt` | Dev doc cho nhóm: cài đặt, quy tắc, phân việc, nhật ký tiến độ cho giảng viên, **mục 9 tra cứu kỹ thuật** (Terraform, env, khóa DynamoDB, chữ ký hàm, 88 API) | Làm việc hằng ngày |
 | `danhgia.txt` | Danh sách lỗi / mâu thuẫn đã rà soát + đề xuất + trạng thái sửa | Theo dõi lỗi |
