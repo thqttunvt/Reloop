@@ -110,6 +110,15 @@ export function PartnerPage() {
   return (
     <div className="stack">
       {error && <p className="error">{error}</p>}
+      {/* Khu đối tác (get.md B2): Đăng tin, Tin của tôi chuyển từ thanh menu vào đây */}
+      {p?.status === 'APPROVED' && (
+        <div className="row">
+          <Link to="/listings/new" className="button">
+            + Đăng tin
+          </Link>
+          <Link to="/listings">Tin của tôi</Link>
+        </div>
+      )}
       <ApplyCard
         partner={p}
         onSubmit={(body) => run(() => api('POST', '/partners/apply', { body }))}

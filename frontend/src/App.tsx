@@ -6,7 +6,8 @@ import { TermsGate } from './components/TermsGate';
 import { CALLBACK_PATH, completeLogin, logoutUrl } from './lib/cognito';
 import { ACCOUNT_LOCKED_EVENT, api, type BillingSummary, type Partner } from './lib/api';
 import { loadSession, saveSession, type Session } from './lib/session';
-import { AdminPage } from './pages/AdminPage';
+import { AdminLayout } from './pages/admin/AdminLayout';
+import { partnerLabel } from './lib/role';
 import { ChatPage, ConversationsPage } from './pages/ChatPage';
 import { CreateListingPage } from './pages/CreateListingPage';
 import { FeedPage } from './pages/FeedPage';
@@ -25,13 +26,14 @@ export function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const isCallback = location.pathname === CALLBACK_PATH;
-  const [partnerApproved, setPartnerApproved] = useState(true);
+  const [partner, setPartner] = useState<Partner | null>(null);
 
-  // Chưa là đối tác đã duyệt → làm nổi bật "Đối tác" trên thanh menu (QĐ-34). Hỏi lại khi đổi trang cho tới khi được duyệt.
+  // Menu theo vai trò (get.md B2): khách hàng → "Làm đối tác"; đối tác đã duyệt → nút Cấp 1 / Cấp 2 + nhãn PN1 / PN1V / PN2.
+  // Hỏi lại khi vào / rời trang Đối tác (vừa được duyệt, vừa mua VIP).
   useEffect(() => {
     if (!session || isCallback) return;
     api<{ partner: Partner | null }>('GET', '/partners/me')
-      .then((r) => setPartnerApproved(r.partner?.status === 'APPROVED'))
+      .then((r) => setPartner(r.partner))
       .catch(() => undefined);
   }, [session, isCallback, location.pathname === '/partner']); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -75,30 +77,45 @@ export function App() {
   }
 
   const isAdmin = session.groups.includes('admin') || session.groups.includes('admin_finance');
+  // Trang Admin tách riêng: layout + menu riêng, không có thanh menu người dùng (get.md B3)
+  if (isAdmin && location.pathname.startsWith('/admin')) {
+    return (
+      <TermsGate>
+        <AdminLayout session={session} onSignOut={signOut} />
+      </TermsGate>
+    );
+  }
+  const label = partnerLabel(partner);
   return (
     <div className="shell">
       <header className="topbar">
         <strong className="brand">ReLoop</strong>
         <nav>
           <NavLink to="/feed">Chợ</NavLink>
-          <NavLink to="/listings" end>
-            Tin của tôi
-          </NavLink>
-          <NavLink to="/listings/new">Đăng tin</NavLink>
           <NavLink to="/chat">Tin nhắn</NavLink>
-          <NavLink to="/transactions">Giao dịch</NavLink>
-          <NavLink to="/partner" className={({ isActive }) => `${isActive ? 'active' : ''} ${partnerApproved ? '' : 'nav-cta'}`}>
-            {partnerApproved ? 'Đối tác' : 'Làm đối tác'}
-          </NavLink>
-          <NavLink to="/profile">Hồ sơ</NavLink>
-          {isAdmin && <NavLink to="/admin">Admin</NavLink>}
+          {label ? (
+            <NavLink to="/partner">
+              {label === 'PN2' ? 'Cấp 2' : 'Cấp 1'} <span className="badge ok">{label}</span>
+            </NavLink>
+          ) : (
+            <NavLink to="/partner" className={({ isActive }) => `${isActive ? 'active' : ''} nav-cta`}>
+              Làm đối tác
+            </NavLink>
+          )}
         </nav>
         <span className="who">
           <NotificationBell admin={session.groups.includes('admin')} />
-          {session.label}
-          <button className="link" onClick={signOut}>
-            {session.kind === 'cognito' ? 'Đăng xuất' : 'Đổi người dùng'}
-          </button>
+          <details className="usermenu" key={location.pathname}>
+            <summary>{session.label}</summary>
+            <div className="dropdown">
+              <Link to="/transactions">Giao dịch</Link>
+              <Link to="/profile">Hồ sơ</Link>
+              {isAdmin && <Link to="/admin">Trang Admin</Link>}
+              <button className="link" onClick={signOut}>
+                {session.kind === 'cognito' ? 'Đăng xuất' : 'Đổi người dùng'}
+              </button>
+            </div>
+          </details>
         </span>
       </header>
       <main>
@@ -129,7 +146,6 @@ export function App() {
           <Route path="/transactions/:id" element={<TransactionDetailPage />} />
           <Route path="/partner" element={<PartnerPage />} />
           <Route path="/profile" element={<ProfilePage />} />
-          {isAdmin && <Route path="/admin" element={<AdminPage />} />}
           <Route path="*" element={<Navigate to="/feed" replace />} />
         </Routes>
         )}

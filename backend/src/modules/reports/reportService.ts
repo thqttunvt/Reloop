@@ -3,6 +3,7 @@ import { AppError, badRequest, conflict, notFound } from '../../shared/errors';
 import { newId } from '../../shared/ids';
 import { oneOf, str } from '../../shared/validate';
 import { gsi1, keys } from '../../store/keys';
+import { pageQuery } from '../../store/paging';
 import { withOptimisticRetry } from '../../store/retry';
 import { putVersioned, type Item, type Table } from '../../store/table';
 import type { Listing, ListingService } from '../listings/listingService';
@@ -98,6 +99,18 @@ export class ReportService {
         return { ...r, target: target && { title: target.title, status: target.status, link: target.link }, violator: violator && { ...violator, violations30d } };
       }),
     );
+  }
+
+  /** Báo cáo đã xử lý, phân trang — sắp theo NGÀY TẠO báo cáo (GSI có sẵn, get.md S4), kèm thứ bị báo cáo. */
+  async listResolved(cursor?: string) {
+    const page = await pageQuery<Report>(this.table, gsi1.statusPk('REPORT', 'RESOLVED'), { index: 'gsi1', cursor });
+    const items = await Promise.all(
+      page.items.map(async (r) => {
+        const target = await this.targetOf(r);
+        return { ...r, target: target && { title: target.title, status: target.status, link: target.link } };
+      }),
+    );
+    return { items, nextCursor: page.nextCursor };
   }
 
   /** Admin xử lý. Gỡ tin / tạm ngừng chạy TRƯỚC khi đóng báo cáo: lỗi → báo cáo vẫn mở để xử lý lại. */

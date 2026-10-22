@@ -385,6 +385,72 @@ export interface SavedLocation {
   isDefault: boolean;
 }
 
+/** Dòng nhật ký thao tác Admin (get.md A5) */
+export interface AuditEntry {
+  kind: 'write' | 'pii-read';
+  adminId: string;
+  groups: string[];
+  method: string;
+  routePath: string;
+  params: Record<string, string>;
+  query: Record<string, string>;
+  fields: Record<string, unknown>;
+  status: number;
+  at: string;
+}
+
+/** Hồ sơ người dùng (Admin xem) */
+export interface UserRow {
+  userId: string;
+  email?: string;
+  fullName?: string;
+  phone?: string;
+  createdAt?: string;
+  terms?: { version: string; acceptedAt: string };
+}
+
+export interface Capped<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
+/** Hồ sơ gộp 1 người (get.md A2) */
+export interface AdminUserDetail {
+  profile: UserRow | null;
+  partner: Partner | null;
+  quota: { plan: string; limit: number; vipUntil?: string } | null;
+  branches: Branch[];
+  debt: DebtStatus;
+  listings: Capped<Listing>;
+  transactions: Capped<Transaction>;
+  invoices: Capped<Invoice>;
+  fees: Capped<FeeLine>;
+  violations30d: Capped<{ violationId: string; kind: string; ref: { type: string; id: string; title?: string }; note?: string; at: string }>;
+  dealsEnded: Capped<{ transactionId: string; buyerName: string; listingTitle: string; status: string; at: string }>;
+  suspicions: Capped<{ transactionId: string; listingId: string; listingTitle: string; at: string }>;
+  risk: { status: string; reasons: { text: string }[]; openedAt: string } | null;
+}
+
+/** Số liệu kinh doanh tháng giờ VN (get.md A6) */
+export interface MonthStats {
+  month: string;
+  sellers: number;
+  completedTransactions: number;
+  feesAccrued: number;
+  feesIssued: number;
+  feesPaid: number;
+}
+
+export interface AdminStats {
+  partners: Record<string, number>;
+  openDisputes: number;
+  openReports: number;
+  pendingListings: number;
+  riskFlags: number;
+  feeAppeals: number;
+  month: MonthStats;
+}
+
 export interface Report {
   reportId: string;
   reporterId: string;
@@ -392,6 +458,8 @@ export interface Report {
   targetId: string;
   reason: string;
   createdAt: string;
+  /** Đã xử lý (tab lịch sử) */
+  resolution?: { action: string; note?: string; by: string; at: string; violatorId?: string };
   /** Thứ bị báo cáo (chỉ ở hàng đợi Admin) */
   target?: { title: string; status?: string; link?: string };
   /** Người vi phạm + số vi phạm 30 ngày — chặn tạm ngừng nhầm (QĐ-43) */

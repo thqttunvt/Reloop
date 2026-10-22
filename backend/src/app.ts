@@ -1,6 +1,7 @@
 import { BedrockAnalyzer, DEFAULT_GEMINI_MODEL, DisabledAnalyzer, FallbackAnalyzer, GeminiAnalyzer, type Analyzer } from './ai/analyzer';
 import { CognitoAuthProvider, LocalAuthProvider, type AuthProvider } from './auth/auth';
 import { apiRoutes, type Services } from './http/routes';
+import { AdminService } from './modules/admin/adminService';
 import { BillingService, DEFAULT_BILLING, type BillingBank } from './modules/billing/billingService';
 import { ChatService } from './modules/chat/chatService';
 import { AiService } from './modules/ai/aiService';
@@ -114,7 +115,8 @@ export function buildApp(
   const reports = new ReportService(table, clock, listings, notifications, partners, users, risk);
   const chat = new ChatService(table, clock, listings, partners, users, notifications, transactions);
   listings.settleTransaction = (id) => transactions.loadAndSettle(id);
-  const services: Services = { users, wallet, billing, risk, partners, listings, images, moderator, screener, notifications, transactions, reputation, ai, locations, reports, chat };
+  const admin = new AdminService(table, clock, users, partners, listings, billing);
+  const services: Services = { admin, users, wallet, billing, risk, partners, listings, images, moderator, screener, notifications, transactions, reputation, ai, locations, reports, chat };
   const sweeper = new TimerSweeper(table, clock, {
     LISTING_EXPIRE: (t) => listings.expireIfDue(t.targetId),
     TX_REMIND: (t) => transactions.remindIfWaiting(t.targetId),

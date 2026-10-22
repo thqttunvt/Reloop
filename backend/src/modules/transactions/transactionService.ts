@@ -5,7 +5,7 @@ import { badRequest, conflict, forbidden, notFound } from '../../shared/errors';
 import { newId } from '../../shared/ids';
 import { int, oneOf, str } from '../../shared/validate';
 import { assertOwnImageKeys, type ImageStore } from '../../storage/imageStore';
-import { keys } from '../../store/keys';
+import { gsi1, keys } from '../../store/keys';
 import { withOptimisticRetry } from '../../store/retry';
 import { putNew, putVersioned, type Item, type Table, type WriteOp } from '../../store/table';
 import { timerOp } from '../jobs/timers';
@@ -158,6 +158,7 @@ export class TransactionService {
         createdAt: now,
         updatedAt: now,
       };
+      Object.assign(tx, gsi1.txStatus(tx));
       await this.table.transact([
         putVersioned({ ...listing, status: 'MATCHED', activeTransactionId: transactionId, lastEndedDeal: undefined, updatedAt: now }, listing.version ?? 1),
         putVersioned({ ...quote, status: 'SELECTED', updatedAt: now }, quote.version ?? 1),
@@ -208,6 +209,7 @@ export class TransactionService {
       createdAt: now,
       updatedAt: now,
     };
+    Object.assign(tx, gsi1.txStatus(tx));
     const ops: WriteOp[] = [
       putVersioned({ ...listing, status: 'MATCHED', activeTransactionId: transactionId, lastEndedDeal: undefined, updatedAt: now }, listing.version ?? 1),
       putVersioned(tx, 0),
@@ -446,9 +448,10 @@ export class TransactionService {
 
   // ------------------------------------------------------------------ Admin (T13.3)
 
+  /** Tranh chấp đang mở, chờ lâu nhất trước (QĐ-08: Admin quyết trong 7 ngày). */
   async listDisputed() {
-    const all = await this.table.query<Transaction>('TX#STATUS#DISPUTED', { index: 'gsi1', ascending: false });
-    return all.filter((t) => t.status === 'DISPUTED');
+    const all = await this.table.query<Transaction>(gsi1.txStatusPk('DISPUTED'), { index: 'gsi1' });
+    return all.filter((t) => t.status === 'DISPUTED').sort((a, b) => (a.dispute?.at ?? '').localeCompare(b.dispute?.at ?? ''));
   }
 
   resolveDispute(adminId: string, transactionId: string, input: Record<string, unknown>) {
@@ -631,12 +634,8 @@ export class TransactionService {
       if (!tx) throw notFound('giao dịch');
       const now = this.clock.now().toISOString();
       const next: Transaction = { ...fn(tx, now), updatedAt: now };
-      // Hàng đợi tranh chấp cho Admin
-      if (next.status === 'DISPUTED') Object.assign(next, { gsi1pk: 'TX#STATUS#DISPUTED', gsi1sk: now });
-      else {
-        delete next.gsi1pk;
-        delete next.gsi1sk;
-      }
+      // Admin lọc giao dịch theo trạng thái (K1) — gồm cả hàng đợi tranh chấp TX#STATUS#DISPUTED
+      Object.assign(next, gsi1.txStatus(next));
 
       const resolvedActor: Actor = actor ?? (tx.ownerId === actorId ? 'OWNER' : 'PARTNER');
       // Hủy / thất bại do hai bên (không phải Admin kết luận tranh chấp) → dữ liệu chống né phí (QĐ-39)

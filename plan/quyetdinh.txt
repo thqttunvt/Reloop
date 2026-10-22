@@ -345,6 +345,7 @@ QĐ-27  [ĐÃ ĐIỀU CHỈNH theo code] Lưu trữ. Bản cũ: "ảnh Listing x
            để tiết kiệm; tin mở tối đa 7 ngày nên ảnh còn ≈ 80 ngày sau khi tin kết thúc); multipart dở dang hủy sau 1 ngày.
          • DynamoDB TTL (thuộc tính ttl): thông báo 90 ngày; lượt AI theo ngày 2 ngày; cờ ảnh lúc upload 3 ngày.
          • Giao dịch, sự kiện, đánh giá, phí, hóa đơn, vi phạm, báo cáo, chat: giữ, không tự xóa.
+         • Nhật ký thao tác Admin (AUDIT#<tháng>, 2026-10-22): giữ, không tự xóa (PO chốt — get.md mục 5).
          • CHƯA có xóa tài khoản / ẩn danh hóa trong code.
        • Điều khoản trên web ghi đúng: "ảnh tin đăng được xóa 90 ngày sau khi tải lên".
 

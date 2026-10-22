@@ -6,7 +6,7 @@ Dùng:  AWS_PROFILE=reloop AWS_REGION=ap-southeast-1 python scripts/smoke-aws.py
        Mặc định GIỮ dữ liệu test trên web (nhóm dùng để test / fix bug). --cleanup: tạm ngừng tài khoản test
        → tin test ẩn khỏi Chợ (không xóa gì).
 """
-import json, os, struct, subprocess, sys, tempfile, urllib.request, uuid, zlib
+import json, os, struct, subprocess, sys, tempfile, urllib.parse, urllib.request, uuid, zlib
 
 sys.stdout.reconfigure(encoding='utf-8')  # console Windows (cp1252) không in được tiếng Việt
 
@@ -23,9 +23,10 @@ def call(method, path, user, body=None, groups=None, idem=False):
     headers = {'content-type': 'application/json'}
     if idem:
         headers['idempotency-key'] = uuid.uuid4().hex
+    path, _, qs = path.partition('?')
     event = {
-        'version': '2.0', 'rawPath': path, 'rawQueryString': '', 'headers': headers,
-        'queryStringParameters': {},
+        'version': '2.0', 'rawPath': path, 'rawQueryString': qs, 'headers': headers,
+        'queryStringParameters': dict(urllib.parse.parse_qsl(qs)),
         'body': json.dumps(body) if body is not None else None,
         'requestContext': {'http': {'method': method, 'path': path}, 'authorizer': {'jwt': {'claims': claims}}},
     }
@@ -134,6 +135,59 @@ s, b = call('POST', f"/transactions/{deal['transactionId']}/cancel/confirm", OWN
 check('cancel chat deal', s == 200 and b['status'] == 'CANCELLED', b)
 s, b = call('GET', '/notifications/unread-count', PARTNER)
 check('notifications', s == 200 and b['count'] >= 3, b)
+
+# B6 (get.md): giao dịch đi tới HOÀN TẤT → phí 10.000đ, tin COMPLETED, đánh giá; GSI1 TX#STATUS# đổi theo (K1)
+AD = dict(groups=['Admins'])
+s, offer = call('POST', f"/conversations/{bconv['conversationId']}/offers", BUYER, {'price': 130000})
+s, deal = call('POST', f"/conversations/{bconv['conversationId']}/offers/{offer['offerId']}/accept", OWNER, idem=True)
+txid = deal.get('transactionId')
+s, b = call('GET', '/admin/transactions?status=HANDOVER_PENDING', ADMIN, **AD)
+check('admin: transaction listed by status (GSI1 TX#STATUS#)', s == 200 and any(t['transactionId'] == txid for t in b['items']), b)
+s, b = call('POST', f'/transactions/{txid}/confirm-completion', OWNER, {'finalPrice': 130000})
+check('seller confirms final price', s == 200 and b['status'] == 'AWAITING_COUNTERPARTY', b)
+s, b = call('POST', f'/transactions/{txid}/confirm-completion', BUYER, {})
+check('buyer accepts -> COMPLETED', s == 200 and b['status'] == 'COMPLETED' and b['finalPrice'] == 130000, b)
+s, d = call('GET', f'/listings/{lid}', OWNER)
+check('listing COMPLETED', s == 200 and d['listing']['status'] == 'COMPLETED', d.get('listing', {}).get('status'))
+s, bill = call('GET', '/billing/me', OWNER)
+check('fee line 10.000đ for seller', s == 200 and any(l['transactionId'] == txid and l['amount'] == 10000 for l in bill['currentMonth']['lines']), bill.get('currentMonth'))
+s, b = call('POST', f'/transactions/{txid}/review', BUYER, {'rating': 5, 'comment': 'smoke'})
+check('buyer reviews seller', s == 201, b)
+s, b = call('GET', '/admin/transactions?status=COMPLETED', ADMIN, **AD)
+check('admin: completed transaction moved to COMPLETED', s == 200 and any(t['transactionId'] == txid for t in b['items']), b)
+
+# B6: nhánh TRANH CHẤP → Admin kết luận thất bại → tin mở lại
+IMG2 = upload_png(OWNER)
+s, lst2 = call('POST', '/listings', OWNER, {
+    'title': '[TEST] smoke dispute', 'category': 'LAPTOP', 'condition': 'NOT_WORKING', 'unit': 'PER_DEVICE', 'quantity': 1, 'description': 'smoke test dispute',
+    'handoverMethods': ['DROP_OFF'], 'location': {'lat': SEA['lat'] + 0.01, 'lng': SEA['lng'], 'address': 'test'}, 'area': 'Test', 'imageKeys': [IMG2]}, idem=True)
+lid2 = lst2.get('listingId')
+s, c2 = call('POST', f'/listings/{lid2}/conversations', BUYER, {})
+s, offer = call('POST', f"/conversations/{c2['conversationId']}/offers", BUYER, {'price': 90000})
+s, deal = call('POST', f"/conversations/{c2['conversationId']}/offers/{offer['offerId']}/accept", OWNER, idem=True)
+tx2 = deal.get('transactionId')
+call('POST', f'/transactions/{tx2}/confirm-completion', OWNER, {'finalPrice': 90000})
+s, b = call('POST', f'/transactions/{tx2}/dispute', BUYER, {'reason': 'smoke test: giá cuối sai'})
+check('buyer disputes -> DISPUTED', s == 200 and b['status'] == 'DISPUTED', b)
+s, b = call('GET', '/admin/disputes', ADMIN, **AD)
+check('admin dispute queue', s == 200 and any(t['transactionId'] == tx2 for t in b['items']), b)
+s, b = call('POST', f'/admin/transactions/{tx2}/resolve', ADMIN, {'outcome': 'FAILED', 'note': 'smoke test'}, **AD)
+s2, d = call('GET', f'/listings/{lid2}', OWNER)
+check('admin resolves FAILED -> listing reopens', s == 200 and b['status'] == 'FAILED' and d['listing']['status'] == 'ACTIVE', [b, d.get('listing', {}).get('status')])
+
+# API trang Admin mới (get.md A1–A6)
+s, b = call('GET', '/admin/audit', ADMIN, **AD)
+check('admin: audit log has the resolve', s == 200 and any(e['routePath'] == '/admin/transactions/{id}/resolve' and e['params'].get('id') == tx2 for e in b['items']), b)
+s, b = call('GET', f'/admin/users/{OWNER}', ADMIN, **AD)
+check('admin: member detail', s == 200 and b['partner']['partnerId'] == OWNER and any(t['transactionId'] == txid for t in b['transactions']['items']), b)
+s, b = call('GET', '/admin/users', ADMIN, **AD)
+check('admin: member list (GSI1 ROLE#Owner)', s == 200 and isinstance(b['items'], list), b)
+s, b = call('GET', '/admin/listings', ADMIN, **AD)
+check('admin: listings by month', s == 200 and b['timezone'] == 'UTC', b)
+s, b = call('GET', '/admin/reports?status=RESOLVED', ADMIN, **AD)
+check('admin: resolved reports', s == 200 and isinstance(b['items'], list), b)
+s, b = call('GET', '/admin/stats', ADMIN, **AD)
+check('admin: month stats', s == 200 and b['month']['completedTransactions'] >= 1, b)
 
 # Mặc định GIỮ dữ liệu test. --cleanup: KHÔNG gỡ tin (vừa hủy giao dịch → gỡ trong 72 giờ bị tính phí nghi bán ngoài,
 # QĐ-39); tạm ngừng tài khoản test → tin tự ẩn khỏi Chợ (QĐ-40), mở lại được ở trang Admin.

@@ -1,7 +1,8 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import type { AuthProvider, Principal } from '../auth/auth';
-import type { Clock } from '../shared/clock';
+import { vnMonth, type Clock } from '../shared/clock';
 import { AppError, badRequest, unauthenticated } from '../shared/errors';
+import { newId } from '../shared/ids';
 import { keys } from '../store/keys';
 import { ConditionFailedError, putNew, putVersioned, type Item, type Table } from '../store/table';
 import { log } from './log';
@@ -21,9 +22,14 @@ export interface AuthedContext extends RequestContext {
   principal: Principal;
 }
 
+/** write: thao tác của Admin · pii-read: Admin xem dữ liệu cá nhân (NĐ 13/2023). */
+export type AuditKind = 'write' | 'pii-read';
+
 export interface HandlerResult {
   status?: number;
   body: unknown;
+  /** Handler tự quyết có ghi nhật ký không (vd Admin xem giao dịch của người khác) — ưu tiên hơn cờ trên route. */
+  audit?: AuditKind;
 }
 
 export type Route =
@@ -36,6 +42,8 @@ export type Route =
       idempotent?: boolean;
       /** Vẫn dùng được khi tài khoản bị khóa do nợ phí quá hạn (xem hóa đơn, thông báo… — QĐ-40). */
       allowWhenLocked?: boolean;
+      /** Ghi nhật ký Admin. Mọi POST /admin/* mặc định là 'write'. */
+      audit?: AuditKind;
       handle: (ctx: AuthedContext) => Promise<HandlerResult>;
     };
 
@@ -113,6 +121,8 @@ export function createApiHandler(deps: { routes: Route[]; auth: AuthProvider; ta
         if (deps.guard && !route.allowWhenLocked) await deps.guard(principal, route);
         const authed: AuthedContext = { ...ctx, principal };
         result = route.idempotent ? await runIdempotent(deps.table, authed, route.handle) : await route.handle(authed);
+        const kind = result.audit ?? route.audit ?? (method === 'POST' && route.path.startsWith('/admin/') ? 'write' : undefined);
+        if (kind && (result.status ?? 200) < 400) await writeAudit(deps, authed, route.path, kind, result.status ?? 200);
       }
       status = result.status ?? 200;
       return json(status, result.body);
@@ -129,6 +139,38 @@ export function createApiHandler(deps: { routes: Route[]; auth: AuthProvider; ta
       log('info', 'request', { method, path, status, userId: principal?.userId, ms: Date.now() - started });
     }
   };
+}
+
+/** Chỉ các field này của body được ghi vào nhật ký — không bao giờ ghi body thô (có thể chứa token, STK). */
+const AUDIT_FIELDS = ['approve', 'note', 'action', 'outcome', 'finalPrice', 'waive', 'month', 'status'];
+
+/**
+ * Nhật ký Admin (get.md 2.2): ghi SAU khi thao tác đã thành công. Lỗi ghi không đổi response (thao tác đã commit)
+ * → log `audit_write_failed` (metric + alarm AuditWriteFailed).
+ */
+async function writeAudit(deps: { table: Table; clock: Clock }, ctx: AuthedContext, routePath: string, kind: AuditKind, status: number) {
+  const now = deps.clock.now();
+  const at = now.toISOString();
+  const fields = Object.fromEntries(AUDIT_FIELDS.filter((f) => ctx.body[f] !== undefined).map((f) => [f, ctx.body[f]]));
+  try {
+    await deps.table.transact([
+      putNew({
+        ...keys.audit(vnMonth(now), at, newId()),
+        kind,
+        adminId: ctx.principal.userId,
+        groups: ctx.principal.groups,
+        method: ctx.method,
+        routePath,
+        params: ctx.params,
+        query: ctx.query,
+        fields,
+        status,
+        at,
+      }),
+    ]);
+  } catch (err) {
+    log('error', 'audit_write_failed', { routePath, adminId: ctx.principal.userId, error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 async function runIdempotent(

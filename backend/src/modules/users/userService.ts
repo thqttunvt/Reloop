@@ -1,7 +1,7 @@
 import type { Principal } from '../../auth/auth';
 import type { Clock } from '../../shared/clock';
 import { badRequest, forbidden } from '../../shared/errors';
-import { keys } from '../../store/keys';
+import { gsi1, keys } from '../../store/keys';
 import { withOptimisticRetry } from '../../store/retry';
 import { ConditionFailedError, putVersioned, type Item, type Table } from '../../store/table';
 
@@ -53,6 +53,7 @@ export class UserService {
     const now = this.clock.now().toISOString();
     const profile: UserProfile = {
       ...k,
+      ...gsi1.userRole(principal.userId), // Admin liệt kê người dùng (K3)
       userId: principal.userId,
       email: principal.email,
       roles: ['OWNER'],

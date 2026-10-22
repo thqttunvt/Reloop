@@ -1,5 +1,5 @@
 import { log } from '../../http/log';
-import { HOUR_MS, type Clock } from '../../shared/clock';
+import { HOUR_MS, MONTH_RE, vnMonth, type Clock } from '../../shared/clock';
 import { AppError, badRequest, conflict, notFound } from '../../shared/errors';
 import { shortCode } from '../../shared/ids';
 import { str } from '../../shared/validate';
@@ -90,14 +90,11 @@ export interface Invoice extends Item {
   paidNote?: string;
 }
 
-const VN_OFFSET_MS = 7 * HOUR_MS;
-/** Tháng theo giờ Việt Nam (UTC+7): giao dịch xong 23h ngày 31 vẫn thuộc tháng đó. */
-export const vnMonth = (at: Date | string) => new Date(new Date(at).getTime() + VN_OFFSET_MS).toISOString().slice(0, 7);
+export { vnMonth };
 const previousMonth = (month: string) => {
   const [y, m] = month.split('-').map(Number) as [number, number];
   return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
 };
-const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export class BillingService {
   constructor(

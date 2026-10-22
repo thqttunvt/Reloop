@@ -26,6 +26,7 @@ Tiền **không qua ReLoop**: hai bên thanh toán trực tiếp khi bàn giao. 
 | `docx/readmeall.md` | File này: tổng hợp ngữ cảnh và tiến độ | Đọc đầu tiên |
 | `docx/let.md` | Tóm tắt toàn dự án để lên plan trang quản trị (Admin): quyền, API Admin, hàng đợi, hạn chế | Giao việc trang Admin |
 | `docx/letd.md` | Plan trang Admin mới (giao việc): khóa cần thêm, route con, thứ tự A0 → A6, điểm cần PO quyết | Giao việc trang Admin |
+| `docx/get.md` | **Plan trang Admin bản chốt** (đã đối chiếu code + quyết định PO 2026-10-22) — khác letd.md thì theo file này | Đang làm |
 | `quyetdinh.txt` | **43 quyết định** (QĐ-01 → QĐ-43, TL-xx), đã đối chiếu với code 2026-10-22; QĐ ví / giữ tiền đánh dấu TẠM NGƯNG | **Cao nhất** (sau code) |
 | `devdocx.txt` | Dev doc cho nhóm: cài đặt, quy tắc, phân việc, nhật ký tiến độ cho giảng viên, **mục 9 tra cứu kỹ thuật** (Terraform, env, khóa DynamoDB, chữ ký hàm, 88 API) | Làm việc hằng ngày |
 | `danhgia.txt` | Danh sách lỗi / mâu thuẫn đã rà soát + đề xuất + trạng thái sửa | Theo dõi lỗi |
@@ -100,6 +101,7 @@ Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chi�
 
 **Chưa làm / còn lỗi** (chi tiết `danhgia.txt`, `devdocx.txt` mục 5)
 - Lỗi code còn mở: 12 (lượt AI theo ngày UTC).
+- **Trang Admin mới (get.md) đã deploy 2026-10-22:** A0–A6 + B1, B2, B3, B6 xong (layout riêng /admin/*, menu theo nhóm, Thành viên + hồ sơ gộp, giao dịch theo trạng thái, tin theo tháng, nhật ký Admin, số liệu tháng, nhãn PN1/PN1V/PN2, menu người dùng theo vai trò, "Phản ánh"). Còn: B4 (Google, hoãn), B5 (chờ file logo).
 - **Đã deploy 2026-10-22:** sửa chất lượng AI tiếng Việt + Gemini dự phòng (chưa có key → tắt) + bắt câu lệnh mất dấu + bỏ trang Ví. Chưa thử AI trên ảnh thật.
 - Matching chạy nền (B7), upload bằng chứng tranh chấp (B3), sửa / phản hồi đánh giá (B4), ảnh giấy tờ đối tác (B2), lọc / tìm kiếm Chợ (B5), nút xóa ảnh khi đăng tin (F2), "thu cũ đổi mới" của cấp 2, hướng A chống né phí (hiện chỉ số hủy trên hồ sơ).
 - Hạ tầng: AWS Budgets, CI/CD tự deploy, môi trường prod, WAF, load test thật, Well-Architected Review, tài liệu cuối kỳ.
@@ -110,6 +112,7 @@ Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chi�
 2. Gộp `feature/doi-tac-2-cap` vào `main` (Pull Request) khi nhóm đã test xong.
 3. Người dùng thử trên web dev, báo lỗi; sửa tiếp các mục còn mở trong `danhgia.txt`.
 4. Báo đồng đội tắt / thêm xác thực API `reloop-generate-presigned-url` (đang công khai); bỏ pool Cognito cũ.
+6. Logo mới (get.md B5): chờ PO gửi file SVG. Đăng nhập Google (B4): hoãn.
 5. Thử AI trên ảnh thật: `aws login --profile reloop` rồi `AWS_PROFILE=reloop [GEMINI_API_KEY=...] npx -w backend tsx ../scripts/ai-compare.mts <ảnh>` (ảnh ESP32 + chuột Logitech M650). Quyết định có bật Gemini không (xem rủi ro mục 8) → deploy với `TF_VAR_gemini_api_key`.
 
 ## 8. Rủi ro đang theo dõi
@@ -159,3 +162,4 @@ Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chi�
 | 2026-10-22 | Chat ra giá: ô nhập theo nghìn đồng (50 → 50.000đ, 1000 → 1.000.000đ) + dòng xem trước "= …đ"; nút giá gợi ý 50.000 / 100.000 / 200.000 / 1.000.000 / 2.000.000 (không có đ, bấm để điền). Bong bóng chat vẫn hiện có đ. Đã deploy dev. |
 | 2026-10-22 | Đăng nhập 1 trang: bỏ `ALLOW_USER_AUTH` ở 2 app client (Terraform 0 thêm / 2 sửa / 0 xóa) → managed login hiện Username + Password cùng trang thay vì hỏi từng bước. Sai mật khẩu / sai username đều báo chung "Incorrect username or password" (prevent_user_existence_errors — không lộ tài khoản). |
 | 2026-10-22 | Viết `plan/docx/let.md` (tóm tắt để lên plan trang Admin). Gom các file .md của `plan/` vào `plan/docx/` (readmeall.md, README.md, let.md); sửa đường dẫn trong README gốc, devdocx.txt. README.md gốc giữ ở thư mục gốc (GitHub). |
+| 2026-10-22 | Trang Admin mới theo `plan/docx/get.md` (đã lưu plan + quyết định PO): backend `pageQuery` (store/paging.ts), nhật ký Admin `AUDIT#<tháng>` ghi trong router (mọi POST /admin/* + xem dữ liệu cá nhân, chỉ field cho phép, lỗi ghi → log `audit_write_failed` + alarm), K1 GSI1 `TX#STATUS#` cho giao dịch, K3 `ROLE#Owner` khi getOrCreate, `AdminService` (thành viên, hồ sơ gộp, giao dịch, tin theo tháng UTC, số liệu tháng). Frontend: `/admin/*` layout riêng + 8 nhóm menu + badge, `usePagedList` / `<PagedTable>`, nhãn PN1/PN1V/PN2, menu người dùng theo vai trò (Giao dịch / Hồ sơ / Đăng xuất vào menu thả xuống), "Báo cáo" → "Phản ánh". smoke-aws.py thêm nhánh hoàn tất + tranh chấp + API Admin. 156 test. Deploy dev (Terraform 2 thêm / 1 sửa / 0 xóa). Sửa nhãn trạng thái bị kéo dài ở danh sách giao dịch. QĐ-27 thêm dòng nhật ký Admin. |

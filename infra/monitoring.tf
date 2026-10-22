@@ -41,6 +41,8 @@ resource "aws_cloudwatch_log_metric_filter" "business" {
     AiFailures      = "{ $.msg = \"ai_analysis_failed\" }"
     # Gemini lỗi / hết hạn mức → chuyển sang Bedrock (theo dõi tần suất dự phòng)
     AiFallbacks = "{ $.msg = \"ai_fallback\" }"
+    # Ghi nhật ký Admin lỗi (thao tác vẫn thành công) — get.md 2.2
+    AuditWriteFailed = "{ $.msg = \"audit_write_failed\" }"
     NotifyFailures  = "{ $.msg = \"notify_failed\" }"
     ImagesRejected  = "{ $.msg = \"image_rejected\" }"
     # QĐ-36: ảnh có chữ bị gắn cờ / tin phải chờ Admin duyệt
@@ -129,6 +131,7 @@ resource "aws_cloudwatch_metric_alarm" "business" {
     UnhandledErrors = "Lỗi hệ thống chưa xử lý trong backend"
     TimerFailures   = "Job nền (hết hạn tin / tự hoàn tất) lỗi"
     AiFailures      = "AI phân tích ảnh lỗi liên tục (Bedrock?)"
+    AuditWriteFailed = "Không ghi được nhật ký thao tác Admin — thao tác đã chạy nhưng thiếu dòng nhật ký"
   }
   alarm_name          = "${local.name_prefix}-${each.key}"
   alarm_description   = each.value

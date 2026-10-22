@@ -97,6 +97,10 @@ export const keys = {
   aiLabel: (month: string, at: string, listingId: string) => ({ pk: `AILABEL#${month}`, sk: `${at}#${listingId}` }),
   aiLabelPk: (month: string) => `AILABEL#${month}`,
 
+  /** Nhật ký thao tác Admin (get.md 2.2): ngăn theo tháng giờ VN, giữ lâu dài (không TTL). */
+  audit: (month: string, at: string, id: string) => ({ pk: `AUDIT#${month}`, sk: `${at}#${id}` }),
+  auditPk: (month: string) => `AUDIT#${month}`,
+
   // Thông báo
   notification: (userId: string, at: string, id: string) => ({ pk: `USER#${userId}`, sk: `NOTIF#${at}#${id}` }),
   notificationPk: (userId: string) => `USER#${userId}`,
@@ -113,4 +117,13 @@ export const gsi1 = {
   /** Tin đăng của một Owner, mới nhất trước. */
   ownerListing: (ownerId: string, at: string) => ({ gsi1pk: `OWNER#${ownerId}`, gsi1sk: `LISTING#${at}` }),
   ownerListingPk: (ownerId: string) => `OWNER#${ownerId}`,
+  /** Mọi người dùng — Lambda đăng ký của nhóm ghi sẵn dạng này cho hồ sơ Cognito; getOrCreate ghi giống vậy (K3). */
+  userRole: (userId: string) => ({ gsi1pk: 'ROLE#Owner', gsi1sk: `USER#${userId}` }),
+  usersPk: () => 'ROLE#Owner',
+  /** Giao dịch theo trạng thái cho Admin (K1); sort key duy nhất. */
+  txStatus: (tx: { status: string; createdAt: string; transactionId: string }) => ({
+    gsi1pk: `TX#STATUS#${tx.status}`,
+    gsi1sk: `${tx.createdAt}#${tx.transactionId}`,
+  }),
+  txStatusPk: (status: string) => `TX#STATUS#${status}`,
 };

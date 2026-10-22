@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   api,
   type Branch,
@@ -12,10 +12,11 @@ import {
   type RiskFlag,
   type Seller,
   type Transaction,
-} from '../lib/api';
-import { BUSINESS_TYPE_LABEL, CATEGORY_LABEL, PARTNER_STATUS_LABEL, PARTNER_TIER_LABEL, PARTY_LABEL, statusTone, tierOf } from '../lib/catalog';
-import { dateTime, errorText, vnd } from '../lib/format';
-import { loadSession } from '../lib/session';
+} from '../../lib/api';
+import { BUSINESS_TYPE_LABEL, CATEGORY_LABEL, PARTNER_STATUS_LABEL, PARTNER_TIER_LABEL, PARTY_LABEL, statusTone, tierOf } from '../../lib/catalog';
+import { dateTime, errorText, vnd } from '../../lib/format';
+import { loadSession } from '../../lib/session';
+import { partnerLabel } from '../../lib/role';
 
 /** Thao tác tiền (Đã thu, Lập hóa đơn, Miễn / Giữ phí) cần quyền admin_finance — người khác chỉ xem (TL-05, mục 6 danhgia). */
 type ReportAction = 'DISMISS' | 'WARN' | 'HIDE_AND_WARN' | 'HIDE_AND_SUSPEND' | 'SUSPEND';
@@ -48,24 +49,18 @@ const FINANCE_NOTE = 'Cần quyền Admin tài chính (FinanceAdmins) để thao
 
 type PartnerRow = Partner & { applicant: { email?: string; fullName?: string }; branches: Branch[] };
 
-export function AdminPage() {
-  return (
-    <div className="stack">
-      <StatsAdmin />
-      <ListingReviewAdmin />
-      <InvoicesAdmin />
-      <FeeAppealsAdmin />
-      <RiskFlagsAdmin />
-      <PartnersAdmin />
-      <DisputesAdmin />
-      <ReportsAdmin />
-    </div>
-  );
+/** Tên người → hồ sơ gộp ở mục Thành viên (get.md A2). */
+const UserLink = ({ id, children }: { id: string; children: React.ReactNode }) => <Link to={`/admin/users/${encodeURIComponent(id)}`}>{children}</Link>;
+
+/** Bộ lọc nằm trên URL (?status=) để F5 / gửi link vẫn giữ (get.md A0). */
+function useStatusParam<S extends string>(fallback: S): [S, (s: S) => void] {
+  const [params, setParams] = useSearchParams();
+  return [(params.get('status') as S | null) ?? fallback, (s) => setParams({ status: s }, { replace: true })];
 }
 
 /** Duyệt / tạm ngừng đối tác (T14.1). */
-function PartnersAdmin() {
-  const [status, setStatus] = useState<PartnerStatus>('PENDING');
+export function PartnersAdmin() {
+  const [status, setStatus] = useStatusParam<PartnerStatus>('PENDING');
   const [items, setItems] = useState<PartnerRow[]>([]);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -112,11 +107,13 @@ function PartnersAdmin() {
         return (
         <div key={p.partnerId} className="quote">
           <div className="row between">
-            <strong>{p.businessName}</strong>
+            <strong>
+              <UserLink id={p.partnerId}>{p.businessName}</UserLink>
+            </strong>
             <span className={`badge ${statusTone(p.status)}`}>{PARTNER_STATUS_LABEL[p.status]}</span>
           </div>
           <div>
-            <span className="badge">{PARTNER_TIER_LABEL[tierOf(p)]}</span>
+            {partnerLabel(p) && <span className="badge ok">{partnerLabel(p)}</span>} <span className="badge">{PARTNER_TIER_LABEL[tierOf(p)]}</span>
             {p.businessType && <span className="muted"> · {BUSINESS_TYPE_LABEL[p.businessType]}</span>}
           </div>
           <div className="muted">
@@ -163,7 +160,7 @@ function PartnersAdmin() {
 }
 
 /** Tranh chấp (T13.3): Admin kết luận hoàn tất (kèm giá cuối) hoặc thất bại. */
-function DisputesAdmin() {
+export function DisputesAdmin() {
   const [items, setItems] = useState<Transaction[]>([]);
   const [form, setForm] = useState<Record<string, { note: string; price: string }>>({});
   const [error, setError] = useState('');
@@ -209,7 +206,14 @@ function DisputesAdmin() {
               <span className="muted">{t.partnerName}</span>
             </div>
             <span>
-              Giá thỏa thuận {vnd(t.agreedPrice)} · {PARTY_LABEL[t.dispute!.by]} khiếu nại {dateTime(t.dispute!.at)}: {t.dispute!.reason}
+              Giá thỏa thuận {vnd(t.agreedPrice)} · {PARTY_LABEL[t.dispute!.by]} khiếu nại {dateTime(t.dispute!.at)}: {t.dispute!.reason}{' '}
+              {(() => {
+                const days = Math.floor((Date.now() - Date.parse(t.dispute!.at)) / 86_400_000);
+                return <span className={`badge ${days >= 5 ? 'bad' : 'warn'}`}>đã chờ {days} / 7 ngày</span>;
+              })()}
+            </span>
+            <span className="muted small">
+              Người bán: <UserLink id={t.ownerId}>{t.ownerId}</UserLink> · Người mua: <UserLink id={t.partnerId}>{t.partnerName}</UserLink>
             </span>
             <div className="row">
               <input placeholder="Kết luận của Admin" value={f.note} onChange={(e) => set({ note: e.target.value })} />
@@ -228,61 +232,13 @@ function DisputesAdmin() {
   );
 }
 
-function StatsAdmin() {
-  const [stats, setStats] = useState<{
-    partners: Record<string, number>;
-    openDisputes: number;
-    openReports: number;
-    pendingListings?: number;
-    riskFlags?: number;
-    feeAppeals?: number;
-  } | null>(null);
-  useEffect(() => {
-    api<NonNullable<typeof stats>>('GET', '/admin/stats').then(setStats).catch(() => undefined);
-  }, []);
-  if (!stats) return null;
-  return (
-    <section className="card">
-      <h2>Tổng quan</h2>
-      <div className="tiles">
-        {Object.entries(stats.partners).map(([k, v]) => (
-          <div key={k} className="tile">
-            <span className="muted">Đối tác {PARTNER_STATUS_LABEL[k]?.toLowerCase()}</span>
-            <strong>{v}</strong>
-          </div>
-        ))}
-        <div className="tile">
-          <span className="muted">Tin chờ duyệt (ảnh bị gắn cờ)</span>
-          <strong>{stats.pendingListings ?? 0}</strong>
-        </div>
-        <div className="tile">
-          <span className="muted">Tranh chấp đang mở</span>
-          <strong>{stats.openDisputes}</strong>
-        </div>
-        <div className="tile">
-          <span className="muted">Báo cáo vi phạm chờ xử lý</span>
-          <strong>{stats.openReports}</strong>
-        </div>
-        <div className="tile">
-          <span className="muted">Khiếu nại phí chờ xử lý</span>
-          <strong>{stats.feeAppeals ?? 0}</strong>
-        </div>
-        <div className="tile">
-          <span className="muted">Người dùng bị gắn cờ</span>
-          <strong>{stats.riskFlags ?? 0}</strong>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 type ReviewItem = { listing: Listing; seller: Seller; images: string[] };
 
 /**
  * Tin có ảnh bị gắn cờ chữ bất thường (QĐ-36): Admin xem ảnh + chữ hệ thống đọc được, duyệt hoặc từ chối.
  * Cam kết xử lý trong 1–3 ngày; tin chờ lâu nhất ở trên cùng.
  */
-function ListingReviewAdmin() {
+export function ListingReviewAdmin() {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -321,7 +277,7 @@ function ListingReviewAdmin() {
               <span className={`badge ${days >= 3 ? 'bad' : 'warn'}`}>{days === 0 ? 'hôm nay' : `chờ ${days} ngày`}</span>
             </div>
             <span className="muted">
-              {seller.displayName} · {seller.contact?.email} · gửi {dateTime(l.createdAt)} · {l.area}
+              <UserLink id={l.ownerId}>{seller.displayName}</UserLink> · {seller.contact?.email} · gửi {dateTime(l.createdAt)} · {l.area}
             </span>
             <span>{l.description}</span>
             {l.review?.images.map((f) => (
@@ -375,8 +331,8 @@ function ListingReviewAdmin() {
  * Hóa đơn phí dịch vụ (QĐ-37): đối chiếu chuyển khoản theo mã RLF… rồi bấm "Đã thu" (cần quyền admin_finance).
  * Lập hóa đơn tay cho tháng đã kết thúc (job nền tự chạy ngày 1 hằng tháng).
  */
-function InvoicesAdmin() {
-  const [status, setStatus] = useState<'ISSUED' | 'PAID'>('ISSUED');
+export function InvoicesAdmin() {
+  const [status, setStatus] = useStatusParam<'ISSUED' | 'PAID'>('ISSUED');
   const [items, setItems] = useState<Invoice[]>([]);
   const [month, setMonth] = useState('');
   const [msg, setMsg] = useState('');
@@ -432,7 +388,9 @@ function InvoicesAdmin() {
           <tbody>
             {items.map((i) => (
               <tr key={`${i.userId}-${i.month}`}>
-                <td>{i.partnerName ?? i.userId}</td>
+                <td>
+                  <UserLink id={i.userId}>{i.partnerName ?? i.userId}</UserLink>
+                </td>
                 <td>{i.month}</td>
                 <td className="num">{i.transactionCount}</td>
                 <td className="num">{vnd(i.amount)}</td>
@@ -479,8 +437,8 @@ function InvoicesAdmin() {
   );
 }
 
-/** Báo cáo vi phạm (T14.5). */
-function ReportsAdmin() {
+/** Phản ánh vi phạm (T14.5). */
+export function ReportsAdmin() {
   const [items, setItems] = useState<Report[]>([]);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -516,13 +474,13 @@ function ReportsAdmin() {
 
   return (
     <section className="card">
-      <h2>Báo cáo vi phạm</h2>
+      <h2>Phản ánh vi phạm đang mở</h2>
       <p className="muted small">
         Chọn mức xử lý theo mức độ. Người vi phạm nhận thông báo kèm lý do; mỗi lần xử lý (trừ Bỏ qua) tính 1 vi phạm — đủ 5 lần / 30 ngày sẽ vào danh
         sách cờ. Tạm ngừng bắt buộc có lý do.
       </p>
       {error && <p className="error">{error}</p>}
-      {items.length === 0 && <p className="muted">Không có báo cáo chờ xử lý.</p>}
+      {items.length === 0 && <p className="muted">Không có phản ánh chờ xử lý.</p>}
       {items.map((r) => {
         const v = r.violator;
         const note = notes[r.reportId] ?? '';
@@ -540,11 +498,13 @@ function ReportsAdmin() {
               <span className="muted">{dateTime(r.createdAt)}</span>
             </div>
             <span>
-              Lý do báo cáo: <em>{r.reason}</em>
+              Lý do phản ánh: <em>{r.reason}</em>
             </span>
             {v ? (
               <span>
-                Người vi phạm: <strong>{v.name}</strong>{' '}
+                Người vi phạm: <strong>
+                  <UserLink id={v.userId}>{v.name}</UserLink>
+                </strong>{' '}
                 <span className={`badge ${v.violations30d >= 3 ? 'bad' : v.violations30d > 0 ? 'warn' : 'ok'}`}>{v.violations30d} vi phạm / 30 ngày</span>
                 {v.partnerStatus === 'SUSPENDED' && <span className="badge bad">đang tạm ngừng</span>}
               </span>
@@ -599,7 +559,7 @@ function ReportsAdmin() {
 type AppealRow = FeeLine & { userId: string; partnerName?: string };
 
 /** Khiếu nại phí nghi bán ngoài (QĐ-39): Admin tài chính miễn hoặc giữ phí. */
-function FeeAppealsAdmin() {
+export function FeeAppealsAdmin() {
   const [items, setItems] = useState<AppealRow[]>([]);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState('');
@@ -642,7 +602,7 @@ function FeeAppealsAdmin() {
         items.map((a) => (
           <div key={`${a.userId}-${a.transactionId}`} className="quote">
             <strong>
-              {a.partnerName ?? a.userId} · {a.listingTitle}
+              <UserLink id={a.userId}>{a.partnerName ?? a.userId}</UserLink> · {a.listingTitle}
             </strong>
             <span className="muted">
               Tháng {a.month} · gỡ tin {dateTime(a.completedAt)} · khiếu nại {a.appeal && dateTime(a.appeal.at)} ·{' '}
@@ -683,7 +643,7 @@ const VIOLATION_LABEL: Record<string, string> = {
 const DEAL_END_LABEL: Record<string, string> = { CANCELLED: 'hủy', FAILED: 'thất bại' };
 
 /** Cờ "nghi né phí" (QĐ-39): nhiều lần hủy với cùng người mua, hoặc hủy rồi gỡ tin nhiều lần. */
-function RiskFlagsAdmin() {
+export function RiskFlagsAdmin() {
   const [items, setItems] = useState<RiskFlag[]>([]);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -721,7 +681,9 @@ function RiskFlagsAdmin() {
       ) : (
         items.map((f) => (
           <div key={f.userId} className="quote">
-            <strong>{f.sellerName ?? f.userId}</strong>
+            <strong>
+              <UserLink id={f.userId}>{f.sellerName ?? f.userId}</UserLink>
+            </strong>
             <span className="muted">Gắn cờ {dateTime(f.openedAt)}</span>
             <ul>
               {f.reasons.map((r) => (

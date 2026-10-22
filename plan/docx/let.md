@@ -89,6 +89,13 @@ Ngoài trang: **chuông thông báo** có hộp thư chung Admin (`ADMINS`, mộ
 | GET | `/admin/disputes` | admin | Giao dịch DISPUTED |
 | POST | `/admin/transactions/{id}/resolve` | admin | `{ outcome: COMPLETED/FAILED, finalPrice?, note }` |
 | GET | `/transactions/{id}` | admin xem được mọi giao dịch | `role: 'ADMIN'` khi không phải 1 trong 2 bên |
+| GET | `/admin/reports?status=OPEN|RESOLVED&cursor=` | admin | RESOLVED: lịch sử phân trang (2026-10-22) |
+| GET | `/admin/audit?month=&cursor=` | admin | Nhật ký thao tác Admin (tháng giờ VN) |
+| GET | `/admin/users?cursor=` · `?email=` | admin | Thành viên (GSI1 `ROLE#Owner`) / tìm email |
+| GET | `/admin/users/{id}` | admin, ghi nhật ký `pii-read` | Hồ sơ gộp 1 người |
+| GET | `/admin/transactions?status=&cursor=` | admin | Giao dịch theo trạng thái (GSI1 `TX#STATUS#`) |
+| GET | `/admin/listings?month=&status=&cursor=` | admin | Tin theo tháng UTC (`FEED#`) |
+| GET | `/admin/stats?month=` | admin | Thêm `month`: giao dịch hoàn tất, phí phát sinh / lập / thu |
 
 ### Hàng đợi / truy vấn có sẵn (không Scan)
 

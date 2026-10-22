@@ -69,15 +69,17 @@ export const quoteMachine = createMachine<QuoteStatus>('Quote', [
 ]);
 
 // ---------------------------------------------------------------- Transaction (quyetdinh mục 5)
-export type TransactionStatus =
-  | 'AWAITING_PAYMENT'
-  | 'HANDOVER_PENDING'
-  | 'PRICE_ADJUSTMENT_PENDING'
-  | 'AWAITING_COUNTERPARTY'
-  | 'COMPLETED'
-  | 'CANCELLED'
-  | 'FAILED'
-  | 'DISPUTED';
+export const TRANSACTION_STATUSES = [
+  'AWAITING_PAYMENT',
+  'HANDOVER_PENDING',
+  'PRICE_ADJUSTMENT_PENDING',
+  'AWAITING_COUNTERPARTY',
+  'COMPLETED',
+  'CANCELLED',
+  'FAILED',
+  'DISPUTED',
+] as const;
+export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 export const transactionMachine = createMachine<TransactionStatus>('Transaction', [
   { from: 'AWAITING_PAYMENT', to: 'HANDOVER_PENDING', actors: ['SYSTEM'] }, // ví đã giữ tiền
   { from: 'AWAITING_PAYMENT', to: 'CANCELLED', actors: ['SYSTEM', 'OWNER', 'PARTNER'] }, // quá 12h / hủy

@@ -1,5 +1,6 @@
 import { requireGroup } from '../auth/auth';
 import { badRequest } from '../shared/errors';
+import type { AdminService } from '../modules/admin/adminService';
 import type { AiService } from '../modules/ai/aiService';
 import type { BillingService, InvoiceStatus } from '../modules/billing/billingService';
 import type { ChatService } from '../modules/chat/chatService';
@@ -21,6 +22,7 @@ import type { TextScreener } from '../storage/textScreener';
 import type { Route } from './router';
 
 export interface Services {
+  admin: AdminService;
   users: UserService;
   wallet: WalletService;
   billing: BillingService;
@@ -339,7 +341,11 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/transactions/{id}',
       auth: 'required',
-      handle: async (c) => ({ body: await s.transactions.get(c.principal.userId, c.params.id!, c.principal.groups.includes('admin')) }),
+      handle: async (c) => {
+        const detail = await s.transactions.get(c.principal.userId, c.params.id!, c.principal.groups.includes('admin'));
+        // Admin xem giao dịch của người khác (liên hệ, địa chỉ) → ghi nhật ký (NĐ 13/2023)
+        return { body: detail, audit: detail.role === 'ADMIN' ? 'pii-read' : undefined };
+      },
     },
     {
       method: 'PUT',
@@ -653,6 +659,7 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/admin/listings/{id}/chats',
       auth: 'required',
+      audit: 'pii-read',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
         return { body: await s.chat.adminListingChats(c.principal.userId, c.params.id!) };
@@ -723,12 +730,64 @@ export function apiRoutes(s: Services): Route[] {
       },
     },
     {
+      // OPEN: hàng đợi (như cũ) · RESOLVED: lịch sử, phân trang (get.md A1)
       method: 'GET',
       path: '/admin/reports',
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
-        return { body: { items: await s.reports.listOpenDetailed() } };
+        const status = oneOf(c.query.status, ['OPEN', 'RESOLVED'] as const, 'OPEN');
+        return { body: status === 'OPEN' ? { items: await s.reports.listOpenDetailed() } : await s.reports.listResolved(c.query.cursor) };
+      },
+    },
+    {
+      // Nhật ký thao tác Admin theo tháng giờ VN (get.md A5)
+      method: 'GET',
+      path: '/admin/audit',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.admin.listAudit(c.query.month, c.query.cursor) };
+      },
+    },
+    {
+      // Thành viên: phân trang, hoặc tìm theo email (get.md A2)
+      method: 'GET',
+      path: '/admin/users',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: c.query.email !== undefined ? await s.admin.searchUsers(c.query.email) : await s.admin.listUsers(c.query.cursor) };
+      },
+    },
+    {
+      method: 'GET',
+      path: '/admin/users/{id}',
+      auth: 'required',
+      audit: 'pii-read',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.admin.userDetail(c.params.id!) };
+      },
+    },
+    {
+      // Giao dịch theo trạng thái (get.md A3)
+      method: 'GET',
+      path: '/admin/transactions',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.admin.listTransactions(c.query.status, c.query.cursor) };
+      },
+    },
+    {
+      // Tin theo tháng UTC (get.md A4)
+      method: 'GET',
+      path: '/admin/listings',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.admin.listListings(c.query.month, c.query.status, c.query.cursor) };
       },
     },
     {
@@ -750,12 +809,13 @@ export function apiRoutes(s: Services): Route[] {
         const partnerCounts = Object.fromEntries(
           await Promise.all(PARTNER_STATUSES.map(async (st) => [st, (await s.partners.listByStatus(st)).length] as const)),
         );
-        const [disputes, reports, pendingListings, riskFlags, feeAppeals] = await Promise.all([
+        const [disputes, reports, pendingListings, riskFlags, feeAppeals, month] = await Promise.all([
           s.transactions.listDisputed(),
           s.reports.listOpen(),
           s.listings.listPendingReview(),
           s.risk.listOpen(),
           s.billing.listAppeals(),
+          s.admin.monthStats(c.query.month), // số liệu kinh doanh tháng (get.md A6)
         ]);
         return {
           body: {
@@ -765,6 +825,7 @@ export function apiRoutes(s: Services): Route[] {
             pendingListings: pendingListings.length,
             riskFlags: riskFlags.length,
             feeAppeals: feeAppeals.length,
+            month,
           },
         };
       },
