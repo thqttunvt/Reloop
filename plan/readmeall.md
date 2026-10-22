@@ -98,7 +98,7 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 
 **Chưa làm / còn lỗi** (chi tiết `danhgia.txt`, `devdocx.txt` mục 5)
 - Lỗi code còn mở: 12 (lượt AI theo ngày UTC).
-- **Chưa commit / deploy (2026-10-22):** sửa chất lượng AI tiếng Việt + Gemini dự phòng + bắt câu lệnh mất dấu (xem nhật ký). Chưa chạy thật trên ảnh (phiên AWS hết hạn, chưa có Gemini key).
+- **Đã deploy 2026-10-22:** sửa chất lượng AI tiếng Việt + Gemini dự phòng (chưa có key → tắt) + bắt câu lệnh mất dấu + bỏ trang Ví. Chưa thử AI trên ảnh thật.
 - Matching chạy nền (B7), upload bằng chứng tranh chấp (B3), sửa / phản hồi đánh giá (B4), ảnh giấy tờ đối tác (B2), lọc / tìm kiếm Chợ (B5), nút xóa ảnh khi đăng tin (F2), "thu cũ đổi mới" của cấp 2, hướng A chống né phí (hiện chỉ số hủy trên hồ sơ).
 - Hạ tầng: AWS Budgets, CI/CD tự deploy, môi trường prod, WAF, load test thật, Well-Architected Review, tài liệu cuối kỳ.
 
@@ -152,3 +152,4 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 | 2026-10-22 | (phiên sau) Đọc lại toàn bộ code trên nhánh `feature/doi-tac-2-cap` (HEAD 0e1ff1f): 140 test pass, typecheck backend + frontend sạch. Code khớp mục 3–6; không sửa code. `scripts/make-admin.sh` hiện "M" trong git nhưng diff nội dung rỗng (chỉ khác kết thúc dòng). |
 | 2026-10-22 | Sửa AI theo lỗi chạy thật (Nova Pro viết "Chuốt", "Bổ tâng Arduino", "màu máu"): schema thêm 2 trường suy luận đứng đầu (`observedTextAndLabels`, `identifiedComponents`), prompt có bảng từ vựng tiếng Việt + cấm chữ sai + mẫu tiêu đề / mô tả, `sanitizeVietnamese` trong `validateResult` (cụm vô nghĩa bị xóa, không thay bằng màu / tình trạng bịa). Thêm `GeminiAnalyzer` (fetch, `gemini-2.5-flash`) + `FallbackAnalyzer` (lỗi / 429 → Nova Pro, log `ai_fallback` + metric `AiFallbacks`); env `GEMINI_API_KEY` / `GEMINI_MODEL_ID`, Terraform `gemini_api_key` (sensitive). TextScreener: so khớp câu lệnh không dấu trước Guardrail. Sửa danhgia 19. Script `scripts/ai-compare.mts`. 151 test, typecheck, terraform validate OK. Commit b61882f; chưa deploy / chạy thật. |
 | 2026-10-22 | Bỏ ví khỏi website theo yêu cầu PO: xóa menu "Ví (đang fix)", route `/wallet`, `WalletPage.tsx` và kiểu Wallet / LedgerLine / Bucket ở frontend (danhgia 18). Backend ví giữ nguyên. Build web OK. Chưa deploy. |
+| 2026-10-22 | DEPLOY dev (commit 85529c8): terraform apply 1 thêm (metric AiFallbacks) / 1 sửa (Lambda + env GEMINI_*, key còn rỗng → AI chỉ dùng Nova Pro prompt mới) / 0 xóa; web mới (bỏ menu Ví). smoke-aws.py RUN f9f4bc ALL PASS (25 bước, giữ dữ liệu test). Chưa thử AI trên ảnh thật, chưa có Gemini key. |
