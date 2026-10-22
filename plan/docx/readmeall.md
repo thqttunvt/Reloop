@@ -19,11 +19,12 @@ Tiền **không qua ReLoop**: hai bên thanh toán trực tiếp khi bàn giao. 
 - **Cách làm đã chốt:** local-first. Code viết dạng Lambda, gọi dịch vụ qua adapter, nên chạy local và AWS cùng một code.
 - **Người dùng:** Product Owner, giao tiếp tiếng Việt. Claude đóng vai **tech lead**.
 
-## 2. Bản đồ tài liệu (`plan/`)
+## 2. Bản đồ tài liệu (`plan/`, file .md nằm trong `plan/docx/`)
 
 | File | Nội dung | Mức ưu tiên |
 |---|---|---|
-| `readmeall.md` | File này: tổng hợp ngữ cảnh và tiến độ | Đọc đầu tiên |
+| `docx/readmeall.md` | File này: tổng hợp ngữ cảnh và tiến độ | Đọc đầu tiên |
+| `docx/let.md` | Tóm tắt toàn dự án để lên plan trang quản trị (Admin): quyền, API Admin, hàng đợi, hạn chế | Giao việc trang Admin |
 | `quyetdinh.txt` | **43 quyết định** (QĐ-01 → QĐ-43, TL-xx), đã đối chiếu với code 2026-10-22; QĐ ví / giữ tiền đánh dấu TẠM NGƯNG | **Cao nhất** (sau code) |
 | `devdocx.txt` | Dev doc cho nhóm: cài đặt, quy tắc, phân việc, nhật ký tiến độ cho giảng viên, **mục 9 tra cứu kỹ thuật** (Terraform, env, khóa DynamoDB, chữ ký hàm, 88 API) | Làm việc hằng ngày |
 | `danhgia.txt` | Danh sách lỗi / mâu thuẫn đã rà soát + đề xuất + trạng thái sửa | Theo dõi lỗi |
@@ -31,9 +32,9 @@ Tiền **không qua ReLoop**: hai bên thanh toán trực tiếp khi bàn giao. 
 | `giaiphap.txt` | Đề xuất giải pháp cho từng điểm bất cập | Tham khảo (lịch sử) |
 | `baton.txt` | 58 điểm bất cập của spec gốc | Tham khảo (lịch sử) |
 | `ReLoop_Specification_v1.0.docx` | Spec gốc | Gốc, đã bị ghi đè nhiều chỗ |
-| `README.md` | Bản tóm tắt task **đầu tiên**, viết trước buổi hỏi đáp | **Đã lỗi thời** |
+| `docx/README.md` | Bản tóm tắt task **đầu tiên**, viết trước buổi hỏi đáp | **Đã lỗi thời** |
 
-Thứ tự tin cậy: **code > quyetdinh.txt > devdocx.txt > task.txt > giaiphap.txt > spec gốc > plan/README.md**.
+Thứ tự tin cậy: **code > quyetdinh.txt > devdocx.txt > task.txt > giaiphap.txt > spec gốc > plan/docx/README.md**.
 
 ## 3. Hệ thống đang làm gì (theo code 2026-10-22)
 
@@ -70,7 +71,7 @@ Thứ tự tin cậy: **code > quyetdinh.txt > devdocx.txt > task.txt > giaiphap
 
 ## 4. Kiến trúc code hiện tại
 
-Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu kỹ thuật đầy đủ: `devdocx.txt` mục 9.
+Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chiếu kỹ thuật đầy đủ: `devdocx.txt` mục 9.
 - **backend/** TypeScript, 1 Lambda `reloop-dev-api` phục vụ 3 loại sự kiện: request API Gateway, worker AI (Lambda tự gọi async), job định kỳ (EventBridge 15 phút: hết hạn tin, nhắc 24h, tự hoàn tất 48h, tự hủy sau 5 phút, lập hóa đơn tháng). Local: job mỗi 60 giây.
 - Adapter theo môi trường: `Table` (MemoryTable ↔ DynamoTable), `AuthProvider` (header dev ↔ Cognito JWT), `ImageStore` (tắt ↔ S3), `ImageModerator` / `TextScreener` (tắt ↔ Rekognition + Guardrail), `Analyzer` (tắt ↔ Bedrock **Amazon Nova Pro**).
 - **frontend/** React + Vite; Leaflet/OSM; đăng nhập Cognito (OAuth code + PKCE); polling: thông báo 30s, chat 5s.
@@ -156,3 +157,4 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 | 2026-10-22 | Đăng nhập: Cognito domain chuyển Managed Login v2 + branding mặc định (Terraform 2 thêm / 1 sửa / 0 xóa) → có nút hiện mật khẩu. Trang quên mật khẩu của Cognito vẫn ghi "Username" (pool dùng alias_attributes, đổi phải tạo lại pool = mất user) → thêm trang `/forgot-password` trong web: nhập email → Lấy mã → mã + mật khẩu mới (nút Hiện / Ẩn), gọi thẳng API ForgotPassword / ConfirmForgotPassword. Link "Quên mật khẩu?" ở trang chủ. Đã deploy dev. |
 | 2026-10-22 | Chat ra giá: ô nhập theo nghìn đồng (50 → 50.000đ, 1000 → 1.000.000đ) + dòng xem trước "= …đ"; nút giá gợi ý 50.000 / 100.000 / 200.000 / 1.000.000 / 2.000.000 (không có đ, bấm để điền). Bong bóng chat vẫn hiện có đ. Đã deploy dev. |
 | 2026-10-22 | Đăng nhập 1 trang: bỏ `ALLOW_USER_AUTH` ở 2 app client (Terraform 0 thêm / 2 sửa / 0 xóa) → managed login hiện Username + Password cùng trang thay vì hỏi từng bước. Sai mật khẩu / sai username đều báo chung "Incorrect username or password" (prevent_user_existence_errors — không lộ tài khoản). |
+| 2026-10-22 | Viết `plan/docx/let.md` (tóm tắt để lên plan trang Admin). Gom các file .md của `plan/` vào `plan/docx/` (readmeall.md, README.md, let.md); sửa đường dẫn trong README gốc, devdocx.txt. README.md gốc giữ ở thư mục gốc (GitHub). |

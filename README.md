@@ -3,7 +3,7 @@
 Chợ đồ điện tử cũ, hỏng. Người bán (đối tác đã được Admin duyệt: **cấp 1** khách lẻ, **cấp 2** doanh nghiệp / hộ kinh doanh) đăng tin kèm ảnh (AI gợi ý thông tin) → tin lên **Chợ** và được ghép với đơn vị thu mua cấp 2 trong bán kính 1–5 km → chốt bằng **báo giá** của đơn vị thu mua hoặc **ra giá trong chat** với bất kỳ khách nào → giao dịch, bàn giao (thanh toán trực tiếp), đánh giá hai chiều.
 
 - Web (dev): https://d1cjl1tvcp0r6q.cloudfront.net
-- Tài liệu kế hoạch: [plan/](plan/). Thứ tự ưu tiên khi các file mâu thuẫn: **code** → [plan/quyetdinh.txt](plan/quyetdinh.txt) → [plan/devdocx.txt](plan/devdocx.txt) → task.txt → giaiphap.txt → spec gốc. Trạng thái mới nhất: [plan/readmeall.md](plan/readmeall.md). Tra cứu kỹ thuật (API, khóa DynamoDB, Terraform): `plan/devdocx.txt` mục 9.
+- Tài liệu kế hoạch: [plan/](plan/). Thứ tự ưu tiên khi các file mâu thuẫn: **code** → [plan/quyetdinh.txt](plan/quyetdinh.txt) → [plan/devdocx.txt](plan/devdocx.txt) → task.txt → giaiphap.txt → spec gốc. Trạng thái mới nhất: [plan/docx/readmeall.md](plan/docx/readmeall.md). Tra cứu kỹ thuật (API, khóa DynamoDB, Terraform): `plan/devdocx.txt` mục 9.
 - **Phí dịch vụ (QĐ-37, 39, 41):** đăng tin miễn phí; người bán trả 10.000đ / giao dịch hoàn tất (+ 10.000đ nếu hủy giao dịch rồi gỡ tin trong 72 giờ; + 10.000đ / 30 ngày gói VIP 1). Hóa đơn gộp theo tháng, chuyển khoản, Admin tài chính xác nhận. Nợ quá hạn > 3 ngày: không đăng tin mới; > 7 ngày: khóa mọi chức năng (QĐ-40).
 - **Hạn mức tin đang mở (QĐ-41):** cấp 1 = 3 tin, cấp 1 + VIP 1 = 5, cấp 2 = 10.
 - **Nạp / rút tiền qua ngân hàng đã bỏ (2026-10-16).** Hai bên thanh toán trực tiếp khi bàn giao. Sổ cái ví, giữ tiền, hoa hồng, phí đăng bài vẫn giữ trong code để nối lại khi có kết nối ngân hàng cho đối tác chuyển tiền.

@@ -9,7 +9,7 @@ Cách dùng file này:
   • Nhận task thì ghi tên + ngày bắt đầu; xong thì đánh dấu ✔ + link PR cạnh task đó.
   • Quyết định nghiệp vụ: xem plan/quyetdinh.txt (QĐ-01 → QĐ-43). Tài liệu lệch code thì CODE là chuẩn.
   • Lỗi / mâu thuẫn đã rà soát + trạng thái sửa: plan/danhgia.txt.
-  • Trạng thái chi tiết + nhật ký: plan/readmeall.md. Danh sách task gốc 12 tuần: plan/task.txt.
+  • Trạng thái chi tiết + nhật ký: plan/docx/readmeall.md. Danh sách task gốc 12 tuần: plan/task.txt.
   • Tra cứu kỹ thuật (Terraform, env, khóa DynamoDB, chữ ký hàm, API): mục 9 — DEVELOPER REFERENCE.
 
 
@@ -111,7 +111,7 @@ Definition of Done (mọi task):
   □ Có test cho quy tắc nghiệp vụ + test phân quyền (người khác / vai trò khác bị từ chối).
   □ Hạ tầng mới nằm trong Terraform; đã deploy lên dev và tự thử trên web dev.
   □ Có log có cấu trúc / metric cho thao tác chính.
-  □ Cập nhật plan/readmeall.md (mục Trạng thái + Nhật ký) nếu là mốc lớn.
+  □ Cập nhật plan/docx/readmeall.md (mục Trạng thái + Nhật ký) nếu là mốc lớn.
 
 
 =====================================================================
@@ -320,7 +320,7 @@ Kịch bản demo (cập nhật theo code 22/10, QĐ-34 → QĐ-43):
 8. NHẬT KÝ TIẾN ĐỘ (dành cho giảng viên đánh giá)
 =====================================================================
 Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · người làm · cách kiểm chứng
-(commit / PR, số test, link web). Mới nhất ở dưới cùng. Chi tiết kỹ thuật: plan/readmeall.md.
+(commit / PR, số test, link web). Mới nhất ở dưới cùng. Chi tiết kỹ thuật: plan/docx/readmeall.md.
 
   10/10  Phân tích spec gốc: 58 điểm bất cập (baton.txt), đề xuất giải pháp (giaiphap.txt),
          chốt 33 quyết định (quyetdinh.txt), lập kế hoạch 12 tuần (task.txt).
@@ -358,7 +358,7 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
          • Nova Pro đọc ảnh tem nhãn → DELL / Latitude 5490 / Laptop, độ tin cậy cao, JSON đúng schema.
          • Guardrail: bắt câu lệnh tấn công tiếng Anh và tiếng Việt có dấu; tem nhãn thật không bị bắt nhầm.
          • HẠN CHẾ phát hiện: Rekognition DetectText đọc sai dấu tiếng Việt → câu lệnh tiếng Việt in trong
-           ảnh chưa bị gắn cờ (tiếng Anh thì có). Đang đề xuất hướng sửa (xem plan/readmeall.md).
+           ảnh chưa bị gắn cờ (tiếng Anh thì có). Đang đề xuất hướng sửa (xem plan/docx/readmeall.md).
          Người làm: [Tên người làm]   Kiểm chứng: terraform apply · smoke-aws.py RUN f8b55c ALL PASS
 
   20/10  Rà soát toàn website: 19 lỗi / mâu thuẫn + đề xuất sửa (plan/danhgia.txt). Sửa giao diện khối người bán
@@ -426,7 +426,7 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
 
   22/10  Đối chiếu toàn bộ tài liệu với code (chỉ sửa tài liệu): quyetdinh.txt (đánh dấu QĐ ví / giữ tiền TẠM NGƯNG,
          sửa QĐ-02, 10, 13, 14, 15, 18, 20, 22, 26, 27, 28, state machine, TL-02/03/04/06), devdocx.txt, readmeall.md,
-         README.md; ghi chú tài liệu lịch sử (baton, giaiphap, task, plan/README.md).
+         README.md; ghi chú tài liệu lịch sử (baton, giaiphap, task, plan/docx/README.md).
          Người làm: [Tên người làm]   Kiểm chứng: plan/danhgia.txt mục 13–16, 21–22
 
 
