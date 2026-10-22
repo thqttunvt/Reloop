@@ -39,6 +39,8 @@ resource "aws_cloudwatch_log_metric_filter" "business" {
     UnhandledErrors = "{ $.msg = \"unhandled_error\" }"
     TimerFailures   = "{ $.msg = \"timer_failed\" }"
     AiFailures      = "{ $.msg = \"ai_analysis_failed\" }"
+    # Gemini lỗi / hết hạn mức → chuyển sang Bedrock (theo dõi tần suất dự phòng)
+    AiFallbacks = "{ $.msg = \"ai_fallback\" }"
     NotifyFailures  = "{ $.msg = \"notify_failed\" }"
     ImagesRejected  = "{ $.msg = \"image_rejected\" }"
     # QĐ-36: ảnh có chữ bị gắn cờ / tin phải chờ Admin duyệt

@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { BedrockAnalyzer, validateResult, type Analyzer } from '../src/ai/analyzer';
+import {
+  BedrockAnalyzer,
+  DisabledAnalyzer,
+  FallbackAnalyzer,
+  GeminiAnalyzer,
+  sanitizeVietnamese,
+  validateResult,
+  type AiResult,
+  type Analyzer,
+} from '../src/ai/analyzer';
+import { analyzerFor } from '../src/app';
 import { TERMS_VERSION } from '../src/modules/users/userService';
 import { keys } from '../src/store/keys';
 import { listingBody } from './fixtures';
@@ -111,6 +121,121 @@ describe('Amazon Nova Pro qua Bedrock Converse', () => {
     expect(await ok.analyze([img])).toMatchObject({ category: 'LAPTOP', condition: 'NOT_WORKING', brand: 'Dell' });
     const blocked = new BedrockAnalyzer('m', 'r', { id: 'g', version: '1' }, reply({ stopReason: 'guardrail_intervened', output: { message: { content: [] } } }));
     await expect(blocked.analyze([img])).rejects.toThrow('Guardrail');
+  });
+});
+
+describe('Chất lượng tiếng Việt + schema suy luận (Nova Pro sai chính tả khi chạy thật)', () => {
+  it('sửa lỗi đã gặp, giữ chữ hoa đầu, xóa cụm vô nghĩa thay vì bịa màu / tình trạng', () => {
+    expect(sanitizeVietnamese('Chuốt không dây Logitech')).toBe('Chuột không dây Logitech');
+    expect(sanitizeVietnamese('Chuốt không dây Logitech màu máu, dùng lịnh.')).toBe('Chuột không dây Logitech.');
+    expect(sanitizeVietnamese('Bổ tâng Arduino với các mới nỗi')).toBe('Bo mạch Arduino với các mối nối');
+    expect(sanitizeVietnamese('Bổ tàng Arduino với các mới nỗi, bao gồm các dây dân và linh kiện.')).toBe(
+      'Bo mạch Arduino với các mối nối, bao gồm các dây dẫn và linh kiện.',
+    );
+    // Chỉ sửa nguyên từ: "chuốtx" không phải lỗi đã biết; chữ đúng giữ nguyên
+    expect(sanitizeVietnamese('chuốtx  Bo mạch vi điều khiển   ESP32')).toBe('chuốtx Bo mạch vi điều khiển ESP32');
+  });
+
+  it('validateResult áp sanitizer cho tiêu đề + mô tả, bỏ trường suy luận khỏi AiResult', () => {
+    const r = validateResult({
+      observedTextAndLabels: 'Logitech M650 L',
+      identifiedComponents: ['chuột'],
+      category: 'OTHER',
+      brand: 'Logitech',
+      model: 'M650 L',
+      suggestedTitle: 'Chuốt không dây Logitech',
+      suggestedDescription: 'Chuốt không dây Logitech màu máu, dùng lịnh.',
+    });
+    expect(r).toMatchObject({ suggestedTitle: 'Chuột không dây Logitech', suggestedDescription: 'Chuột không dây Logitech.', model: 'M650 L' });
+    expect(r).not.toHaveProperty('observedTextAndLabels');
+    expect(r).not.toHaveProperty('identifiedComponents');
+  });
+
+  it('schema Bedrock: observedTextAndLabels + identifiedComponents đứng đầu, bắt buộc; prompt có bảng từ vựng', () => {
+    const req = new BedrockAnalyzer('m', 'ap-southeast-1').buildRequest([]);
+    const schema = req.toolConfig!.tools![0]!.toolSpec!.inputSchema!.json as { properties: object; required: string[] };
+    expect(Object.keys(schema.properties).slice(0, 2)).toEqual(['observedTextAndLabels', 'identifiedComponents']);
+    expect(schema.required).toEqual(expect.arrayContaining(['observedTextAndLabels', 'identifiedComponents']));
+    const system = req.system![0]!.text!;
+    expect(system).toContain('Chuột không dây');
+    expect(system).toContain('Mạch thử nghiệm (Breadboard)');
+    expect(system).toContain('"Arduino"');
+  });
+});
+
+describe('Gemini (Google AI Studio) + dự phòng Bedrock', () => {
+  const img = { mediaType: 'image/jpeg' as const, data: 'AAAA' };
+  const answer = { category: 'OTHER', brand: 'Logitech', model: 'M650 L', condition: 'UNKNOWN', suggestedTitle: 'Chuốt không dây Logitech M650 L', confidence: 'high' };
+  const geminiReply = (status: number, body: unknown) => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchFn = async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify(body), { status });
+    };
+    return { calls, fetchFn };
+  };
+
+  it('gửi ảnh inline + responseSchema JSON; key ở header, không ở URL; kết quả qua validateResult', async () => {
+    const { calls, fetchFn } = geminiReply(200, { candidates: [{ content: { parts: [{ text: JSON.stringify(answer) }] } }] });
+    const r = await new GeminiAnalyzer('secret-key', 'gemini-2.5-flash', fetchFn).analyze([img]);
+    expect(r).toMatchObject({ brand: 'Logitech', model: 'M650 L', suggestedTitle: 'Chuột không dây Logitech M650 L' });
+    expect(calls[0]!.url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
+    expect(calls[0]!.url).not.toContain('secret-key');
+    expect((calls[0]!.init.headers as Record<string, string>)['x-goog-api-key']).toBe('secret-key');
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body.contents[0].parts[0]).toEqual({ inlineData: { mimeType: 'image/jpeg', data: 'AAAA' } });
+    expect(body.generationConfig).toMatchObject({ temperature: 0, responseMimeType: 'application/json' });
+    expect(body.generationConfig.responseSchema.propertyOrdering.slice(0, 2)).toEqual(['observedTextAndLabels', 'identifiedComponents']);
+  });
+
+  const nova = (): Analyzer & { calls: number } => {
+    const a = {
+      enabled: true,
+      modelId: 'apac.amazon.nova-pro-v1:0',
+      calls: 0,
+      analyze: async (): Promise<AiResult> => {
+        a.calls++;
+        return validateResult({ category: 'OTHER', suggestedTitle: 'Từ Nova' });
+      },
+    };
+    return a;
+  };
+
+  it('Gemini 429 (hết hạn mức) hoặc lỗi → dùng Bedrock; modelId ghi đúng model đã trả kết quả', async () => {
+    const limited = new FallbackAnalyzer(new GeminiAnalyzer('k', 'gemini-2.5-flash', geminiReply(429, { error: { code: 429 } }).fetchFn), nova());
+    expect(await limited.analyze([img])).toMatchObject({ suggestedTitle: 'Từ Nova' });
+    expect(limited.modelId).toBe('apac.amazon.nova-pro-v1:0');
+
+    const crashed = new FallbackAnalyzer(
+      new GeminiAnalyzer('k', 'gemini-2.5-flash', async () => {
+        throw new Error('network down');
+      }),
+      nova(),
+    );
+    expect(await crashed.analyze([img])).toMatchObject({ suggestedTitle: 'Từ Nova' });
+
+    const empty = new FallbackAnalyzer(new GeminiAnalyzer('k', 'gemini-2.5-flash', geminiReply(200, { candidates: [{ finishReason: 'SAFETY' }] }).fetchFn), nova());
+    expect(await empty.analyze([img])).toMatchObject({ suggestedTitle: 'Từ Nova' });
+  });
+
+  it('Gemini thành công → không gọi Bedrock', async () => {
+    const backup = nova();
+    const ok = new FallbackAnalyzer(
+      new GeminiAnalyzer('k', 'gemini-2.5-flash', geminiReply(200, { candidates: [{ content: { parts: [{ text: JSON.stringify(answer) }] } }] }).fetchFn),
+      backup,
+    );
+    expect(await ok.analyze([img])).toMatchObject({ brand: 'Logitech' });
+    expect(ok.modelId).toBe('gemini-2.5-flash');
+    expect(backup.calls).toBe(0);
+  });
+
+  it('analyzerFor: có cả 2 → Fallback; 1 cái → dùng cái đó; không có → tắt', () => {
+    const base = loadConfig({ STAGE: 'local' });
+    expect(analyzerFor({ ...base, geminiApiKey: 'k', aiModelId: 'nova' })).toBeInstanceOf(FallbackAnalyzer);
+    expect(analyzerFor({ ...base, geminiApiKey: 'k' })).toBeInstanceOf(GeminiAnalyzer);
+    expect(analyzerFor({ ...base, aiModelId: 'nova' })).toBeInstanceOf(BedrockAnalyzer);
+    expect(analyzerFor(base)).toBeInstanceOf(DisabledAnalyzer);
+    expect(loadConfig({ STAGE: 'local', GEMINI_API_KEY: 'k' })).toMatchObject({ geminiApiKey: 'k', geminiModelId: 'gemini-2.5-flash' });
   });
 });
 

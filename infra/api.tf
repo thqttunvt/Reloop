@@ -45,7 +45,7 @@ resource "aws_iam_role_policy" "api" {
         Resource = "arn:aws:s3:::${var.image_bucket}/listings/*"
       },
       {
-        # AI phân tích ảnh: Claude Haiku qua inference profile global (giaiphap E7)
+        # AI phân tích ảnh: Amazon Nova Pro qua inference profile APAC (QĐ-35)
         Sid    = "Bedrock"
         Effect = "Allow"
         Action = ["bedrock:InvokeModel"]
@@ -116,6 +116,8 @@ resource "aws_lambda_function" "api" {
       BILLING_ACCOUNT_NAME = var.billing_bank.account_name
       AI_GUARDRAIL_ID      = var.ai_guardrail_enabled ? aws_bedrock_guardrail.ai[0].guardrail_id : ""
       AI_GUARDRAIL_VERSION = var.ai_guardrail_enabled ? aws_bedrock_guardrail_version.ai[0].version : ""
+      GEMINI_API_KEY       = var.gemini_api_key
+      GEMINI_MODEL_ID      = var.gemini_model_id
       NODE_OPTIONS      = "--enable-source-maps"
     }
   }

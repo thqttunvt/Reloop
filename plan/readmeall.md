@@ -97,7 +97,8 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 - Terraform đã apply: SNS `reloop-dev-alarms`, alarm `dispute-opened`, metric mới, S3 ảnh 90 ngày.
 
 **Chưa làm / còn lỗi** (chi tiết `danhgia.txt`, `devdocx.txt` mục 5)
-- Lỗi code còn mở: 12 (lượt AI theo ngày UTC), 19 (comment IAM ghi "Claude Haiku").
+- Lỗi code còn mở: 12 (lượt AI theo ngày UTC).
+- **Chưa commit / deploy (2026-10-22):** sửa chất lượng AI tiếng Việt + Gemini dự phòng + bắt câu lệnh mất dấu (xem nhật ký). Chưa chạy thật trên ảnh (phiên AWS hết hạn, chưa có Gemini key).
 - Matching chạy nền (B7), upload bằng chứng tranh chấp (B3), sửa / phản hồi đánh giá (B4), ảnh giấy tờ đối tác (B2), lọc / tìm kiếm Chợ (B5), nút xóa ảnh khi đăng tin (F2), "thu cũ đổi mới" của cấp 2, hướng A chống né phí (hiện chỉ số hủy trên hồ sơ).
 - Hạ tầng: AWS Budgets, CI/CD tự deploy, môi trường prod, WAF, load test thật, Well-Architected Review, tài liệu cuối kỳ.
 
@@ -107,6 +108,7 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 2. Gộp `feature/doi-tac-2-cap` vào `main` (Pull Request) khi nhóm đã test xong.
 3. Người dùng thử trên web dev, báo lỗi; sửa tiếp các mục còn mở trong `danhgia.txt`.
 4. Báo đồng đội tắt / thêm xác thực API `reloop-generate-presigned-url` (đang công khai); bỏ pool Cognito cũ.
+5. Thử AI trên ảnh thật: `aws login --profile reloop` rồi `AWS_PROFILE=reloop [GEMINI_API_KEY=...] npx -w backend tsx ../scripts/ai-compare.mts <ảnh>` (ảnh ESP32 + chuột Logitech M650). Quyết định có bật Gemini không (xem rủi ro mục 8) → deploy với `TF_VAR_gemini_api_key`.
 
 ## 8. Rủi ro đang theo dõi
 
@@ -115,6 +117,7 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 - **Rekognition đọc sai dấu tiếng Việt** → câu lệnh tiếng Việt in trong ảnh có thể không bị gắn cờ.
 - **Email cảnh báo** chỉ tới Admin đã bấm Confirm subscription; `COGNITO_DEFAULT` gửi tối đa ~50 email/ngày.
 - **Pháp lý:** nếu nối lại ví / giữ tiền cần giấy phép NHNN; dữ liệu cá nhân theo NĐ 13/2023.
+- **Gemini miễn phí (nếu bật):** ảnh người dùng gửi sang Google; gói free của AI Studio có thể dùng dữ liệu để cải thiện sản phẩm → cần ghi vào điều khoản / cân nhắc NĐ 13/2023, hoặc dùng gói trả phí. Key nằm trong biến môi trường Lambda + Terraform state (chưa dùng SSM / Secrets Manager).
 - **`npm audit`** có cảnh báo ở các gói chỉ dùng khi dev (vite, vitest); chưa nâng phiên bản.
 
 ## 9. Nhật ký phiên làm việc
@@ -146,3 +149,5 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 | 2026-10-22 | Mục 7: hộp thư chung Admin + CloudWatch alarm `dispute-opened` → SNS email (make-admin.sh tự đăng ký email Admin). QĐ-43: báo cáo vi phạm theo mức, lý do soạn sẵn, chặn tạm ngừng nhầm, đếm vi phạm ≥ 5 / 30 ngày, ảnh nghi nhạy cảm 50–70% chờ duyệt. 140 test, terraform validate OK. Đối chiếu toàn bộ tài liệu với code (chỉ sửa tài liệu). Chưa commit / deploy. |
 | 2026-10-22 | S3 Lifecycle: ảnh xóa 90 ngày sau khi upload (thay 120 ngày, tiết kiệm); điều khoản sửa "90 ngày sau khi tải lên"; menu "Ví (đang fix)". Chưa commit / deploy (cần `terraform apply`). |
 | 2026-10-22 | Push GitHub (commit d4e2784, ae5f016) + DEPLOY dev: terraform apply 5 thêm / 10 sửa / 0 xóa, Lambda + web mới. smoke-aws.py sửa theo luật mới (hủy 5 phút, ra giá trong chat, khách đồng ý điều khoản), mặc định giữ dữ liệu test (người dùng yêu cầu không xóa tin nào); RUN e07cce ALL PASS. 2 tài khoản test smoke-*-cd6a26 đang bị tạm ngừng (tin ẩn, chưa xóa). |
+| 2026-10-22 | (phiên sau) Đọc lại toàn bộ code trên nhánh `feature/doi-tac-2-cap` (HEAD 0e1ff1f): 140 test pass, typecheck backend + frontend sạch. Code khớp mục 3–6; không sửa code. `scripts/make-admin.sh` hiện "M" trong git nhưng diff nội dung rỗng (chỉ khác kết thúc dòng). |
+| 2026-10-22 | Sửa AI theo lỗi chạy thật (Nova Pro viết "Chuốt", "Bổ tâng Arduino", "màu máu"): schema thêm 2 trường suy luận đứng đầu (`observedTextAndLabels`, `identifiedComponents`), prompt có bảng từ vựng tiếng Việt + cấm chữ sai + mẫu tiêu đề / mô tả, `sanitizeVietnamese` trong `validateResult` (cụm vô nghĩa bị xóa, không thay bằng màu / tình trạng bịa). Thêm `GeminiAnalyzer` (fetch, `gemini-2.5-flash`) + `FallbackAnalyzer` (lỗi / 429 → Nova Pro, log `ai_fallback` + metric `AiFallbacks`); env `GEMINI_API_KEY` / `GEMINI_MODEL_ID`, Terraform `gemini_api_key` (sensitive). TextScreener: so khớp câu lệnh không dấu trước Guardrail. Sửa danhgia 19. Script `scripts/ai-compare.mts`. 151 test, typecheck, terraform validate OK. Chưa commit / deploy / chạy thật. |

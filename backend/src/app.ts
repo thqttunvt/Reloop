@@ -1,4 +1,4 @@
-import { BedrockAnalyzer, DisabledAnalyzer, type Analyzer } from './ai/analyzer';
+import { BedrockAnalyzer, DEFAULT_GEMINI_MODEL, DisabledAnalyzer, FallbackAnalyzer, GeminiAnalyzer, type Analyzer } from './ai/analyzer';
 import { CognitoAuthProvider, LocalAuthProvider, type AuthProvider } from './auth/auth';
 import { apiRoutes, type Services } from './http/routes';
 import { BillingService, DEFAULT_BILLING, type BillingBank } from './modules/billing/billingService';
@@ -38,6 +38,9 @@ export interface AppConfig {
   aiModelId?: string;
   /** Bedrock Guardrail áp cho mỗi lần gọi AI (không bắt buộc). */
   aiGuardrail?: { id: string; version: string };
+  /** Google AI Studio (Gemini miễn phí) — có thì dùng trước, Bedrock làm dự phòng. */
+  geminiApiKey?: string;
+  geminiModelId: string;
   awsRegion: string;
   /** Tài khoản nhận phí dịch vụ (QĐ-37) — hiện trên hóa đơn. */
   billingBank?: BillingBank;
@@ -58,6 +61,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     imageBucket: env.IMAGE_BUCKET || undefined,
     aiModelId: env.AI_MODEL_ID || undefined,
     aiGuardrail: env.AI_GUARDRAIL_ID ? { id: env.AI_GUARDRAIL_ID, version: env.AI_GUARDRAIL_VERSION || 'DRAFT' } : undefined,
+    geminiApiKey: env.GEMINI_API_KEY || undefined,
+    geminiModelId: env.GEMINI_MODEL_ID || DEFAULT_GEMINI_MODEL,
     awsRegion: env.AWS_REGION ?? 'ap-southeast-1',
     billingBank:
       env.BILLING_BANK_NAME && env.BILLING_ACCOUNT_NO && env.BILLING_ACCOUNT_NAME
@@ -65,6 +70,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         : undefined,
     dataFile: env.DATA_FILE ?? '.data/db.json',
   };
+}
+
+/** AI phân tích ảnh: Gemini (nếu có key) → dự phòng Bedrock Nova Pro; chỉ có một thì dùng cái đó; không có → tắt. */
+export function analyzerFor(config: AppConfig): Analyzer {
+  const bedrock = config.aiModelId ? new BedrockAnalyzer(config.aiModelId, config.awsRegion, config.aiGuardrail) : undefined;
+  const gemini = config.geminiApiKey ? new GeminiAnalyzer(config.geminiApiKey, config.geminiModelId) : undefined;
+  if (gemini && bedrock) return new FallbackAnalyzer(gemini, bedrock);
+  return gemini ?? bedrock ?? new DisabledAnalyzer();
 }
 
 /** Lắp các adapter theo môi trường. Test truyền overrides (bảng trong bộ nhớ, đồng hồ giả). */
@@ -95,7 +108,7 @@ export function buildApp(
   const listings = new ListingService(table, clock, users, partners, images, notifications, billing, risk);
   const transactions = new TransactionService(table, clock, users, partners, listings, notifications, images, billing, risk);
   const reputation = new ReputationService(table, clock);
-  const analyzer = overrides.analyzer ?? (config.aiModelId ? new BedrockAnalyzer(config.aiModelId, config.awsRegion, config.aiGuardrail) : new DisabledAnalyzer());
+  const analyzer = overrides.analyzer ?? analyzerFor(config);
   const ai = new AiService(table, clock, analyzer, images);
   const locations = new LocationService(table, clock);
   const reports = new ReportService(table, clock, listings, notifications, partners, users, risk);
