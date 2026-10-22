@@ -133,7 +133,7 @@ resource "aws_cognito_user_pool_client" "web" {
   user_pool_id = aws_cognito_user_pool.main.id
 
   generate_secret                      = false
-  explicit_auth_flows                  = ["ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_AUTH", "ALLOW_USER_SRP_AUTH"]
+  explicit_auth_flows                  = ["ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_SRP_AUTH"] # không bật USER_AUTH → managed login hiện username + mật khẩu cùng 1 trang
   supported_identity_providers         = ["COGNITO"]
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_flows                  = ["code"]
@@ -160,7 +160,7 @@ resource "aws_cognito_user_pool_client" "mobile" {
   user_pool_id = aws_cognito_user_pool.main.id
 
   generate_secret                      = false
-  explicit_auth_flows                  = ["ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_AUTH", "ALLOW_USER_SRP_AUTH"]
+  explicit_auth_flows                  = ["ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_SRP_AUTH"] # không bật USER_AUTH → managed login hiện username + mật khẩu cùng 1 trang
   supported_identity_providers         = ["COGNITO"]
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_flows                  = ["code"]
