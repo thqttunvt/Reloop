@@ -81,7 +81,10 @@ export function App() {
   if (isAdmin && location.pathname.startsWith('/admin')) {
     return (
       <TermsGate>
-        <AdminLayout session={session} onSignOut={signOut} />
+        {/* Route cha /admin/* để các route con relative (overview, users…) khớp — thiếu thì bị đẩy về Chợ */}
+        <Routes>
+          <Route path="/admin/*" element={<AdminLayout session={session} onSignOut={signOut} />} />
+        </Routes>
       </TermsGate>
     );
   }

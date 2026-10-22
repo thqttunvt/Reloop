@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { NotificationBell } from '../../components/NotificationBell';
+import { CreateListingPage } from '../CreateListingPage';
+import { MyListingsPage } from '../MyListingsPage';
 import { api, type AdminStats } from '../../lib/api';
 import type { Session } from '../../lib/session';
 import { AdminProfilePage, AuditPage, ListingsPage, ResolvedReportsPage, TransactionsPage } from './lists';
@@ -46,6 +48,8 @@ const MENU: { group: string; items: { to: string; label: string; badge?: Badge }
   {
     group: 'Bài viết',
     items: [
+      { to: 'posts/new', label: 'Đăng tin' },
+      { to: 'posts/mine', label: 'Tin của tôi' },
       { to: 'listings/review', label: 'Tin chờ duyệt', badge: (s) => s.pendingListings },
       { to: 'listings', label: 'Tất cả tin theo tháng' },
       { to: 'reports', label: 'Phản ánh đang mở', badge: (s) => s.openReports },
@@ -66,19 +70,29 @@ export function AdminLayout({ session, onSignOut }: { session: Session; onSignOu
     <div className="admin-shell">
       <aside className="admin-nav">
         <strong className="brand">ReLoop Admin</strong>
-        {MENU.map((g) => (
-          <div key={g.group} className="admin-group">
-            <span className="muted small">{g.group}</span>
-            {g.items.map((it) => {
-              const n = stats && it.badge ? it.badge(stats) : 0;
-              return (
-                <NavLink key={it.to} to={`/admin/${it.to}`} end>
-                  {it.label} {n > 0 && <span className="badge warn">{n}</span>}
-                </NavLink>
-              );
-            })}
-          </div>
-        ))}
+        {MENU.map((g) => {
+          // 8 mục chính đúng tên PO đặt; mục con chỉ hiện khi đang ở trong nhóm đó
+          // users/:id (hồ sơ gộp) vẫn thuộc nhóm Thành viên
+          const open = g.items.some((it) => location.pathname === `/admin/${it.to}` || (it.to === 'users' && location.pathname.startsWith('/admin/users/')));
+          const total = stats ? g.items.reduce((s, it) => s + (it.badge?.(stats) ?? 0), 0) : 0;
+          return (
+            <div key={g.group} className="admin-group">
+              <Link to={`/admin/${g.items[0]!.to}`} className={`admin-top ${open ? 'active' : ''}`}>
+                {g.group} {total > 0 && <span className="badge warn">{total}</span>}
+              </Link>
+              {open &&
+                g.items.length > 1 &&
+                g.items.map((it) => {
+                  const n = stats && it.badge ? it.badge(stats) : 0;
+                  return (
+                    <NavLink key={it.to} to={`/admin/${it.to}`} end className="admin-sub">
+                      {it.label} {n > 0 && <span className="badge warn">{n}</span>}
+                    </NavLink>
+                  );
+                })}
+            </div>
+          );
+        })}
         <Link to="/feed" className="small">
           ← Về trang người dùng
         </Link>
@@ -107,6 +121,9 @@ export function AdminLayout({ session, onSignOut }: { session: Session; onSignOu
           <Route path="users/:id" element={<MemberDetailPage />} />
           <Route path="finance/invoices" element={<InvoicesAdmin />} />
           <Route path="finance/appeals" element={<FeeAppealsAdmin />} />
+          {/* Admin đăng tin dùng lại trang của người dùng — vẫn theo luật QĐ-34 (phải là đối tác đã duyệt) */}
+          <Route path="posts/new" element={<CreateListingPage />} />
+          <Route path="posts/mine" element={<MyListingsPage />} />
           <Route path="listings/review" element={<ListingReviewAdmin />} />
           <Route path="listings" element={<ListingsPage />} />
           <Route path="reports" element={<ReportsAdmin />} />
