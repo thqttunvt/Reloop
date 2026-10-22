@@ -80,10 +80,13 @@ export function ChatBox({ conversationId, userId, onLoaded }: { conversationId: 
     });
   };
 
+  // Ô ra giá nhập theo nghìn đồng: 50 → 50.000đ, 1000 → 1.000.000đ
+  const priceVnd = Math.round(Number(price) || 0) * 1000;
+
   const offer = (e: React.FormEvent) => {
     e.preventDefault();
     void run(async () => {
-      await api('POST', `/conversations/${conversationId}/offers`, { body: { price: Number(price) } });
+      await api('POST', `/conversations/${conversationId}/offers`, { body: { price: priceVnd } });
       setPrice('');
     });
   };
@@ -156,16 +159,24 @@ export function ChatBox({ conversationId, userId, onLoaded }: { conversationId: 
             <input
               className="grow"
               type="number"
-              min={1000}
-              step={1000}
+              min={1}
+              step={1}
               value={price}
               onChange={(e) => setPrice(e.target.value)}
-              placeholder={transactionId ? 'Đề nghị giá mới (VND)' : 'Ra giá (VND), vd 200000'}
+              placeholder={transactionId ? 'Giá mới (nghìn đồng), vd 200' : 'Ra giá (nghìn đồng), vd 200'}
             />
-            <button type="submit" className="secondary" disabled={sending || Number(price) < 1000}>
+            <button type="submit" className="secondary" disabled={sending || priceVnd < 1000}>
               {transactionId ? 'Đề nghị giá mới' : 'Ra giá'}
             </button>
           </form>
+          {priceVnd >= 1000 && <p className="small muted">= {vnd(priceVnd)}</p>}
+          <div className="row">
+            {[50_000, 100_000, 200_000, 1_000_000, 2_000_000].map((v) => (
+              <button key={v} type="button" className="secondary" onClick={() => setPrice(String(v / 1000))}>
+                {v.toLocaleString('vi-VN')}
+              </button>
+            ))}
+          </div>
         </>
       ) : (
         <p className="muted">Tin đã có người chốt hoặc đã kết thúc — cuộc trò chuyện chỉ còn để xem lại.</p>
