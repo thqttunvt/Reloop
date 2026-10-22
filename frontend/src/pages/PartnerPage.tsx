@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { BillingCard } from '../components/BillingCard';
+import { partnerLabel } from '../lib/role';
+import { CreateListingPage } from './CreateListingPage';
+import { MyListingsPage } from './MyListingsPage';
 import { CheckGroup } from '../components/CheckGroup';
 import { MapPicker, type LatLng } from '../components/MapPicker';
 import { api, newIdempotencyKey, type Branch, type BusinessType, type ListingQuota, type Partner, type PartnerRequest, type PricingRule } from '../lib/api';
@@ -106,50 +109,119 @@ export function PartnerPage() {
 
   if (!me) return <p className={error ? 'error' : 'muted'}>{error || 'Đang tải…'}</p>;
   const p = me.partner;
+  const applyCard = (
+    <ApplyCard
+      partner={p}
+      onSubmit={(body) => run(() => api('POST', '/partners/apply', { body }))}
+      onUpdateEmail={(contactEmail) => run(() => api('PATCH', '/partners/me/contact', { body: { contactEmail } }))}
+    />
+  );
+
+  // Chưa là đối tác / đang chờ duyệt / bị từ chối → chỉ có form đăng ký như cũ
+  if (!p || (p.status !== 'APPROVED' && p.status !== 'SUSPENDED')) {
+    return (
+      <div className="stack">
+        {error && <p className="error">{error}</p>}
+        {applyCard}
+      </div>
+    );
+  }
+
+  const business = tierOf(p) === 'BUSINESS';
+  const label = partnerLabel(p);
+  const openRequests = requests.filter((r) => r.listingStatus === 'ACTIVE').length;
+  const suspendedNote = p.status === 'SUSPENDED' && (
+    <div className="notice bad">
+      Tài khoản đối tác đang bị tạm ngừng — chi nhánh và bảng giá chỉ xem được, không thêm / sửa / bật tắt cho tới khi Admin mở lại.
+    </div>
+  );
+  // Khu đối tác cùng kiểu trang Admin: menu trái theo nhóm, mỗi mục 1 URL (/partner/…)
+  const menu: { group: string; items: { to: string; label: string; badge?: number }[] }[] = [
+    { group: 'Tổng quan', items: [{ to: '', label: 'Tổng quan' }] },
+    { group: 'Bài viết', items: [{ to: 'new', label: 'Đăng tin' }, { to: 'listings', label: 'Tin của tôi', badge: me.quota?.open }] },
+    ...(business
+      ? [{ group: 'Thu mua', items: [{ to: 'requests', label: 'Tin phù hợp', badge: openRequests }, { to: 'branches', label: 'Chi nhánh' }, { to: 'rules', label: 'Bảng giá' }] }]
+      : []),
+    { group: 'Ngân hàng', items: [{ to: 'billing', label: 'Phí dịch vụ' }] },
+    { group: 'Hồ sơ', items: [{ to: 'profile', label: 'Hồ sơ đối tác' }] },
+  ];
 
   return (
-    <div className="stack">
-      {error && <p className="error">{error}</p>}
-      {/* Khu đối tác (get.md B2): Đăng tin, Tin của tôi chuyển từ thanh menu vào đây */}
-      {p?.status === 'APPROVED' && (
-        <div className="row">
-          <Link to="/listings/new" className="button">
-            + Đăng tin
-          </Link>
-          <Link to="/listings">Tin của tôi</Link>
-        </div>
-      )}
-      <ApplyCard
-        partner={p}
-        onSubmit={(body) => run(() => api('POST', '/partners/apply', { body }))}
-        onUpdateEmail={(contactEmail) => run(() => api('PATCH', '/partners/me/contact', { body: { contactEmail } }))}
-      />
-
-      {p?.status === 'APPROVED' && me.quota && (
-        <QuotaCard quota={me.quota} onBuyVip={() => void run(() => api('POST', '/partners/me/vip', { idempotencyKey: newIdempotencyKey() }))} />
-      )}
-      {p && (p.status === 'APPROVED' || p.status === 'SUSPENDED') && <BillingCard />}
-      {p && tierOf(p) === 'BUSINESS' && (
-        <>
-          {p.status === 'APPROVED' && <RequestsCard requests={requests} />}
-          {p.status === 'SUSPENDED' && (
-            <div className="notice bad">
-              Tài khoản đối tác đang bị tạm ngừng — chi nhánh và bảng giá chỉ xem được, không thêm / sửa / bật tắt cho tới khi Admin mở lại.
-            </div>
+    <div className="partner-shell">
+      <aside className="admin-nav partner-nav">
+        <strong className="brand">
+          {business ? 'Cấp 2' : 'Cấp 1'} {label && <span className="badge ok">{label}</span>}
+        </strong>
+        <span className="muted small">{p.businessName}</span>
+        {menu.map((g) => (
+          <div key={g.group} className="admin-group">
+            {g.items.length > 1 && <span className="admin-top">{g.group}</span>}
+            {g.items.map((it) => (
+              <NavLink key={it.to} to={`/partner${it.to ? `/${it.to}` : ''}`} end className={g.items.length > 1 ? 'admin-sub' : 'admin-top'}>
+                {it.label} {!!it.badge && <span className="badge warn">{it.badge}</span>}
+              </NavLink>
+            ))}
+          </div>
+        ))}
+      </aside>
+      <div className="stack partner-main">
+        {error && <p className="error">{error}</p>}
+        <Routes>
+          <Route
+            index
+            element={
+              <>
+                {suspendedNote}
+                {me.quota && <QuotaCard quota={me.quota} onBuyVip={() => void run(() => api('POST', '/partners/me/vip', { idempotencyKey: newIdempotencyKey() }))} />}
+                <div className="row">
+                  <Link to="/partner/new" className="button">
+                    + Đăng tin
+                  </Link>
+                  <Link to="/partner/listings">Tin của tôi</Link>
+                  {business && <Link to="/partner/requests">Tin phù hợp ({openRequests})</Link>}
+                </div>
+              </>
+            }
+          />
+          <Route path="new" element={<CreateListingPage />} />
+          <Route path="listings" element={<MyListingsPage />} />
+          {business && <Route path="requests" element={<RequestsCard requests={requests} />} />}
+          {business && (
+            <Route
+              path="branches"
+              element={
+                <>
+                  {suspendedNote}
+                  <BranchesCard
+                    branches={me.branches}
+                    onAdd={(body) => run(() => api('POST', '/partners/me/branches', { body }))}
+                    onToggle={(b) => run(() => api('PATCH', `/partners/me/branches/${b.branchId}`, { body: { active: !b.active } }))}
+                  />
+                </>
+              }
+            />
           )}
-          <BranchesCard
-            branches={me.branches}
-            onAdd={(body) => run(() => api('POST', '/partners/me/branches', { body }))}
-            onToggle={(b) => run(() => api('PATCH', `/partners/me/branches/${b.branchId}`, { body: { active: !b.active } }))}
-          />
-          <RulesCard
-            branches={me.branches}
-            rules={me.rules}
-            onAdd={(body) => run(() => api('POST', '/partners/me/rules', { body }))}
-            onToggle={(r) => run(() => api('PATCH', `/partners/me/rules/${r.ruleId}`, { body: { active: !r.active } }))}
-          />
-        </>
-      )}
+          {business && (
+            <Route
+              path="rules"
+              element={
+                <>
+                  {suspendedNote}
+                  <RulesCard
+                    branches={me.branches}
+                    rules={me.rules}
+                    onAdd={(body) => run(() => api('POST', '/partners/me/rules', { body }))}
+                    onToggle={(r) => run(() => api('PATCH', `/partners/me/rules/${r.ruleId}`, { body: { active: !r.active } }))}
+                  />
+                </>
+              }
+            />
+          )}
+          <Route path="billing" element={<BillingCard />} />
+          <Route path="profile" element={applyCard} />
+          <Route path="*" element={<Navigate to="/partner" replace />} />
+        </Routes>
+      </div>
     </div>
   );
 }

@@ -147,7 +147,7 @@ export function App() {
           <Route path="/chat/:id" element={<ChatPage userId={session.userId} />} />
           <Route path="/transactions" element={<TransactionsPage userId={session.userId} />} />
           <Route path="/transactions/:id" element={<TransactionDetailPage />} />
-          <Route path="/partner" element={<PartnerPage />} />
+          <Route path="/partner/*" element={<PartnerPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="*" element={<Navigate to="/feed" replace />} />
         </Routes>

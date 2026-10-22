@@ -194,3 +194,13 @@ a.tile:hover { border-color: var(--primary); }
 .admin-group a.admin-top { font-weight: 600; }
 .admin-group a.admin-sub { padding-left: 20px; font-size: 0.92rem; }
 .admin-group a.admin-sub.active { background: none; }
+
+/* Khu đối tác Cấp 1 / Cấp 2 — cùng kiểu trang Admin */
+.partner-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 16px; align-items: start; }
+.partner-nav { position: sticky; top: 12px; height: auto; border: 1px solid var(--border); border-radius: 10px; }
+.partner-main { min-width: 0; }
+.admin-group span.admin-top { padding: 5px 8px; font-weight: 600; }
+@media (max-width: 800px) {
+  .partner-shell { grid-template-columns: 1fr; }
+  .partner-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+}
