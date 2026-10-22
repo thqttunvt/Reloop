@@ -49,27 +49,12 @@ export async function api<T>(
 export const newIdempotencyKey = () => crypto.randomUUID();
 
 // ---- Kiểu dữ liệu trả về (khớp backend) ----
-export type Bucket = 'available' | 'held';
-
 export interface Profile {
   userId: string;
   email?: string;
   fullName?: string;
   phone?: string;
   roles: string[];
-}
-
-export interface Wallet {
-  ownerId: string;
-  balances: Record<Bucket, number>;
-}
-
-export interface LedgerLine {
-  journalId: string;
-  type: string;
-  delta: Record<Bucket, number>;
-  balancesAfter: Record<Bucket, number>;
-  at: string;
 }
 
 export interface GeoPoint {

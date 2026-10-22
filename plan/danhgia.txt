@@ -54,7 +54,7 @@ TÀI LIỆU mâu thuẫn với code / với nhau
 [x] 16 devdocx Q2 → [ĐÃ CHỐT — QĐ-36]; B8 = nhắc Admin.
 [x] 17 (2026-10-22) S3 đổi sang xóa ảnh 90 ngày sau khi upload (tiết kiệm); điều khoản sửa "90 ngày sau khi tải lên";
        QĐ-27, devdocx, README cập nhật theo.
-[~] 18 (2026-10-22) Menu đổi thành "Ví (đang fix)" theo yêu cầu PO (tạm thời, vẫn vào xem được); quyết định ẩn / nối lại ví sau.
+[x] 18 (2026-10-22) PO quyết bỏ ví khỏi website: xóa menu, route /wallet, trang WalletPage. Module ví backend vẫn giữ (QĐ tạm ngưng).
 [x] 19 (2026-10-22, chưa commit) Comment IAM trong infra/api.tf còn ghi "Claude Haiku" → sửa thành Amazon Nova Pro.
 [x] 21 (thêm 2026-10-22) devdocx mục 1 / 4 / 5 / 6 / 7 và README chưa có QĐ-38 → 43, còn ghi "8 alarm", "quá hạn 7 ngày khóa
        đăng tin" → đã cập nhật theo code (9 alarm + SNS, khóa 2 mức, hạn mức, chat ra giá…).

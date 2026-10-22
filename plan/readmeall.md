@@ -66,7 +66,7 @@ Thứ tự tin cậy: **code > quyetdinh.txt > devdocx.txt > task.txt > giaiphap
 - Đếm vi phạm (cảnh cáo, gỡ tin, tạm ngừng, ảnh bị chặn, tin bị từ chối) ≥ 5 / 30 ngày → cờ cho Admin.
 - Người bán bị tạm ngừng: tin ẩn khỏi Chợ, không chốt / báo giá / chat mới, không sửa chi nhánh / bảng giá.
 
-**Đã tạm ngưng (code còn giữ, không dùng):** ví nội bộ, giữ tiền, hoa hồng 10%, phí đăng bài 20k, nạp / rút, STK, webhook ngân hàng. ⚠ Pháp lý: nếu nối lại ví thì cần giấy phép trung gian thanh toán của NHNN.
+**Đã tạm ngưng (code backend còn giữ, không dùng; website đã bỏ trang Ví 2026-10-22):** ví nội bộ, giữ tiền, hoa hồng 10%, phí đăng bài 20k, nạp / rút, STK, webhook ngân hàng. ⚠ Pháp lý: nếu nối lại ví thì cần giấy phép trung gian thanh toán của NHNN.
 
 ## 4. Kiến trúc code hiện tại
 
@@ -151,3 +151,4 @@ Cây thư mục chi tiết: [README.md](../README.md#cấu-trúc). Tham chiếu 
 | 2026-10-22 | Push GitHub (commit d4e2784, ae5f016) + DEPLOY dev: terraform apply 5 thêm / 10 sửa / 0 xóa, Lambda + web mới. smoke-aws.py sửa theo luật mới (hủy 5 phút, ra giá trong chat, khách đồng ý điều khoản), mặc định giữ dữ liệu test (người dùng yêu cầu không xóa tin nào); RUN e07cce ALL PASS. 2 tài khoản test smoke-*-cd6a26 đang bị tạm ngừng (tin ẩn, chưa xóa). |
 | 2026-10-22 | (phiên sau) Đọc lại toàn bộ code trên nhánh `feature/doi-tac-2-cap` (HEAD 0e1ff1f): 140 test pass, typecheck backend + frontend sạch. Code khớp mục 3–6; không sửa code. `scripts/make-admin.sh` hiện "M" trong git nhưng diff nội dung rỗng (chỉ khác kết thúc dòng). |
 | 2026-10-22 | Sửa AI theo lỗi chạy thật (Nova Pro viết "Chuốt", "Bổ tâng Arduino", "màu máu"): schema thêm 2 trường suy luận đứng đầu (`observedTextAndLabels`, `identifiedComponents`), prompt có bảng từ vựng tiếng Việt + cấm chữ sai + mẫu tiêu đề / mô tả, `sanitizeVietnamese` trong `validateResult` (cụm vô nghĩa bị xóa, không thay bằng màu / tình trạng bịa). Thêm `GeminiAnalyzer` (fetch, `gemini-2.5-flash`) + `FallbackAnalyzer` (lỗi / 429 → Nova Pro, log `ai_fallback` + metric `AiFallbacks`); env `GEMINI_API_KEY` / `GEMINI_MODEL_ID`, Terraform `gemini_api_key` (sensitive). TextScreener: so khớp câu lệnh không dấu trước Guardrail. Sửa danhgia 19. Script `scripts/ai-compare.mts`. 151 test, typecheck, terraform validate OK. Chưa commit / deploy / chạy thật. |
+| 2026-10-22 | Bỏ ví khỏi website theo yêu cầu PO: xóa menu "Ví (đang fix)", route `/wallet`, `WalletPage.tsx` và kiểu Wallet / LedgerLine / Bucket ở frontend (danhgia 18). Backend ví giữ nguyên. Build web OK. Chưa deploy. |

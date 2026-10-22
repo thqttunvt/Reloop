@@ -17,7 +17,6 @@ import { PartnerPage } from './pages/PartnerPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { TransactionDetailPage } from './pages/TransactionDetailPage';
 import { TransactionsPage } from './pages/TransactionsPage';
-import { WalletPage } from './pages/WalletPage';
 
 export function App() {
   const [session, setSession] = useState<Session | null>(loadSession);
@@ -88,7 +87,6 @@ export function App() {
           <NavLink to="/partner" className={({ isActive }) => `${isActive ? 'active' : ''} ${partnerApproved ? '' : 'nav-cta'}`}>
             {partnerApproved ? 'Đối tác' : 'Làm đối tác'}
           </NavLink>
-          <NavLink to="/wallet">Ví (đang fix)</NavLink>
           <NavLink to="/profile">Hồ sơ</NavLink>
           {isAdmin && <NavLink to="/admin">Admin</NavLink>}
         </nav>
@@ -127,7 +125,6 @@ export function App() {
           <Route path="/transactions" element={<TransactionsPage userId={session.userId} />} />
           <Route path="/transactions/:id" element={<TransactionDetailPage />} />
           <Route path="/partner" element={<PartnerPage />} />
-          <Route path="/wallet" element={<WalletPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           {isAdmin && <Route path="/admin" element={<AdminPage />} />}
           <Route path="*" element={<Navigate to="/feed" replace />} />
