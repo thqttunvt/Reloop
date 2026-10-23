@@ -418,6 +418,8 @@ export interface SavedLocation {
 
 /** Dòng nhật ký thao tác Admin (get.md A5) */
 export interface AuditEntry {
+  /** Mã dòng — dòng ghi trước 24/10/2026 không có */
+  auditId?: string;
   kind: 'write' | 'pii-read';
   adminId: string;
   groups: string[];

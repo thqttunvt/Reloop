@@ -47,6 +47,10 @@ describe('Nhật ký thao tác Admin (get.md A5)', () => {
 
     const log = (await t.call('GET', '/admin/audit?month=2026-01', ADMIN)).body.items;
     expect(log).toHaveLength(2);
+    // Mỗi dòng có mã riêng để web làm key (mục 34 danhgia) — kể cả 2 dòng cùng thời điểm (đồng hồ test đứng yên)
+    const ids = log.map((x: { auditId: string }) => x.auditId);
+    expect(ids.every((id: string) => /^[a-f0-9]{32}$/.test(id))).toBe(true);
+    expect(new Set(ids).size).toBe(2);
     const write = log.find((x: { kind: string }) => x.kind === 'write');
     expect(write).toMatchObject({ adminId: 'admin1', method: 'POST', routePath: '/admin/partners/{id}/review', params: { id: 'seller' }, fields: { approve: true, note: 'đủ giấy tờ' } });
     expect(JSON.stringify(write)).not.toMatch(/0123456789|bí mật/);

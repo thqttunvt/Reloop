@@ -152,10 +152,13 @@ async function writeAudit(deps: { table: Table; clock: Clock }, ctx: AuthedConte
   const now = deps.clock.now();
   const at = now.toISOString();
   const fields = Object.fromEntries(AUDIT_FIELDS.filter((f) => ctx.body[f] !== undefined).map((f) => [f, ctx.body[f]]));
+  // Mã dòng trả ra API (sk bị lọc khỏi response) → web dùng làm key, không ghép từ thời điểm + admin (mục 34 danhgia)
+  const auditId = newId();
   try {
     await deps.table.transact([
       putNew({
-        ...keys.audit(vnMonth(now), at, newId()),
+        ...keys.audit(vnMonth(now), at, auditId),
+        auditId,
         kind,
         adminId: ctx.principal.userId,
         groups: ctx.principal.groups,

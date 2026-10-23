@@ -155,7 +155,7 @@ export function AuditPage() {
       <p className="muted small">Ghi mọi thao tác của Admin và mỗi lần Admin xem dữ liệu cá nhân (hồ sơ, chat, giao dịch của người khác). Giữ lâu dài.</p>
       <PagedTable
         list={list}
-        rowKey={(e) => `${e.at}${e.adminId}${e.routePath}`}
+        rowKey={(e) => e.auditId ?? `${e.at}${e.adminId}${e.routePath}${JSON.stringify(e.params)}`}
         columns={[
           { header: 'Lúc', cell: (e) => dateTime(e.at) },
           { header: 'Admin', cell: (e) => <UserLink id={e.adminId} /> },

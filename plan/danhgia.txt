@@ -151,7 +151,7 @@ MỨC THẤP — điều hướng / hiển thị sau khi tách trang
 [ ] 33 Tài khoản chỉ thuộc FinanceAdmins (không thuộc Admins) vào được trang Admin (App.tsx:79) nhưng mọi
        API /admin/* bắt nhóm admin → trang toàn lỗi 403. make-admin.sh luôn thêm Admins nên hiện chưa xảy ra.
        Đề xuất: isAdmin chỉ xét nhóm admin, hoặc ghi rõ trong make-admin.sh.
-[ ] 34 Nhật ký Admin: key dòng = thời điểm + admin + route (lists.tsx:157) có thể trùng khi 2 thao tác cùng
+[x] 34 (2026-10-24, backend ghi auditId, web dùng làm key; dòng cũ dùng key ghép + params) Nhật ký Admin: key dòng = thời điểm + admin + route (lists.tsx:157) có thể trùng khi 2 thao tác cùng
        mili giây → React cảnh báo, hiện thiếu dòng. Đề xuất: trả id dòng nhật ký (đã có trong sort key).
 
 ---------------------------------------------------------------------
