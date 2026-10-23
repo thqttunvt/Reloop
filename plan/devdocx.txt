@@ -433,6 +433,8 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
          tạm ngừng bắt buộc lý do + hỏi lại (26), /admin/stats chỉ đếm (27), tranh chấp hỏi lại + chặn giá trống (28).
          QĐ-44: VIP 1 trả trước — yêu cầu → Admin gửi hóa đơn → chuyển khoản → Admin xác nhận đã thu → tự bật.
          Người làm: [Tên người làm]   Kiểm chứng: 161 test, typecheck + build sạch, deploy dev 0 thêm / 1 sửa / 0 xóa · smoke RUN 796139 ALL PASS
+  24/10  Ghép tin chạy nền (QĐ-13, B7) + dự phòng job 5 phút; trang tin hiện giao dịch hoàn tất / bị hủy 30 ngày của người bán (QĐ-39 A).
+         Người làm: [Tên người làm]   Kiểm chứng: commit a1f2323 · 165 test · smoke RUN f141ac ALL PASS
 
 
 =====================================================================
