@@ -160,6 +160,8 @@ CÒN MỞ TỪ TRƯỚC (nhắc lại để gom một chỗ)
 [ ] 12 Lượt AI 20 / ngày đếm theo ngày UTC (aiService.ts:717, reset lúc 7h sáng giờ VN), hóa đơn theo giờ VN.
 [ ] B7 Ghép tin với đơn vị thu mua chạy ngay trong request đăng tin (listingService.ts:304, TODO QĐ-13).
 [ ] A  Hiện số lần hủy trên hồ sơ người bán (phần A chống né phí).
+[ ] 35 (thêm 2026-10-24) Số liệu tháng ở Dashboard Admin chưa có doanh thu VIP 1 — từ QĐ-44 tiền VIP trả trước theo hóa đơn riêng,
+       không còn nằm trong Phí phát sinh / Đã thu. PO: để sau, làm cùng đợt đổi giao diện.
 
 Đã kiểm, KHÔNG có lỗi: route /admin/* + /partner/* khớp, đường dẫn cũ /admin và /partner vẫn vào được,
 khóa tài khoản do nợ phí vẫn chặn đúng trong khu đối tác, phân trang dùng chung (pageQuery / PagedTable),
