@@ -12,11 +12,14 @@ import {
   type RiskFlag,
   type Seller,
   type Transaction,
+  type VipRequest,
+  type VipRequestStatus,
 } from '../../lib/api';
 import { BUSINESS_TYPE_LABEL, CATEGORY_LABEL, PARTNER_STATUS_LABEL, PARTNER_TIER_LABEL, PARTY_LABEL, statusTone, tierOf } from '../../lib/catalog';
 import { dateTime, errorText, vnd } from '../../lib/format';
 import { loadSession } from '../../lib/session';
 import { partnerLabel } from '../../lib/role';
+import { adminListingLink } from './listing';
 
 /** Thao tác tiền (Đã thu, Lập hóa đơn, Miễn / Giữ phí) cần quyền admin_finance — người khác chỉ xem (TL-05, mục 6 danhgia). */
 type ReportAction = 'DISMISS' | 'WARN' | 'HIDE_AND_WARN' | 'HIDE_AND_SUSPEND' | 'SUSPEND';
@@ -87,6 +90,16 @@ export function PartnersAdmin() {
     }
   };
   const review = (p: PartnerRow, approve: boolean) => call(`/admin/partners/${p.partnerId}/review`, { approve, note: notes[p.partnerId] });
+  // Tạm ngừng: bắt buộc lý do + hỏi lại (QĐ-43, mục 26 danhgia) — tin của đối tác ẩn khỏi Chợ ngay
+  const suspend = (p: PartnerRow) => {
+    const note = (notes[p.partnerId] ?? '').trim();
+    if (!confirm(`Tạm ngừng đối tác ${p.businessName}?
+Tin đang mở sẽ ẩn khỏi Chợ, không chốt / báo giá / chat mới được.
+
+Lý do gửi cho đối tác: "${note}"
+(Mở lại được ở danh sách Tạm ngừng.)`)) return;
+    void call(`/admin/partners/${p.partnerId}/suspend`, { note });
+  };
 
   return (
     <section className="card">
@@ -141,8 +154,18 @@ export function PartnersAdmin() {
           )}
           {p.status === 'APPROVED' && (
             <div className="row">
-              <input placeholder="Lý do tạm ngừng" value={notes[p.partnerId] ?? ''} onChange={(e) => setNotes({ ...notes, [p.partnerId]: e.target.value })} />
-              <button className="danger" onClick={() => void call(`/admin/partners/${p.partnerId}/suspend`, { note: notes[p.partnerId] })}>
+              <input
+                className="grow"
+                placeholder="Lý do tạm ngừng (bắt buộc, gửi cho đối tác)"
+                value={notes[p.partnerId] ?? ''}
+                onChange={(e) => setNotes({ ...notes, [p.partnerId]: e.target.value })}
+              />
+              <button
+                className="danger"
+                disabled={(notes[p.partnerId] ?? '').trim().length < 5}
+                title="Cần ghi lý do (ít nhất 5 ký tự)"
+                onClick={() => suspend(p)}
+              >
                 Tạm ngừng
               </button>
             </div>
@@ -179,10 +202,17 @@ export function DisputesAdmin() {
 
   const resolve = async (t: Transaction, outcome: 'COMPLETED' | 'FAILED') => {
     const f = form[t.transactionId] ?? { note: '', price: String(t.agreedPrice) };
+    const price = Number(f.price);
+    // Ô giá trống / sai → không gửi 0đ (mục 28 danhgia); kết luận không hoàn tác được → hỏi lại
+    if (outcome === 'COMPLETED' && (f.price.trim() === '' || !Number.isInteger(price) || price < 0)) return setError('Nhập giá cuối hợp lệ (số nguyên VND)');
+    const what = outcome === 'COMPLETED' ? `HOÀN TẤT với giá ${vnd(price)} (tính phí 10.000đ cho người bán)` : 'THẤT BẠI (tin quay lại Chợ nếu còn hạn)';
+    if (!confirm(`Kết luận tranh chấp "${t.listingTitle}": ${what}?
+Cả 2 bên nhận thông báo kèm ghi chú. Không hoàn tác được.`)) return;
     try {
       await api('POST', `/admin/transactions/${t.transactionId}/resolve`, {
-        body: { outcome, note: f.note, finalPrice: outcome === 'COMPLETED' ? Number(f.price) : undefined },
+        body: { outcome, note: f.note, finalPrice: outcome === 'COMPLETED' ? price : undefined },
       });
+      setError('');
       await load();
     } catch (e) {
       setError(errorText(e));
@@ -213,11 +243,11 @@ export function DisputesAdmin() {
               })()}
             </span>
             <span className="muted small">
-              Người bán: <UserLink id={t.ownerId}>{t.ownerId}</UserLink> · Người mua: <UserLink id={t.partnerId}>{t.partnerName}</UserLink>
+              Người bán: <UserLink id={t.ownerId}>{t.ownerName ?? t.ownerId}</UserLink> · Người mua: <UserLink id={t.partnerId}>{t.partnerName}</UserLink>
             </span>
             <div className="row">
               <input placeholder="Kết luận của Admin" value={f.note} onChange={(e) => set({ note: e.target.value })} />
-              <input type="number" value={f.price} onChange={(e) => set({ price: e.target.value })} />
+              <input type="number" min={0} step={1000} value={f.price} onChange={(e) => set({ price: e.target.value })} title="Giá cuối (VND) khi kết luận hoàn tất" />
               <button onClick={() => void resolve(t, 'COMPLETED')} disabled={f.note.trim().length < 3}>
                 Hoàn tất với giá này
               </button>
@@ -273,7 +303,9 @@ export function ListingReviewAdmin() {
         return (
           <div key={l.listingId} className="quote">
             <div className="row between">
-              <strong>{l.title}</strong>
+              <strong>
+                <Link to={`/admin/listings/${l.listingId}`}>{l.title}</Link>
+              </strong>
               <span className={`badge ${days >= 3 ? 'bad' : 'warn'}`}>{days === 0 ? 'hôm nay' : `chờ ${days} ngày`}</span>
             </div>
             <span className="muted">
@@ -493,7 +525,7 @@ export function ReportsAdmin() {
               <strong>
                 {r.targetType === 'LISTING' ? 'Tin đăng' : r.targetType === 'TRANSACTION' ? 'Giao dịch' : r.targetType}
                 {' · '}
-                {r.target?.link ? <Link to={r.target.link}>{r.target.title} →</Link> : (r.target?.title ?? r.targetId)}
+                {r.target?.link ? <Link to={adminListingLink(r.target.link)}>{r.target.title} →</Link> : (r.target?.title ?? r.targetId)}
               </strong>
               <span className="muted">{dateTime(r.createdAt)}</span>
             </div>
@@ -746,6 +778,111 @@ export function RiskFlagsAdmin() {
           </div>
         ))
       )}
+    </section>
+  );
+}
+
+const VIP_STATUS_LABEL: Record<VipRequestStatus, string> = {
+  REQUESTED: 'Chờ gửi hóa đơn',
+  INVOICED: 'Chờ thanh toán',
+  APPROVED: 'Đã thu — đã bật',
+  REJECTED: 'Đã từ chối',
+  CANCELLED: 'Người bán đã hủy',
+};
+
+/**
+ * Yêu cầu VIP 1 trả trước (QĐ-44): Gửi hóa đơn → người bán chuyển khoản theo mã RLV… → đối chiếu rồi bấm "Đã thu — bật VIP".
+ * Chưa xác nhận đã thu thì gói KHÔNG bật. Thao tác cần quyền Admin tài chính.
+ */
+export function VipRequestsAdmin() {
+  const [status, setStatus] = useStatusParam<VipRequestStatus>('REQUESTED');
+  const [items, setItems] = useState<VipRequest[]>([]);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    try {
+      setItems((await api<{ items: VipRequest[] }>('GET', `/admin/vip-requests?status=${status}`)).items);
+      setError('');
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }, [status]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const act = async (r: VipRequest, action: 'invoice' | 'approve' | 'reject') => {
+    const note = notes[r.requestId]?.trim() || undefined;
+    if (action === 'approve' && !confirm(`Xác nhận ĐÃ NHẬN ${vnd(r.amount)} với nội dung ${r.paymentCode} từ ${r.partnerName}?\nVIP 1 sẽ bật ngay ${r.days} ngày.`)) return;
+    if (action === 'reject' && !confirm(`Từ chối yêu cầu VIP 1 của ${r.partnerName}?\nLý do gửi cho người bán: "${note}"`)) return;
+    try {
+      await api('POST', `/admin/vip-requests/${encodeURIComponent(r.userId)}/${r.requestId}/${action}`, { body: { note } });
+      await load();
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+  const finance = isFinance();
+
+  return (
+    <section className="card">
+      <div className="row between">
+        <h2>Yêu cầu VIP 1</h2>
+        <select value={status} onChange={(e) => setStatus(e.target.value as VipRequestStatus)}>
+          {Object.entries(VIP_STATUS_LABEL).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="muted">
+        Gửi hóa đơn → người bán chuyển khoản với nội dung là mã RLV… → đối chiếu sao kê rồi bấm "Đã thu — bật VIP". Chưa bấm thì gói chưa bật.
+      </p>
+      {error && <p className="error">{error}</p>}
+      {items.length === 0 && <p className="muted">Không có yêu cầu.</p>}
+      {items.map((r) => {
+        const note = notes[r.requestId] ?? '';
+        const open = r.status === 'REQUESTED' || r.status === 'INVOICED';
+        return (
+          <div key={r.requestId} className="quote">
+            <div className="row between">
+              <strong>
+                <UserLink id={r.userId}>{r.partnerName}</UserLink>
+              </strong>
+              <span className={`badge ${statusTone(r.status)}`}>{VIP_STATUS_LABEL[r.status]}</span>
+            </div>
+            <span className="muted">
+              VIP 1 · {r.days} ngày · {vnd(r.amount)} · yêu cầu {dateTime(r.createdAt)}
+              {r.paymentCode && (
+                <>
+                  {' '}
+                  · mã CK <code>{r.paymentCode}</code>
+                </>
+              )}
+              {r.dueAt && r.status === 'INVOICED' && ` · hạn ${dateTime(r.dueAt)}`}
+              {r.paidAt && ` · đã thu ${dateTime(r.paidAt)}`}
+              {r.vipUntil && ` · VIP tới ${dateTime(r.vipUntil)}`}
+            </span>
+            {r.note && <span className="muted small">Ghi chú: {r.note}</span>}
+            {open && !finance && <span className="muted small">{FINANCE_NOTE}</span>}
+            {open && finance && (
+              <div className="row">
+                <input
+                  className="grow"
+                  placeholder="Ghi chú (bắt buộc khi từ chối — gửi cho người bán)"
+                  value={note}
+                  onChange={(e) => setNotes({ ...notes, [r.requestId]: e.target.value })}
+                />
+                {r.status === 'REQUESTED' && <button onClick={() => void act(r, 'invoice')}>Gửi hóa đơn</button>}
+                {r.status === 'INVOICED' && <button onClick={() => void act(r, 'approve')}>Đã thu — bật VIP</button>}
+                <button className="danger" disabled={note.trim().length < 5} title="Cần ghi lý do (ít nhất 5 ký tự)" onClick={() => void act(r, 'reject')}>
+                  Từ chối
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </section>
   );
 }

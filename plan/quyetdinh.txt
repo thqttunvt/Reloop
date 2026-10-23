@@ -25,7 +25,7 @@ QĐ-02  Mô hình doanh thu (cập nhật 2026-10-22 theo code — bản 2026-10
        Code hiện tại (modules/billing): ReLoop thu qua HÓA ĐƠN THÁNG, người bán chuyển khoản, Admin tài chính xác nhận:
          • 10.000đ / giao dịch hoàn tất, người bán trả (QĐ-37);
          • 10.000đ phí "nghi bán ngoài ReLoop" khi hủy giao dịch rồi gỡ tin trong 72 giờ (QĐ-39);
-         • 10.000đ / 30 ngày gói VIP 1 của đối tác cấp 1 (QĐ-41).
+         • 10.000đ / 30 ngày gói VIP 1 của đối tác cấp 1 — trả trước theo hóa đơn riêng, Admin xác nhận mới bật (QĐ-41, QĐ-44).
        Không qua ví: ví doanh thu REVENUE và sổ cái vẫn còn trong code nhưng không được dùng.
 
 QĐ-29  Hai chiều giao dịch, dùng chung ví và cơ chế giữ tiền:
@@ -261,7 +261,7 @@ QĐ-41  HẠN MỨC TIN ĐANG MỞ + GÓI VIP 1 (chốt 2026-10-21)
        • Đối tác cấp 1: 3 tin. Cấp 1 có gói VIP 1: 5 tin. Đối tác cấp 2 (ký hợp đồng với ReLoop): 10 tin.
        • Cấp 1 vẫn đăng tin bán và mua lại được (ra giá trong chat với tin của bất kỳ người bán nào, kể cả cấp 2 — QĐ-38).
          Cấp 2 có thêm: chi nhánh, bảng giá, nhận tin phù hợp, báo giá thu mua.
-       • VIP 1: chỉ cấp 1; tự bấm mua ở trang Đối tác; 10.000đ / 30 ngày, có hiệu lực ngay; mua khi còn hạn → cộng dồn
+       • [ĐÃ THAY BẰNG QĐ-44 — trả trước, Admin duyệt] VIP 1: chỉ cấp 1; tự bấm mua ở trang Đối tác; 10.000đ / 30 ngày, có hiệu lực ngay; mua khi còn hạn → cộng dồn
          thêm 30 ngày. Tiền gói cộng vào phí tháng (hóa đơn ngày 1, QĐ-37) như một dòng phí riêng (không tính là giao dịch).
          Nợ quá hạn > 3 ngày (QĐ-40) không mua được. Hết VIP: tin đang mở giữ nguyên, chỉ không đăng thêm khi đã ≥ 3 tin.
        • Để sau: "thu cũ đổi mới" và các quyền thêm của cấp 2 (thiết kế riêng).
@@ -286,6 +286,17 @@ QĐ-43  XỬ LÝ VI PHẠM THEO MỨC + ĐẾM VI PHẠM + ẢNH NGHI NHẠY C�
        • ĐẾM VI PHẠM: cảnh cáo / gỡ tin / tạm ngừng từ báo cáo, ảnh bị chặn, tin bị Admin từ chối khi duyệt.
          ≥ 5 lần trong 30 ngày → cờ cho Admin (cùng danh sách cờ QĐ-39), Admin bỏ qua / cảnh cáo / tạm ngừng.
 
+
+QĐ-44  GÓI VIP 1 TRẢ TRƯỚC, ADMIN DUYỆT (chốt 2026-10-24 — thay "tự bấm mua, hiệu lực ngay, cộng vào phí tháng" của QĐ-41)
+       • Lý do: bấm mua là bật ngay, tiền dồn vào hóa đơn tháng sau → người bán dùng VIP trước, có thể không trả (xài chùa).
+       • Luồng: đối tác cấp 1 bấm "Đăng ký VIP 1" → chỉ tạo YÊU CẦU (chưa bật gói) → Admin tài chính bấm "Gửi hóa đơn"
+         → người bán nhận thông báo: số tiền, tài khoản nhận, mã chuyển khoản RLVxxxxxx (hạn 3 ngày) → người bán chuyển khoản
+         → Admin tài chính đối chiếu sao kê, bấm "Đã thu — bật VIP" → gói tự bật 30 ngày (còn hạn thì cộng dồn), người bán được báo.
+       • Admin từ chối được (bắt buộc lý do, gửi cho người bán); người bán tự hủy được khi chưa duyệt. Mỗi người tối đa
+         1 yêu cầu đang mở. Không có đường tắt: chưa gửi hóa đơn thì chưa duyệt được.
+       • Tiền VIP KHÔNG còn cộng vào phí tháng (dòng VIP_PLAN chỉ còn ở dữ liệu cũ). Nợ phí quá hạn > 3 ngày không đăng ký được.
+       • Quyền: xem hàng đợi = Admins; gửi hóa đơn / xác nhận đã thu / từ chối = FinanceAdmins. Mọi thao tác vào nhật ký Admin.
+       • Điều khoản đổi sang phiên bản 2026-10-24 (mọi người đồng ý lại).
 
 =====================================================================
 3. GIAO DỊCH & GIÁ

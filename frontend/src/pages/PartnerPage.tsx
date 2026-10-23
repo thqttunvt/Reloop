@@ -32,9 +32,14 @@ interface PartnerMe {
 
 const PLAN_LABEL: Record<string, string> = { BASIC: 'Cấp 1 — gói thường', VIP1: 'Cấp 1 — VIP 1', BUSINESS: 'Cấp 2 — đối tác ký hợp đồng' };
 
-/** Hạn mức tin đang mở cùng lúc + mua / gia hạn VIP 1 (QĐ-41). */
-function QuotaCard({ quota, onBuyVip }: { quota: ListingQuota; onBuyVip: () => void }) {
+/**
+ * Hạn mức tin đang mở cùng lúc (QĐ-41) + đăng ký VIP 1 trả trước (QĐ-44): bấm chỉ gửi yêu cầu,
+ * Admin gửi hóa đơn qua thông báo, gói bật khi Admin xác nhận đã nhận tiền.
+ */
+function QuotaCard({ quota, onRequestVip, onCancelVip }: { quota: ListingQuota; onRequestVip: () => void; onCancelVip: (id: string) => void }) {
   const full = quota.open >= quota.limit;
+  const req = quota.vipRequest;
+  const pending = req && (req.status === 'REQUESTED' || req.status === 'INVOICED') ? req : undefined;
   return (
     <section className="card">
       <h2>Hạn mức đăng tin</h2>
@@ -60,18 +65,51 @@ function QuotaCard({ quota, onBuyVip }: { quota: ListingQuota; onBuyVip: () => v
         Tính tin đang chờ duyệt, đang mở và đang giao dịch. Tin bán xong, hết hạn hoặc bị hủy thì trả lại suất.
         {quota.plan === 'BUSINESS' && ' Đối tác cấp 2 được mở tối đa 10 tin.'}
       </p>
+      {quota.plan !== 'BUSINESS' && pending?.status === 'REQUESTED' && (
+        <div className="notice warn">
+          Đã gửi yêu cầu {quota.plan === 'VIP1' ? 'gia hạn' : 'nâng lên'} VIP 1 lúc {dateTime(pending.createdAt)}. Admin sẽ gửi hóa đơn {vnd(pending.amount)} qua
+          thông báo; gói chỉ bật sau khi ReLoop xác nhận đã nhận tiền.
+        </div>
+      )}
+      {quota.plan !== 'BUSINESS' && pending?.status === 'INVOICED' && (
+        <div className="notice warn">
+          <strong>Hóa đơn VIP 1: {vnd(pending.amount)}</strong>
+          <br />
+          {quota.bank ? (
+            <>
+              Chuyển khoản tới {quota.bank.bankName} · STK <code>{quota.bank.accountNo}</code> · {quota.bank.accountName}
+            </>
+          ) : (
+            'Chuyển khoản theo tài khoản ghi ở mục Phí dịch vụ'
+          )}
+          <br />
+          Nội dung chuyển khoản: <code>{pending.paymentCode}</code>
+          {pending.dueAt && ` · hạn ${dateTime(pending.dueAt)}`}
+          <br />
+          <span className="small">Gói VIP 1 bật ngay khi Admin xác nhận đã nhận tiền — bạn sẽ nhận thông báo.</span>
+        </div>
+      )}
+      {quota.plan !== 'BUSINESS' && !pending && req?.status === 'REJECTED' && (
+        <p className="muted small">Yêu cầu VIP 1 gần nhất bị từ chối{req.note ? `: ${req.note}` : ''}.</p>
+      )}
       {quota.plan !== 'BUSINESS' && (
         <div className="row">
-          <button
-            onClick={() =>
-              confirm(
-                `${quota.plan === 'VIP1' ? 'Gia hạn VIP 1 thêm' : 'Nâng lên VIP 1 trong'} ${quota.vipDays} ngày, đăng tối đa 5 tin cùng lúc.\n` +
-                  `Phí ${vnd(quota.vipPrice)} được cộng vào hóa đơn phí tháng. Tiếp tục?`,
-              ) && onBuyVip()
-            }
-          >
-            {quota.plan === 'VIP1' ? `Gia hạn VIP 1 — ${vnd(quota.vipPrice)}` : `Nâng lên VIP 1 — ${vnd(quota.vipPrice)} / ${quota.vipDays} ngày`}
-          </button>
+          {pending ? (
+            <button className="secondary" onClick={() => confirm('Hủy yêu cầu VIP 1? Nếu đã chuyển khoản, hãy liên hệ Admin thay vì hủy.') && onCancelVip(pending.requestId)}>
+              Hủy yêu cầu
+            </button>
+          ) : (
+            <button
+              onClick={() =>
+                confirm(
+                  `Đăng ký ${quota.plan === 'VIP1' ? 'gia hạn VIP 1 thêm' : 'VIP 1 trong'} ${quota.vipDays} ngày (đăng tối đa 5 tin cùng lúc), giá ${vnd(quota.vipPrice)}.\n` +
+                    'Admin sẽ gửi hóa đơn qua thông báo; gói bật sau khi bạn chuyển khoản và Admin xác nhận. Gửi yêu cầu?',
+                ) && onRequestVip()
+              }
+            >
+              {quota.plan === 'VIP1' ? `Đăng ký gia hạn VIP 1 — ${vnd(quota.vipPrice)}` : `Đăng ký VIP 1 — ${vnd(quota.vipPrice)} / ${quota.vipDays} ngày`}
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -117,12 +155,31 @@ export function PartnerPage() {
     />
   );
 
-  // Chưa là đối tác / đang chờ duyệt / bị từ chối → chỉ có form đăng ký như cũ
+  // Chưa là đối tác / đang chờ duyệt / bị từ chối → form đăng ký. Hồ sơ cấp 2 đã gửi còn có Chi nhánh + Bảng giá:
+  // Admin chỉ duyệt được cấp 2 khi có ≥ 1 chi nhánh (mục 23 danhgia — khối này từng bị mất khi tách trang).
   if (!p || (p.status !== 'APPROVED' && p.status !== 'SUSPENDED')) {
     return (
       <div className="stack">
         {error && <p className="error">{error}</p>}
         {applyCard}
+        {p && tierOf(p) === 'BUSINESS' && (
+          <>
+            {me.branches.length === 0 && (
+              <div className="notice warn">Thêm ít nhất 1 chi nhánh bên dưới — Admin chỉ duyệt được hồ sơ cấp 2 khi đã có chi nhánh.</div>
+            )}
+            <BranchesCard
+              branches={me.branches}
+              onAdd={(body) => run(() => api('POST', '/partners/me/branches', { body }))}
+              onToggle={(b) => run(() => api('PATCH', `/partners/me/branches/${b.branchId}`, { body: { active: !b.active } }))}
+            />
+            <RulesCard
+              branches={me.branches}
+              rules={me.rules}
+              onAdd={(body) => run(() => api('POST', '/partners/me/rules', { body }))}
+              onToggle={(r) => run(() => api('PATCH', `/partners/me/rules/${r.ruleId}`, { body: { active: !r.active } }))}
+            />
+          </>
+        )}
       </div>
     );
   }
@@ -172,7 +229,13 @@ export function PartnerPage() {
             element={
               <>
                 {suspendedNote}
-                {me.quota && <QuotaCard quota={me.quota} onBuyVip={() => void run(() => api('POST', '/partners/me/vip', { idempotencyKey: newIdempotencyKey() }))} />}
+                {me.quota && (
+                  <QuotaCard
+                    quota={me.quota}
+                    onRequestVip={() => void run(() => api('POST', '/partners/me/vip-requests', { idempotencyKey: newIdempotencyKey() }))}
+                    onCancelVip={(id) => void run(() => api('POST', `/partners/me/vip-requests/${id}/cancel`))}
+                  />
+                )}
                 <div className="row">
                   <Link to="/partner/new" className="button">
                     + Đăng tin

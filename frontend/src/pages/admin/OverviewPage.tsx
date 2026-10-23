@@ -23,6 +23,7 @@ export function OverviewPage() {
     ['Tranh chấp đang mở', '/admin/disputes', stats?.openDisputes],
     ['Phản ánh chờ xử lý', '/admin/reports', stats?.openReports],
     ['Khiếu nại phí chờ xử lý', '/admin/finance/appeals', stats?.feeAppeals],
+    ['Yêu cầu VIP 1 chờ hóa đơn / xác nhận', '/admin/finance/vip', stats?.vipRequests],
     ['Người dùng bị gắn cờ', '/admin/risk-flags', stats?.riskFlags],
   ];
 
@@ -52,7 +53,7 @@ export function OverviewPage() {
           <h2>Số liệu tháng</h2>
           <input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
         </div>
-        {stats && (
+        {stats?.month && (
           <div className="tiles">
             <div className="tile">
               <span className="muted">Giao dịch hoàn tất</span>

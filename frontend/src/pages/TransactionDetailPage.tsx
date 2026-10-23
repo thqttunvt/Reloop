@@ -447,7 +447,7 @@ function ReviewCard({ d, act }: { d: TransactionDetail; act: Act }) {
  * Admin xem mọi cuộc trò chuyện về tin của giao dịch (chỉ đọc) — khi xét tranh chấp, khiếu nại phí, cờ nghi né phí.
  * Chỉ tải khi Admin bấm xem; mỗi lần xem được ghi log (mục 20 danhgia).
  */
-function AdminChatsCard({ listingId }: { listingId: string }) {
+export function AdminChatsCard({ listingId }: { listingId: string }) {
   const [data, setData] = useState<{ conversations: { conversation: Conversation; messages: ChatMessage[] }[] } | null>(null);
   const [error, setError] = useState('');
   const show = async () => {

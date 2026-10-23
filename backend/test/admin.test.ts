@@ -140,3 +140,61 @@ describe('Giao dịch theo trạng thái + phản ánh đã xử lý + tin theo 
     expect(keys.auditPk('2026-01')).toBe('AUDIT#2026-01');
   });
 });
+
+describe('Rà soát 24/10: tranh chấp, xem tin, tạm ngừng, badge (danhgia 24–28)', () => {
+  /** Tin của owner đã bán qua chat cho buyer, buyer khiếu nại. */
+  const disputed = async (t: ReturnType<typeof makeTestApp>) => {
+    const { listingId } = (await post(t, '/listings', 'owner', listingBody())).body;
+    const conv = (await post(t, `/listings/${listingId}/conversations`, 'buyer')).body.conversationId;
+    const offer = (await post(t, `/conversations/${conv}/offers`, 'buyer', { price: 300_000 })).body;
+    const { transactionId } = (await post(t, `/conversations/${conv}/offers/${offer.offerId}/accept`, 'owner')).body;
+    await post(t, `/transactions/${transactionId}/confirm-completion`, 'owner', { finalPrice: 300_000 });
+    await post(t, `/transactions/${transactionId}/dispute`, 'buyer', { reason: 'Giá cuối sai' });
+    return { listingId, transactionId };
+  };
+
+  it('25 + 28: kết luận tranh chấp báo cả 2 bên; hàng đợi có tên người bán', async () => {
+    const t = makeTestApp();
+    const { transactionId } = await disputed(t);
+    expect((await t.call('GET', '/admin/disputes', ADMIN)).body.items[0]).toMatchObject({ transactionId, ownerName: 'Người bán owner' });
+    await t.call('POST', `/admin/transactions/${transactionId}/resolve`, { ...ADMIN, body: { outcome: 'COMPLETED', finalPrice: 280_000, note: 'Đã xem chat' } });
+    for (const user of ['owner', 'buyer']) {
+      const resolved = (await t.call('GET', '/notifications', { user })).body.items.find((n: { type: string }) => n.type === 'TX_DISPUTE_RESOLVED');
+      expect(resolved).toMatchObject({ title: expect.stringContaining('280.000đ'), body: expect.stringContaining('Đã xem chat') });
+    }
+  });
+
+  it('24: Admin xem tin ở mọi trạng thái (người ngoài thì 404), có vị trí chính xác, ghi nhật ký', async () => {
+    const t = makeTestApp();
+    const { listingId } = await disputed(t);
+    const cancelled = (await post(t, '/listings', 'owner', listingBody({ title: 'Tin sẽ gỡ' }))).body.listingId;
+    await post(t, `/listings/${cancelled}/cancel`, 'owner');
+    expect((await t.call('GET', `/listings/${cancelled}`, { user: 'buyer' })).status).toBe(404);
+    const view = (await t.call('GET', `/admin/listings/${cancelled}`, ADMIN)).body;
+    expect(view).toMatchObject({ listing: { listingId: cancelled, status: 'CANCELLED', location: expect.objectContaining({ address: expect.any(String) }) }, seller: { partnerStatus: 'APPROVED' } });
+    expect((await t.call('GET', `/admin/listings/${listingId}`, ADMIN)).body.listing.status).toBe('MATCHED');
+    expect((await t.call('GET', `/admin/listings/${cancelled}`, { user: 'buyer' })).status).toBe(403);
+    // Route tĩnh /admin/listings/review vẫn khớp trước /admin/listings/{id}
+    expect((await t.call('GET', '/admin/listings/review', ADMIN)).body).toHaveProperty('items');
+    const reads = (await t.call('GET', '/admin/audit?month=2026-01', ADMIN)).body.items.filter((x: { routePath: string }) => x.routePath === '/admin/listings/{id}');
+    expect(reads).toHaveLength(2);
+  });
+
+  it('26: tạm ngừng đối tác bắt buộc lý do ≥ 5 ký tự, lý do gửi tới người bị ngừng', async () => {
+    const t = makeTestApp();
+    await post(t, '/listings', 'owner', listingBody());
+    expect((await t.call('POST', '/admin/partners/owner/suspend', { ...ADMIN, body: {} })).body.code).toBe('NOTE_REQUIRED');
+    expect((await t.call('POST', '/admin/partners/owner/suspend', { ...ADMIN, body: { note: 'ok' } })).body.code).toBe('NOTE_REQUIRED');
+    expect((await t.call('POST', '/admin/partners/owner/suspend', { ...ADMIN, body: { note: 'Đăng hàng cấm' } })).body.status).toBe('SUSPENDED');
+    expect((await t.call('GET', '/notifications', { user: 'owner' })).body.items.find((n: { type: string }) => n.type === 'PARTNER_SUSPENDED')).toMatchObject({ body: 'Đăng hàng cấm' });
+  });
+
+  it('27: badge chỉ đếm; số liệu tháng chỉ tính khi có ?month=', async () => {
+    const t = makeTestApp();
+    await disputed(t);
+    const badges = (await t.call('GET', '/admin/stats', ADMIN)).body;
+    expect(badges).toMatchObject({ openDisputes: 1, pendingListings: 0, riskFlags: 0, vipRequests: 0, partners: { APPROVED: 1, PENDING: 0 } });
+    expect(badges.month).toBeUndefined();
+    expect((await t.call('GET', '/admin/stats?month=2026-01', ADMIN)).body.month).toMatchObject({ month: '2026-01' });
+  });
+});

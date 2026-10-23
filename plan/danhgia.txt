@@ -1,6 +1,6 @@
 RELOOP — ĐÁNH GIÁ TOÀN WEBSITE: LỖI & MÂU THUẪN
 =====================================================================
-Rà soát: 2026-10-20 (backend, frontend, quyetdinh.txt, devdocx.txt).
+Rà soát: 2026-10-20 (backend, frontend, quyetdinh.txt, devdocx.txt). Rà soát lại 2026-10-24 sau khi tách trang (mục 23 → 34, cuối file).
 Cập nhật trạng thái mỗi khi sửa xong một mục: [ ] chưa làm · [~] đang làm · [x] đã sửa (ngày, commit).
 
 ---------------------------------------------------------------------
@@ -74,3 +74,93 @@ Không chặn tuyệt đối được (tiền trả offline). Đề xuất kết
      → coi như đã bán ngoài, tự tính 10.000đ vào hóa đơn tháng; người bán khiếu nại được, Admin miễn nếu hợp lý.
   D. Mạnh nhất: thu phí ngay khi chấp nhận giá (không phụ thuộc hoàn tất), hoàn lại khi hủy có lý do được
      bên kia xác nhận hoặc Admin duyệt. Chặn né phí tốt nhưng phiền và dễ tranh cãi.
+
+=====================================================================
+RÀ SOÁT 2026-10-24 — SAU KHI TÁCH TRANG (/admin/*, /partner/*)
+=====================================================================
+Phạm vi: toàn bộ frontend (App, AdminLayout, sections, lists, members, PartnerPage, trang chi tiết)
++ các API backend mà trang mới gọi. Nền: HEAD 4679ae5, 156 test pass, typecheck + build web sạch.
+2026-10-24: đã sửa 23 → 28 (mức cao + trung bình) + đổi VIP 1 sang trả trước (QĐ-44). Mục thấp 29 → 34 chưa làm.
+
+---------------------------------------------------------------------
+MỨC CAO — chặn luồng nghiệp vụ thật
+---------------------------------------------------------------------
+[x] 23 (2026-10-24, sửa + test; chờ deploy dev) Đối tác cấp 2 MỚI không bao giờ được duyệt (lỗi do tách trang, commit 48b9c3a).
+       Hiện tượng: hồ sơ cấp 2 đang chờ duyệt (PENDING) hoặc bị từ chối chỉ thấy form đăng ký; không còn khối
+       Chi nhánh / Bảng giá. Form vẫn ghi "Hãy thêm ít nhất 1 chi nhánh và bảng giá" nhưng không có chỗ thêm.
+       Admin bấm Duyệt → backend trả PARTNER_NO_BRANCH (nút Duyệt cũng bị khóa vì "Chưa có chi nhánh").
+       Chỗ: frontend/src/pages/PartnerPage.tsx:121 (nhánh "chưa là đối tác"). Bản trước (48b9c3a~1) hiện
+       BranchesCard + RulesCard cho mọi hồ sơ cấp 2, kể cả PENDING.
+       Backend vẫn cho thêm chi nhánh khi PENDING (requireAppliedBusiness) → chỉ là lỗi giao diện.
+       Đề xuất: hồ sơ cấp 2 PENDING / REJECTED → dưới form hiện thêm BranchesCard + RulesCard như cũ.
+       Kiểm tra: đăng ký cấp 2 bằng tài khoản mới → thêm chi nhánh → Admin duyệt được.
+
+[x] 24 (2026-10-24, sửa + test; chờ deploy dev) Admin mở tin từ trang Admin bị "Không tìm thấy tin đăng" (404).
+       Hiện tượng: link tin ở "Tất cả tin theo tháng", hồ sơ thành viên, phản ánh đã xử lý… với tin
+       Đã hủy / Hết hạn / Hoàn tất / Chờ duyệt, hoặc tin của người bán đang bị tạm ngừng → 404.
+       Đúng các tin Admin cần xem nhất (tin bị gỡ, tin của người bị tạm ngừng).
+       Nguyên nhân: backend coi Admin như người xem thường (VIEWER), xem listingService.ts:674 và :680.
+       Phụ: Admin vào tin đang mở thấy giao diện người mua (nút nhắn tin, ra giá, phản ánh).
+       Đề xuất: API chỉ đọc GET /admin/listings/{id} (mọi trạng thái, ghi nhật ký pii-read như xem giao dịch),
+       trang chi tiết tin trong /admin/listings/:id; các link tin trong trang Admin trỏ về đó.
+
+[x] 25 (2026-10-24, sửa + test; chờ deploy dev) Admin kết luận tranh chấp → người bán và người mua KHÔNG nhận được thông báo nào.
+       Chỗ: backend/src/modules/transactions/transactionService.ts:457 (resolveDispute gọi mutate, không notify).
+       Phí 10.000đ và trạng thái tin vẫn cập nhật đúng; chỉ thiếu báo.
+       Đề xuất: báo cả 2 bên "Admin kết luận: hoàn tất với giá …đ / thất bại — <ghi chú>", link tới giao dịch.
+
+---------------------------------------------------------------------
+MỨC TRUNG BÌNH — thao tác Admin dễ nhầm / chi phí
+---------------------------------------------------------------------
+[x] 26 (2026-10-24, sửa + test; chờ deploy dev) Tạm ngừng đối tác ở trang "Duyệt / tạm ngừng" không hỏi lại, lý do không bắt buộc.
+       Chỗ: frontend/src/pages/admin/sections.tsx:142-148; API /admin/partners/{id}/suspend (routes.ts:570)
+       nhận note tùy ý. Trái QĐ-43 (tạm ngừng bắt buộc lý do + hỏi lại) và trái chính trang Thành viên
+       (members.tsx:89 bắt ≥ 5 ký tự). Người bị ngừng nhận thông báo không có lý do.
+       Đề xuất: backend bắt note ≥ 5 ký tự cho suspend (một chỗ cho mọi trang); frontend confirm() kèm
+       số vi phạm 30 ngày như trang Phản ánh.
+
+[x] 27 (2026-10-24, sửa + test; chờ deploy dev) Mỗi lần bấm sang mục khác trong trang Admin đều gọi /admin/stats, kéo theo rất nhiều lượt đọc DynamoDB.
+       Chỗ: AdminLayout.tsx:66 (gọi theo location.pathname) → routes.ts:809-818: đọc ĐẦY ĐỦ đối tác của cả
+       4 trạng thái, mỗi đối tác thêm 1 lần đọc hồ sơ + 1 lần đọc chi nhánh (chỉ để đếm), cộng tin chờ duyệt
+       (kèm tạo link ảnh), cờ rủi ro (kèm 3 truy vấn lịch sử / người), số liệu tháng (2 lần đọc / người có phí).
+       Với ~100 đối tác ≈ vài trăm lượt đọc cho MỖI cú bấm menu. Chưa đắt ở dev, nhưng tăng tuyến tính.
+       Đề xuất: /admin/stats chỉ đếm (hàm count không kéo hồ sơ / ảnh / lịch sử); số liệu tháng tách ra,
+       chỉ gọi ở Dashboard; badge làm mới mỗi 60 giây hoặc sau thao tác thay vì mỗi lần đổi trang.
+
+[x] 28 (2026-10-24, sửa + test; chờ deploy dev) Trang Tranh chấp: bấm "Hoàn tất với giá này" / "Kết luận thất bại" không hỏi lại; ô giá để trống
+       → gửi 0đ (Number('') = 0, backend nhận min 0). Người bán hiện bằng mã người dùng thay vì tên.
+       Chỗ: sections.tsx:180-190, :216. Đề xuất: confirm() ghi rõ kết luận + giá; chặn giá trống;
+       backend trả kèm tên người bán để hiện tên.
+
+---------------------------------------------------------------------
+MỨC THẤP — điều hướng / hiển thị sau khi tách trang
+---------------------------------------------------------------------
+[ ] 29 Thông báo về phí đều dẫn tới /partner (Tổng quan) thay vì /partner/billing: hóa đơn mới, đã nhận
+       thanh toán, phí nghi bán ngoài, kết quả khiếu nại, VIP 1 (billingService.ts:224, :343, :429;
+       listingService.ts:743; partnerService.ts:296). Người dùng phải tự tìm mục "Phí dịch vụ".
+       Đề xuất: đổi link sang /partner/billing (thông báo cũ vẫn chạy vì /partner vẫn tồn tại).
+[ ] 30 Nhãn trên thanh trên cùng (Cấp 1 / Cấp 2, PN1 / PN1V / PN2) chỉ tải lại khi vào đúng /partner
+       (App.tsx:37 so sánh pathname === '/partner'). Mua VIP 1 xong vẫn hiện PN1; được duyệt rồi vào thẳng
+       /partner/billing vẫn hiện "Làm đối tác". Đề xuất: so sánh startsWith('/partner') hoặc tải lại sau mua VIP.
+[ ] 31 Một số link đưa người dùng ra khỏi khu vực đang ở: "đăng tin" trong Hồ sơ đối tác (PartnerPage.tsx:280)
+       và "+ Đăng tin" ở Tin của tôi (MyListingsPage.tsx:21) trỏ /listings/new (mất menu đối tác);
+       trong trang Admin, Đăng tin / Tin của tôi / link giao dịch, tin mở ra giao diện người dùng.
+       Đề xuất: trong /partner/* dùng /partner/new; trong Admin chấp nhận được (có nút Back), ghi chú UI.
+[ ] 32 "Giao dịch theo trạng thái" (lists.tsx:58) và "Tất cả tin theo tháng" (lists.tsx:102) hiện người bán
+       bằng mã người dùng dài. Đề xuất: backend trả kèm tên (đã có sẵn partnerName cho người mua).
+[ ] 33 Tài khoản chỉ thuộc FinanceAdmins (không thuộc Admins) vào được trang Admin (App.tsx:79) nhưng mọi
+       API /admin/* bắt nhóm admin → trang toàn lỗi 403. make-admin.sh luôn thêm Admins nên hiện chưa xảy ra.
+       Đề xuất: isAdmin chỉ xét nhóm admin, hoặc ghi rõ trong make-admin.sh.
+[ ] 34 Nhật ký Admin: key dòng = thời điểm + admin + route (lists.tsx:157) có thể trùng khi 2 thao tác cùng
+       mili giây → React cảnh báo, hiện thiếu dòng. Đề xuất: trả id dòng nhật ký (đã có trong sort key).
+
+---------------------------------------------------------------------
+CÒN MỞ TỪ TRƯỚC (nhắc lại để gom một chỗ)
+---------------------------------------------------------------------
+[ ] 12 Lượt AI 20 / ngày đếm theo ngày UTC (aiService.ts:717, reset lúc 7h sáng giờ VN), hóa đơn theo giờ VN.
+[ ] B7 Ghép tin với đơn vị thu mua chạy ngay trong request đăng tin (listingService.ts:304, TODO QĐ-13).
+[ ] A  Hiện số lần hủy trên hồ sơ người bán (phần A chống né phí).
+
+Đã kiểm, KHÔNG có lỗi: route /admin/* + /partner/* khớp, đường dẫn cũ /admin và /partner vẫn vào được,
+khóa tài khoản do nợ phí vẫn chặn đúng trong khu đối tác, phân trang dùng chung (pageQuery / PagedTable),
+bộ lọc trên URL, nút tiền chỉ hiện cho Admin tài chính, nhật ký ghi đúng thao tác + lượt xem dữ liệu cá nhân.

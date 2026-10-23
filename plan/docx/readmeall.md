@@ -1,7 +1,7 @@
 # ReLoop — Bàn giao ngữ cảnh (đọc file này đầu tiên)
 
 > **Mục đích:** lưu toàn bộ ngữ cảnh dự án để khi mở lại máy, Claude (hoặc thành viên mới) đọc là biết đã làm tới đâu.
-> **Cập nhật lần cuối:** 2026-10-23 (đọc lại toàn bộ code)
+> **Cập nhật lần cuối:** 2026-10-24 (rà soát sau tách trang, sửa danhgia 23–28, VIP 1 trả trước QĐ-44)
 > **Quy tắc:** mỗi khi xong một phần việc hoặc chốt quyết định mới, cập nhật mục 6 (Trạng thái), mục 7 (Việc tiếp theo) và mục 9 (Nhật ký).
 
 ---
@@ -42,7 +42,7 @@ Thứ tự tin cậy: **code > quyetdinh.txt > devdocx.txt > task.txt > giaiphap
 
 **Đối tác & tin đăng**
 - Chỉ đối tác đã duyệt mới đăng tin (QĐ-34). Cả 2 cấp khai loại hình, tên, số giấy tờ, email liên hệ; SĐT không bắt buộc (ở Hồ sơ). Tên + email + SĐT của người bán hiện công khai trên tin.
-- **Hạn mức tin đang mở cùng lúc (QĐ-41):** cấp 1 = 3, cấp 1 + **VIP 1** = 5 (10.000đ / 30 ngày, tự mua, cộng dồn, cộng vào hóa đơn), cấp 2 = 10.
+- **Hạn mức tin đang mở cùng lúc (QĐ-41):** cấp 1 = 3, cấp 1 + **VIP 1** = 5, cấp 2 = 10. **VIP 1 trả trước (QĐ-44):** đăng ký → Admin tài chính gửi hóa đơn (mã RLVxxxxxx) → chuyển khoản → Admin xác nhận đã thu → gói tự bật 30 ngày (cộng dồn). Không còn cộng vào phí tháng.
 - Đăng tin bắt buộc mô tả ≥ 10 ký tự + ≥ 1 ảnh; ảnh qua Rekognition: **≥ 70% nhạy cảm → chặn + tính vi phạm**; **50–70% nhãn nặng → tin chờ Admin duyệt** (QĐ-43); **chữ bất thường trong ảnh → chờ duyệt** (QĐ-36).
 - AI Amazon Nova Pro gợi ý thông tin từ ảnh (chạy nền, 20 lượt/ngày), lưu bộ dữ liệu nhãn (QĐ-35).
 - Tin mở 7 ngày; matching geohash + Haversine trong bán kính chi nhánh (1–5 km), **chạy ngay trong request** (QĐ-13 phần matching nền chưa làm).
@@ -166,3 +166,4 @@ Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chi�
 | 2026-10-22 | Sửa lỗi bấm Admin bị đẩy về Chợ (AdminLayout thiếu route cha `/admin/*` → route con không khớp → Navigate ra ngoài). Menu Admin: 8 mục chính đúng tên PO (Dashboard, Hồ sơ, Đối tác, Giao dịch, Lịch sử, Thành viên, Ngân hàng, Bài viết), mục con hiện khi mở nhóm; Bài viết thêm Đăng tin + Tin của tôi (dùng lại trang người dùng, vẫn theo QĐ-34). Đã deploy dev. |
 | 2026-10-22 | smoke-aws.py RUN 357b07 ALL PASS (thêm nhánh hoàn tất + tranh chấp + API Admin). Khu đối tác Cấp 1 / Cấp 2 làm cùng kiểu trang Admin: menu trái theo nhóm (Tổng quan · Bài viết: Đăng tin, Tin của tôi · Thu mua (cấp 2): Tin phù hợp, Chi nhánh, Bảng giá · Ngân hàng: Phí dịch vụ · Hồ sơ), route `/partner/*`. Người chưa là đối tác vẫn chỉ thấy form đăng ký. Đã deploy dev. |
 | 2026-10-23 | Đọc lại toàn bộ code trên `feature/doi-tac-2-cap` (HEAD 48b9c3a): 156 test pass, typecheck backend + frontend sạch, code khớp mục 3–6; không sửa code. Phát hiện: Admin kết luận tranh chấp (`resolveDispute`) **không gửi thông báo** cho 2 bên; còn mở danhgia 12 (lượt AI theo ngày UTC), matching vẫn chạy trong request (TODO QĐ-13). `scripts/make-admin.sh` vẫn "M" chỉ do kết thúc dòng. |
+| 2026-10-24 | Rà soát sau khi tách trang → `danhgia.txt` mục 23–34. Sửa mức cao + trung bình: 23 đơn cấp 2 chờ duyệt thêm lại được chi nhánh / bảng giá (lỗi do tách trang), 24 Admin xem tin mọi trạng thái (`GET /admin/listings/{id}` pii-read + trang `/admin/listings/:id`), 25 báo 2 bên khi Admin kết luận tranh chấp, 26 tạm ngừng bắt buộc lý do ≥ 5 ký tự + hỏi lại, 27 `/admin/stats` chỉ đếm (số liệu tháng chỉ khi có `?month=`), 28 tranh chấp hỏi lại + chặn giá trống + tên người bán. **QĐ-44 VIP 1 trả trước**: `POST /partners/me/vip-requests` → Admin tài chính `/invoice` (mã RLV) → `/approve` (bật gói) / `/reject`; trang Admin "Ngân hàng → Yêu cầu VIP 1"; bỏ `POST /partners/me/vip` và dòng phí VIP trong hóa đơn tháng. Điều khoản 2026-10-24. 161 test, typecheck + build sạch, terraform plan 0 / 1 / 0. **Chưa deploy** (deploy bị chặn quyền tự động — chờ PO chạy `infra/deploy.sh`). |

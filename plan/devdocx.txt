@@ -428,6 +428,11 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
          sửa QĐ-02, 10, 13, 14, 15, 18, 20, 22, 26, 27, 28, state machine, TL-02/03/04/06), devdocx.txt, readmeall.md,
          README.md; ghi chú tài liệu lịch sử (baton, giaiphap, task, plan/docx/README.md).
          Người làm: [Tên người làm]   Kiểm chứng: plan/danhgia.txt mục 13–16, 21–22
+  24/10  Rà soát sau khi tách trang Admin / Đối tác (danhgia 23–34). Sửa mức cao + trung bình: đơn cấp 2 chờ duyệt thêm
+         được chi nhánh (23), Admin xem tin mọi trạng thái /admin/listings/:id (24), báo 2 bên khi Admin kết luận tranh chấp (25),
+         tạm ngừng bắt buộc lý do + hỏi lại (26), /admin/stats chỉ đếm (27), tranh chấp hỏi lại + chặn giá trống (28).
+         QĐ-44: VIP 1 trả trước — yêu cầu → Admin gửi hóa đơn → chuyển khoản → Admin xác nhận đã thu → tự bật.
+         Người làm: [Tên người làm]   Kiểm chứng: 161 test, typecheck + build sạch, terraform plan 0 thêm / 1 sửa / 0 xóa
 
 
 =====================================================================

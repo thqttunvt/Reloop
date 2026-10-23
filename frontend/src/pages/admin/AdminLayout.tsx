@@ -8,7 +8,8 @@ import type { Session } from '../../lib/session';
 import { AdminProfilePage, AuditPage, ListingsPage, ResolvedReportsPage, TransactionsPage } from './lists';
 import { MemberDetailPage, MembersPage } from './members';
 import { OverviewPage } from './OverviewPage';
-import { DisputesAdmin, FeeAppealsAdmin, InvoicesAdmin, ListingReviewAdmin, PartnersAdmin, ReportsAdmin, RiskFlagsAdmin } from './sections';
+import { AdminListingPage } from './listing';
+import { DisputesAdmin, FeeAppealsAdmin, InvoicesAdmin, ListingReviewAdmin, PartnersAdmin, ReportsAdmin, RiskFlagsAdmin, VipRequestsAdmin } from './sections';
 
 type Badge = (s: AdminStats) => number;
 
@@ -43,6 +44,7 @@ const MENU: { group: string; items: { to: string; label: string; badge?: Badge }
     items: [
       { to: 'finance/invoices', label: 'Hóa đơn phí dịch vụ' },
       { to: 'finance/appeals', label: 'Khiếu nại phí', badge: (s) => s.feeAppeals },
+      { to: 'finance/vip', label: 'Yêu cầu VIP 1', badge: (s) => s.vipRequests },
     ],
   },
   {
@@ -73,7 +75,7 @@ export function AdminLayout({ session, onSignOut }: { session: Session; onSignOu
         {MENU.map((g) => {
           // 8 mục chính đúng tên PO đặt; mục con chỉ hiện khi đang ở trong nhóm đó
           // users/:id (hồ sơ gộp) vẫn thuộc nhóm Thành viên
-          const open = g.items.some((it) => location.pathname === `/admin/${it.to}` || (it.to === 'users' && location.pathname.startsWith('/admin/users/')));
+          const open = g.items.some((it) => location.pathname === `/admin/${it.to}` || (it.to === 'users' && location.pathname.startsWith('/admin/users/')) || (it.to === 'listings' && location.pathname.startsWith('/admin/listings/')));
           const total = stats ? g.items.reduce((s, it) => s + (it.badge?.(stats) ?? 0), 0) : 0;
           return (
             <div key={g.group} className="admin-group">
@@ -121,11 +123,13 @@ export function AdminLayout({ session, onSignOut }: { session: Session; onSignOu
           <Route path="users/:id" element={<MemberDetailPage />} />
           <Route path="finance/invoices" element={<InvoicesAdmin />} />
           <Route path="finance/appeals" element={<FeeAppealsAdmin />} />
+          <Route path="finance/vip" element={<VipRequestsAdmin />} />
           {/* Admin đăng tin dùng lại trang của người dùng — vẫn theo luật QĐ-34 (phải là đối tác đã duyệt) */}
           <Route path="posts/new" element={<CreateListingPage />} />
           <Route path="posts/mine" element={<MyListingsPage />} />
           <Route path="listings/review" element={<ListingReviewAdmin />} />
           <Route path="listings" element={<ListingsPage />} />
+          <Route path="listings/:id" element={<AdminListingPage />} />
           <Route path="reports" element={<ReportsAdmin />} />
           <Route path="*" element={<Navigate to="overview" replace />} />
         </Routes>

@@ -63,7 +63,10 @@ export interface FeeLine extends Item {
   amount: number;
   /** Thời điểm tính phí: giao dịch hoàn tất, hoặc lúc gỡ tin bị nghi bán ngoài. */
   completedAt: string;
-  /** TRANSACTION (mặc định): giao dịch hoàn tất. SUSPECTED_OFFLINE: hủy rồi gỡ tin trong 72 giờ (QĐ-39). VIP_PLAN: gói VIP 1 (QĐ-41). */
+  /**
+   * TRANSACTION (mặc định): giao dịch hoàn tất. SUSPECTED_OFFLINE: hủy rồi gỡ tin trong 72 giờ (QĐ-39).
+   * VIP_PLAN: gói VIP 1 cộng vào phí tháng — chỉ còn ở dữ liệu cũ (QĐ-41), từ QĐ-44 VIP trả trước theo hóa đơn riêng.
+   */
   kind?: 'TRANSACTION' | 'SUSPECTED_OFFLINE' | 'VIP_PLAN';
   /** Khiếu nại phí nghi vấn; WAIVED → amount = 0. */
   appeal?: { reason: string; at: string; status: 'OPEN' | 'WAIVED' | 'KEPT'; note?: string; by?: string; resolvedAt?: string };
@@ -128,24 +131,14 @@ export class BillingService {
     return [putNew(line), { type: 'put', item: { ...keys.feeMonthMember(month, tx.ownerId), userId: tx.ownerId } }];
   }
 
+  /** Gói VIP 1 trả trước theo hóa đơn riêng (QĐ-44) — không còn cộng vào phí tháng. */
   get vipPlan() {
     return { price: this.policy.vipPrice, days: this.policy.vipDays };
   }
 
-  /** Phí gói VIP 1 (QĐ-41) — ghi cùng transaction với việc bật / gia hạn gói. */
-  vipFeeOps(userId: string, purchaseId: string, until: string, at: string): WriteOp[] {
-    const month = vnMonth(at);
-    const line: FeeLine = {
-      ...keys.feeLine(userId, month, `VIP${purchaseId}`),
-      userId,
-      month,
-      transactionId: `VIP${purchaseId}`,
-      listingTitle: `Gói VIP 1 — hiệu lực đến ${new Date(new Date(until).getTime() + 7 * HOUR_MS).toISOString().slice(0, 10)}`,
-      amount: this.policy.vipPrice,
-      completedAt: at,
-      kind: 'VIP_PLAN',
-    };
-    return [putNew(line), { type: 'put', item: { ...keys.feeMonthMember(month, userId), userId } }];
+  /** Tài khoản nhận tiền (in trên hóa đơn phí tháng và hóa đơn VIP 1). */
+  get bankInfo() {
+    return this.bank;
   }
 
   /**

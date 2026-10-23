@@ -44,7 +44,8 @@ export function TermsGate({ children }: { children: React.ReactNode }) {
         bình thường); quá hạn trên 7 ngày: tạm khóa mọi chức năng, chỉ còn xem và thanh toán phí, cho tới khi ReLoop xác nhận đã nhận tiền.
       </p>
       <p>
-        Hạn mức tin đang mở cùng lúc: đối tác cấp 1 được 3 tin, gói VIP 1 (10.000đ / 30 ngày, cộng vào phí tháng) được 5 tin, đối tác cấp 2 được 10 tin.
+        Hạn mức tin đang mở cùng lúc: đối tác cấp 1 được 3 tin, gói VIP 1 (10.000đ / 30 ngày, trả trước: đăng ký → ReLoop gửi hóa đơn → chuyển khoản → gói bật khi ReLoop xác nhận
+        đã nhận tiền) được 5 tin, đối tác cấp 2 được 10 tin.
         Chống né phí: nếu giao dịch bị hủy / báo thất bại rồi người bán gỡ tin trong vòng 72 giờ sau đó, ReLoop coi như đã bán bên ngoài và tính
         10.000đ vào phí tháng (người bán được khiếu nại, Admin miễn nếu hợp lý). Người bán có nhiều giao dịch bị hủy bất thường có thể bị cảnh cáo
         hoặc tạm ngừng tài khoản đối tác.

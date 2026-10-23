@@ -47,6 +47,15 @@ const oneOf = <T extends string>(value: string | undefined, allowed: readonly T[
   return value as T;
 };
 
+/** Lý do bắt buộc (≥ 5 ký tự) cho thao tác gửi tới người dùng: tạm ngừng, từ chối VIP. */
+const requiredNote = (raw: unknown, what: string) => {
+  const note = typeof raw === 'string' ? raw.trim() : '';
+  if (note.length < 5) throw badRequest('NOTE_REQUIRED', `${what} cần ghi lý do (ít nhất 5 ký tự) — lý do được gửi cho người dùng`);
+  return note.slice(0, 1000);
+};
+const suspendNote = (raw: unknown) => requiredNote(raw, 'Tạm ngừng');
+const VIP_STATUSES = ['REQUESTED', 'INVOICED', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
+
 export function apiRoutes(s: Services): Route[] {
   return [
     // ------------------------------------------------------------ Hồ sơ
@@ -487,24 +496,33 @@ export function apiRoutes(s: Services): Route[] {
       allowWhenLocked: true,
       handle: async (c) => {
         const id = c.principal.userId;
-        const [partner, branches, rules, open] = await Promise.all([
+        const [partner, branches, rules, open, vipRequest] = await Promise.all([
           s.partners.get(id),
           s.partners.listBranches(id),
           s.partners.listRules(id),
           s.listings.openListingCount(id),
+          s.partners.latestVipRequest(id),
         ]);
-        // Hạn mức tin đang mở + gói VIP 1 (QĐ-41)
-        const quota = partner ? { ...s.partners.listingQuota(partner), open, vipPrice: s.billing.vipPlan.price, vipDays: s.billing.vipPlan.days } : null;
+        // Hạn mức tin đang mở + gói VIP 1 (QĐ-41) + yêu cầu VIP gần nhất và tài khoản nhận tiền (QĐ-44)
+        const quota = partner
+          ? { ...s.partners.listingQuota(partner), open, vipPrice: s.billing.vipPlan.price, vipDays: s.billing.vipPlan.days, vipRequest: vipRequest ?? null, bank: s.billing.bankInfo ?? null }
+          : null;
         return { body: { partner: partner ?? null, branches, rules, quota } };
       },
     },
     {
-      // Mua / gia hạn VIP 1 (QĐ-41) — tính tiền nên bắt buộc Idempotency-Key
+      // Đăng ký VIP 1 (QĐ-44): chỉ tạo yêu cầu — gói bật sau khi Admin xác nhận đã nhận tiền
       method: 'POST',
-      path: '/partners/me/vip',
+      path: '/partners/me/vip-requests',
       auth: 'required',
       idempotent: true,
-      handle: async (c) => ({ body: await s.partners.buyVip(c.principal.userId) }),
+      handle: async (c) => ({ status: 201, body: await s.partners.requestVip(c.principal.userId) }),
+    },
+    {
+      method: 'POST',
+      path: '/partners/me/vip-requests/{id}/cancel',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.partners.cancelVip(c.principal.userId, c.params.id!) }),
     },
     {
       method: 'PATCH',
@@ -571,8 +589,8 @@ export function apiRoutes(s: Services): Route[] {
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
-        const note = typeof c.body.note === 'string' ? c.body.note : undefined;
-        return { body: await s.partners.setSuspended(c.principal.userId, c.params.id!, true, note) };
+        // Tạm ngừng bắt buộc lý do — được gửi cho người bị tạm ngừng (QĐ-43, mục 26 danhgia)
+        return { body: await s.partners.setSuspended(c.principal.userId, c.params.id!, true, suspendNote(c.body.note)) };
       },
     },
     {
@@ -689,6 +707,45 @@ export function apiRoutes(s: Services): Route[] {
       },
     },
     {
+      // Yêu cầu VIP 1 (QĐ-44) — xem: admin; gửi hóa đơn / xác nhận đã thu / từ chối: admin_finance
+      method: 'GET',
+      path: '/admin/vip-requests',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const status = oneOf(c.query.status, VIP_STATUSES, 'REQUESTED');
+        return { body: { items: await s.partners.listVipRequests(status) } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/vip-requests/{userId}/{id}/invoice',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        return { body: await s.partners.invoiceVip(c.principal.userId, c.params.userId!, c.params.id!) };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/vip-requests/{userId}/{id}/approve',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        const note = typeof c.body.note === 'string' && c.body.note.trim() ? c.body.note.trim().slice(0, 500) : undefined;
+        return { body: await s.partners.approveVip(c.principal.userId, c.params.userId!, c.params.id!, note) };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/vip-requests/{userId}/{id}/reject',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        return { body: await s.partners.rejectVip(c.principal.userId, c.params.userId!, c.params.id!, requiredNote(c.body.note, 'Từ chối')) };
+      },
+    },
+    {
       // Cờ "nghi né phí" (QĐ-39)
       method: 'GET',
       path: '/admin/risk-flags',
@@ -791,6 +848,17 @@ export function apiRoutes(s: Services): Route[] {
       },
     },
     {
+      // Admin xem 1 tin ở MỌI trạng thái, kèm vị trí chính xác → ghi nhật ký xem dữ liệu cá nhân (mục 24 danhgia)
+      method: 'GET',
+      path: '/admin/listings/{id}',
+      auth: 'required',
+      audit: 'pii-read',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.listings.adminView(c.params.id!) };
+      },
+    },
+    {
       method: 'POST',
       path: '/admin/reports/{id}/resolve',
       auth: 'required',
@@ -800,31 +868,35 @@ export function apiRoutes(s: Services): Route[] {
       },
     },
     {
-      // Thống kê nhanh cho Admin (T14.6) — chỉ dùng truy vấn theo trạng thái, không Scan
+      // Badge + Dashboard (T14.6). Trang Admin gọi ở MỖI lần đổi trang → chỉ ĐẾM theo trạng thái, không kéo hồ sơ / ảnh /
+      // lịch sử (mục 27 danhgia). Số liệu kinh doanh tháng (get.md A6) chỉ tính khi có ?month= (Dashboard).
       method: 'GET',
       path: '/admin/stats',
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
         const partnerCounts = Object.fromEntries(
-          await Promise.all(PARTNER_STATUSES.map(async (st) => [st, (await s.partners.listByStatus(st)).length] as const)),
+          await Promise.all(PARTNER_STATUSES.map(async (st) => [st, await s.partners.countByStatus(st)] as const)),
         );
-        const [disputes, reports, pendingListings, riskFlags, feeAppeals, month] = await Promise.all([
+        const [disputes, reports, pendingListings, riskFlags, feeAppeals, vipRequested, vipInvoiced, month] = await Promise.all([
           s.transactions.listDisputed(),
           s.reports.listOpen(),
-          s.listings.listPendingReview(),
-          s.risk.listOpen(),
+          s.listings.pendingReviewCount(),
+          s.risk.openCount(),
           s.billing.listAppeals(),
-          s.admin.monthStats(c.query.month), // số liệu kinh doanh tháng (get.md A6)
+          s.partners.listVipRequests('REQUESTED'),
+          s.partners.listVipRequests('INVOICED'),
+          c.query.month === undefined ? undefined : s.admin.monthStats(c.query.month),
         ]);
         return {
           body: {
             partners: partnerCounts,
             openDisputes: disputes.length,
             openReports: reports.length,
-            pendingListings: pendingListings.length,
-            riskFlags: riskFlags.length,
+            pendingListings,
+            riskFlags,
             feeAppeals: feeAppeals.length,
+            vipRequests: vipRequested.length + vipInvoiced.length,
             month,
           },
         };
@@ -836,7 +908,10 @@ export function apiRoutes(s: Services): Route[] {
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
-        return { body: { items: await s.transactions.listDisputed() } };
+        const items = await s.transactions.listDisputed();
+        // Tên người bán để Admin không phải đọc mã người dùng (mục 28 danhgia)
+        const names = Object.fromEntries(await Promise.all([...new Set(items.map((t) => t.ownerId))].map(async (id) => [id, (await s.listings.sellerOf(id)).displayName] as const)));
+        return { body: { items: items.map((t) => ({ ...t, ownerName: names[t.ownerId] })) } };
       },
     },
     {

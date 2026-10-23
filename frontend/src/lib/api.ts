@@ -199,6 +199,35 @@ export interface ListingQuota {
   vipUntil?: string;
   vipPrice: number;
   vipDays: number;
+  /** Yêu cầu VIP 1 gần nhất (QĐ-44) */
+  vipRequest: VipRequest | null;
+  /** Tài khoản nhận tiền in trên hóa đơn */
+  bank: BankInfo | null;
+}
+
+export interface BankInfo {
+  bankName: string;
+  accountNo: string;
+  accountName: string;
+}
+
+/** Gói VIP 1 trả trước (QĐ-44): yêu cầu → Admin gửi hóa đơn → chuyển khoản → Admin xác nhận đã thu → gói bật. */
+export type VipRequestStatus = 'REQUESTED' | 'INVOICED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export interface VipRequest {
+  requestId: string;
+  userId: string;
+  partnerName: string;
+  amount: number;
+  days: number;
+  status: VipRequestStatus;
+  paymentCode?: string;
+  invoicedAt?: string;
+  dueAt?: string;
+  paidAt?: string;
+  note?: string;
+  vipUntil?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Branch {
@@ -300,6 +329,8 @@ export interface Transaction {
   source?: 'QUOTE' | 'CHAT';
   conversationId?: string;
   ownerId: string;
+  /** Tên người bán — chỉ có ở hàng đợi tranh chấp của Admin */
+  ownerName?: string;
   partnerId: string;
   status: TransactionStatus;
   listingTitle: string;
@@ -448,7 +479,19 @@ export interface AdminStats {
   pendingListings: number;
   riskFlags: number;
   feeAppeals: number;
-  month: MonthStats;
+  /** Yêu cầu VIP 1 chờ gửi hóa đơn + chờ xác nhận đã thu */
+  vipRequests: number;
+  /** Chỉ có khi gọi kèm ?month= (Dashboard) */
+  month?: MonthStats;
+}
+
+/** Admin xem 1 tin ở mọi trạng thái (GET /admin/listings/{id}). */
+export interface AdminListingView {
+  listing: Listing & { activeTransactionId?: string };
+  images: string[];
+  seller: Seller & { partnerStatus?: PartnerStatus };
+  matches: Match[];
+  quotes: Quote[];
 }
 
 export interface Report {

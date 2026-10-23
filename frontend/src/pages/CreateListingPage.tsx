@@ -207,7 +207,7 @@ export function CreateListingPage() {
         {quota!.plan === 'BASIC' && (
           <>
             {' '}
-            — hay <Link to="/partner">nâng lên VIP 1</Link> ({vnd(quota!.vipPrice)} / {quota!.vipDays} ngày) để đăng tối đa 5 tin
+            — hay <Link to="/partner">đăng ký VIP 1</Link> ({vnd(quota!.vipPrice)} / {quota!.vipDays} ngày) để đăng tối đa 5 tin
           </>
         )}
         .

@@ -76,6 +76,11 @@ export const keys = {
   /** Đánh dấu job lập hóa đơn của tháng đã chạy. */
   billingRun: (month: string) => ({ pk: 'SYSTEM', sk: `BILLINGRUN#${month}` }),
 
+  // Gói VIP 1 trả trước (QĐ-44)
+  vipRequest: (userId: string, requestId: string) => ({ pk: `USER#${userId}`, sk: `VIPREQ#${requestId}` }),
+  /** Khóa "đang có yêu cầu VIP chưa xong" — mỗi người tối đa 1 yêu cầu mở; xóa khi duyệt / từ chối / hủy. */
+  vipRequestOpen: (userId: string) => ({ pk: `USER#${userId}`, sk: 'VIPREQ_OPEN' }),
+
   // Chống né phí (QĐ-39)
   /** Giao dịch của người bán bị hủy / thất bại do hai bên — xét cờ "cùng người mua". */
   dealEnded: (sellerId: string, at: string, transactionId: string) => ({ pk: `USER#${sellerId}`, sk: `DEALEND#${at}#${transactionId}` }),

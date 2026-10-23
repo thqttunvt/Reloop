@@ -157,7 +157,7 @@ export function MemberDetailPage() {
           <ul className="plain">
             {d.listings.items.map((l) => (
               <li key={l.listingId}>
-                <span className={`badge ${statusTone(l.status)}`}>{LISTING_STATUS_LABEL[l.status]}</span> <Link to={`/listings/${l.listingId}`}>{l.title}</Link>{' '}
+                <span className={`badge ${statusTone(l.status)}`}>{LISTING_STATUS_LABEL[l.status]}</span> <Link to={`/admin/listings/${l.listingId}`}>{l.title}</Link>{' '}
                 <span className="muted small">{dateTime(l.createdAt)}</span>
               </li>
             ))}

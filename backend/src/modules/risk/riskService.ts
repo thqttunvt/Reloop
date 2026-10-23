@@ -179,6 +179,11 @@ export class RiskService {
     });
   }
 
+  /** Chỉ đếm cờ đang mở (badge Admin) — không đọc lịch sử sự việc. */
+  async openCount() {
+    return (await this.table.query<RiskFlag>(gsi1.statusPk('RISK', 'OPEN'), { index: 'gsi1' })).filter((f) => f.status === 'OPEN').length;
+  }
+
   /** Hàng đợi Admin: cờ đang mở, cũ nhất trước, kèm lịch sử sự việc. */
   async listOpen() {
     const flags = await this.table.query<RiskFlag>(gsi1.statusPk('RISK', 'OPEN'), { index: 'gsi1' });

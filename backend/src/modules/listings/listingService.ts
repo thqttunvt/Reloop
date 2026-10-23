@@ -365,6 +365,14 @@ export class ListingService {
   }
 
   /**
+   * Chỉ đếm tin chờ duyệt (badge Admin) — không tạo link ảnh như listPendingReview.
+   * Con trỏ hàng đợi bị xóa cùng transaction khi Admin quyết / chủ tin hủy / Admin gỡ → đếm con trỏ là đủ.
+   */
+  async pendingReviewCount() {
+    return (await this.table.query<Item>(keys.listingReviewPk(), { limit: 100 })).length;
+  }
+
+  /**
    * Admin duyệt: tin lên Chợ, chạy matching, hạn 7 ngày tính từ lúc duyệt.
    * Từ chối: tin CANCELLED kèm lý do. Cả hai đều báo cho chủ tin.
    */
@@ -688,6 +696,29 @@ export class ListingService {
       seller,
       matches: myMatches,
       quotes: quotes.filter((q) => q.partnerId === viewerId).map(withStatus),
+    };
+  }
+
+  /**
+   * Admin xem 1 tin ở mọi trạng thái (mục 24 danhgia): đủ thông tin như chủ tin (vị trí chính xác, lý do duyệt / gỡ,
+   * giao dịch gần nhất bị hủy) + mọi báo giá. Chỉ đọc; route ghi nhật ký pii-read.
+   */
+  async adminView(listingId: string) {
+    const listing = await this.settled(await this.load(listingId));
+    const now = this.clock.now();
+    const [matches, quotes, images, seller, sellerPartner] = await Promise.all([
+      this.matchesOf(listingId),
+      this.quotesOf(listingId),
+      this.imageUrls(listing),
+      this.sellerOf(listing.ownerId),
+      this.partners.get(listing.ownerId),
+    ]);
+    return {
+      listing: { ...listing, status: this.effectiveListingStatus(listing, now) },
+      images,
+      seller: { ...seller, partnerStatus: sellerPartner?.status },
+      matches,
+      quotes: quotes.map((q) => this.quoteView(q, listing, now)),
     };
   }
 

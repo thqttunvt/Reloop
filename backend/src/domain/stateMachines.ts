@@ -48,6 +48,16 @@ export const listingMachine = createMachine<ListingStatus>('Listing', [
   { from: 'MATCHED', to: 'EXPIRED', actors: ['SYSTEM'] }, // giao dịch hủy/thất bại, hết hạn
 ]);
 
+// ---------------------------------------------------------------- Yêu cầu gói VIP 1 (QĐ-44)
+// Cấp 1 gửi yêu cầu → Admin gửi hóa đơn → người bán chuyển khoản → Admin tài chính xác nhận đã thu → gói tự bật.
+export type VipRequestStatus = 'REQUESTED' | 'INVOICED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export const vipRequestMachine = createMachine<VipRequestStatus>('VipRequest', [
+  { from: 'REQUESTED', to: 'INVOICED', actors: ['ADMIN'] },
+  { from: 'INVOICED', to: 'APPROVED', actors: ['ADMIN'] },
+  ...edges<VipRequestStatus>(['REQUESTED', 'INVOICED'], 'REJECTED', ['ADMIN']),
+  ...edges<VipRequestStatus>(['REQUESTED', 'INVOICED'], 'CANCELLED', ['OWNER']),
+]);
+
 // ---------------------------------------------------------------- Quote (giaiphap B1)
 export type QuoteStatus =
   | 'ESTIMATED'

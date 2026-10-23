@@ -454,11 +454,12 @@ export class TransactionService {
     return all.filter((t) => t.status === 'DISPUTED').sort((a, b) => (a.dispute?.at ?? '').localeCompare(b.dispute?.at ?? ''));
   }
 
-  resolveDispute(adminId: string, transactionId: string, input: Record<string, unknown>) {
+  /** Admin kết luận tranh chấp → báo cả 2 bên kết luận + ghi chú (mục 25 danhgia). */
+  async resolveDispute(adminId: string, transactionId: string, input: Record<string, unknown>) {
     const outcome = oneOf<'COMPLETED' | 'FAILED'>(input.outcome, ['COMPLETED', 'FAILED'], 'outcome');
     const note = str(input.note, 'note', { min: 3, max: 1000 });
     const finalPrice = outcome === 'COMPLETED' ? int(input.finalPrice, 'finalPrice', { min: 0, max: 1_000_000_000 }) : undefined;
-    return this.mutate(transactionId, 'ADMIN', adminId, 'DISPUTE_RESOLVED', (tx, now) => {
+    const tx = await this.mutate(transactionId, 'ADMIN', adminId, 'DISPUTE_RESOLVED', (tx, now) => {
       transactionMachine.assertTransition(tx.status, outcome, 'ADMIN');
       return {
         ...tx,
@@ -468,6 +469,16 @@ export class TransactionService {
         closedAt: now,
       };
     });
+    await this.notifications.notify([tx.ownerId, tx.partnerId], {
+      type: 'TX_DISPUTE_RESOLVED',
+      title:
+        outcome === 'COMPLETED'
+          ? `Admin kết luận tranh chấp: giao dịch hoàn tất với giá ${finalPrice!.toLocaleString('vi-VN')}đ`
+          : 'Admin kết luận tranh chấp: giao dịch thất bại',
+      body: `${tx.listingTitle} — ${note}`,
+      link: `/transactions/${transactionId}`,
+    });
+    return tx;
   }
 
   // ------------------------------------------------------------------ Đánh giá hai chiều (T12.1, QĐ-22)

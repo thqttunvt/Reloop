@@ -6,6 +6,7 @@ Dùng:  AWS_PROFILE=reloop AWS_REGION=ap-southeast-1 python scripts/smoke-aws.py
        Mặc định GIỮ dữ liệu test trên web (nhóm dùng để test / fix bug). --cleanup: tạm ngừng tài khoản test
        → tin test ẩn khỏi Chợ (không xóa gì).
 """
+import datetime
 import json, os, struct, subprocess, sys, tempfile, urllib.parse, urllib.request, uuid, zlib
 
 sys.stdout.reconfigure(encoding='utf-8')  # console Windows (cp1252) không in được tiếng Việt
@@ -186,8 +187,20 @@ s, b = call('GET', '/admin/listings', ADMIN, **AD)
 check('admin: listings by month', s == 200 and b['timezone'] == 'UTC', b)
 s, b = call('GET', '/admin/reports?status=RESOLVED', ADMIN, **AD)
 check('admin: resolved reports', s == 200 and isinstance(b['items'], list), b)
-s, b = call('GET', '/admin/stats', ADMIN, **AD)
+VN_MONTH = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=7)).strftime('%Y-%m')
+s, b = call('GET', f'/admin/stats?month={VN_MONTH}', ADMIN, **AD)
 check('admin: month stats', s == 200 and b['month']['completedTransactions'] >= 1, b)
+s, b = call('GET', f'/admin/listings/{lid2}', ADMIN, **AD)
+check('admin: view any listing (danhgia 24)', s == 200 and b['listing']['listingId'] == lid2 and 'location' in b['listing'], b)
+
+# VIP 1 trả trước (QĐ-44): đăng ký chỉ tạo yêu cầu, gói bật khi Admin tài chính xác nhận đã thu
+FIN = {'groups': ['Admins', 'FinanceAdmins']}
+s, vr = call('POST', '/partners/me/vip-requests', OWNER, {}, idem=True)
+check('vip: request does not activate', s == 201 and vr['status'] == 'REQUESTED' and call('GET', '/partners/me', OWNER)[1]['quota']['plan'] == 'BASIC', vr)
+s, b = call('POST', f"/admin/vip-requests/{OWNER}/{vr.get('requestId')}/invoice", ADMIN, {}, **FIN)
+check('vip: admin sends invoice', s == 200 and b['status'] == 'INVOICED' and b['paymentCode'].startswith('RLV'), b)
+s, b = call('POST', f"/admin/vip-requests/{OWNER}/{vr.get('requestId')}/approve", ADMIN, {}, **FIN)
+check('vip: paid -> VIP1 active', s == 200 and call('GET', '/partners/me', OWNER)[1]['quota']['plan'] == 'VIP1', b)
 
 # Mặc định GIỮ dữ liệu test. --cleanup: KHÔNG gỡ tin (vừa hủy giao dịch → gỡ trong 72 giờ bị tính phí nghi bán ngoài,
 # QĐ-39); tạm ngừng tài khoản test → tin tự ẩn khỏi Chợ (QĐ-40), mở lại được ở trang Admin.

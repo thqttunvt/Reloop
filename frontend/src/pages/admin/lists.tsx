@@ -5,6 +5,7 @@ import { api, type AuditEntry, type Listing, type Profile, type Report, type Tra
 import { LISTING_STATUS_LABEL, TX_STATUS_LABEL, statusTone } from '../../lib/catalog';
 import { dateTime, errorText, vnd } from '../../lib/format';
 import type { Session } from '../../lib/session';
+import { adminListingLink } from './listing';
 
 /** Tháng hiện tại: giờ VN cho nhật ký (khớp backend), giờ UTC cho tin (FEED ghi theo UTC — get.md S3). */
 const vnMonthNow = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 7);
@@ -93,12 +94,12 @@ export function ListingsPage() {
           </select>
         </span>
       </div>
-      <p className="muted small">Tháng theo giờ UTC (ngày lên Chợ). Gỡ tin vi phạm: mở tin rồi dùng luồng phản ánh / gỡ tin như cũ.</p>
+      <p className="muted small">Tháng theo giờ UTC (ngày lên Chợ). Bấm tên tin để xem mọi trạng thái (kể cả đã gỡ / hết hạn). Gỡ tin vi phạm vẫn qua luồng phản ánh.</p>
       <PagedTable
         list={list}
         rowKey={(l) => l.listingId}
         columns={[
-          { header: 'Tin', cell: (l) => <Link to={`/listings/${l.listingId}`}>{l.title}</Link> },
+          { header: 'Tin', cell: (l) => <Link to={`/admin/listings/${l.listingId}`}>{l.title}</Link> },
           { header: 'Người bán', cell: (l) => <UserLink id={l.ownerId} /> },
           { header: 'Khu vực', cell: (l) => l.area },
           { header: 'Đăng lúc', cell: (l) => dateTime(l.createdAt) },
@@ -198,7 +199,7 @@ export function ResolvedReportsPage() {
         rowKey={(r) => r.reportId}
         columns={[
           { header: 'Gửi lúc', cell: (r) => dateTime(r.createdAt) },
-          { header: 'Về', cell: (r) => (r.target?.link ? <Link to={r.target.link}>{r.target.title}</Link> : (r.target?.title ?? r.targetId)) },
+          { header: 'Về', cell: (r) => (r.target?.link ? <Link to={adminListingLink(r.target.link)}>{r.target.title}</Link> : (r.target?.title ?? r.targetId)) },
           { header: 'Lý do', cell: (r) => r.reason },
           { header: 'Kết luận', cell: (r) => REPORT_ACTION_LABEL[r.resolution?.action ?? ''] ?? r.resolution?.action },
           { header: 'Người vi phạm', cell: (r) => (r.resolution?.violatorId ? <UserLink id={r.resolution.violatorId} /> : '—') },
