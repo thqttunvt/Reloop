@@ -119,6 +119,7 @@ export function buildApp(
   const services: Services = { admin, users, wallet, billing, risk, partners, listings, images, moderator, screener, notifications, transactions, reputation, ai, locations, reports, chat };
   const sweeper = new TimerSweeper(table, clock, {
     LISTING_EXPIRE: (t) => listings.expireIfDue(t.targetId),
+    LISTING_MATCH: (t) => listings.matchIfPending(t.targetId), // dự phòng khi ghép tin chạy nền lỗi (B7)
     TX_REMIND: (t) => transactions.remindIfWaiting(t.targetId),
     TX_AUTO_COMPLETE: async (t) => void (await transactions.autoComplete(t.targetId)),
     TX_CANCEL: async (t) => void (await transactions.finalizeCancel(t.targetId)),

@@ -45,7 +45,7 @@ Thứ tự tin cậy: **code > quyetdinh.txt > devdocx.txt > task.txt > giaiphap
 - **Hạn mức tin đang mở cùng lúc (QĐ-41):** cấp 1 = 3, cấp 1 + **VIP 1** = 5, cấp 2 = 10. **VIP 1 trả trước (QĐ-44):** đăng ký → Admin tài chính gửi hóa đơn (mã RLVxxxxxx) → chuyển khoản → Admin xác nhận đã thu → gói tự bật 30 ngày (cộng dồn). Không còn cộng vào phí tháng.
 - Đăng tin bắt buộc mô tả ≥ 10 ký tự + ≥ 1 ảnh; ảnh qua Rekognition: **≥ 70% nhạy cảm → chặn + tính vi phạm**; **50–70% nhãn nặng → tin chờ Admin duyệt** (QĐ-43); **chữ bất thường trong ảnh → chờ duyệt** (QĐ-36).
 - AI Amazon Nova Pro gợi ý thông tin từ ảnh (chạy nền, 20 lượt/ngày), lưu bộ dữ liệu nhãn (QĐ-35).
-- Tin mở 7 ngày; matching geohash + Haversine trong bán kính chi nhánh (1–5 km), **chạy ngay trong request** (QĐ-13 phần matching nền chưa làm).
+- Tin mở 7 ngày; matching geohash + Haversine trong bán kính chi nhánh (1–5 km), **chạy nền** (Lambda async, dự phòng mốc LISTING_MATCH 5 phút — QĐ-13, làm 2026-10-24).
 - **Chợ:** mọi người đã đăng nhập xem tin đang mở (chỉ khu vực), phân trang thật trong 7 ngày gần nhất; tin của người bán bị tạm ngừng / khóa do nợ bị ẩn.
 
 **Chốt giao dịch — 2 đường**
@@ -103,7 +103,7 @@ Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chi�
 - Lỗi code còn mở: 12 (lượt AI theo ngày UTC).
 - **Trang Admin mới (get.md) đã deploy 2026-10-22:** A0–A6 + B1, B2, B3, B6 xong (layout riêng /admin/*, menu theo nhóm, Thành viên + hồ sơ gộp, giao dịch theo trạng thái, tin theo tháng, nhật ký Admin, số liệu tháng, nhãn PN1/PN1V/PN2, menu người dùng theo vai trò, "Phản ánh"). Còn: B4 (Google, hoãn), B5 (chờ file logo).
 - **Đã deploy 2026-10-22:** sửa chất lượng AI tiếng Việt + Gemini dự phòng (chưa có key → tắt) + bắt câu lệnh mất dấu + bỏ trang Ví. Chưa thử AI trên ảnh thật.
-- Matching chạy nền (B7), upload bằng chứng tranh chấp (B3), sửa / phản hồi đánh giá (B4), ảnh giấy tờ đối tác (B2), lọc / tìm kiếm Chợ (B5), nút xóa ảnh khi đăng tin (F2), "thu cũ đổi mới" của cấp 2, hướng A chống né phí (hiện chỉ số hủy trên hồ sơ).
+- Upload bằng chứng tranh chấp (B3), sửa / phản hồi đánh giá (B4), ảnh giấy tờ đối tác (B2), lọc / tìm kiếm Chợ (B5), nút xóa ảnh khi đăng tin (F2), "thu cũ đổi mới" của cấp 2.
 - Hạ tầng: AWS Budgets, CI/CD tự deploy, môi trường prod, WAF, load test thật, Well-Architected Review, tài liệu cuối kỳ.
 
 ## 7. Việc tiếp theo

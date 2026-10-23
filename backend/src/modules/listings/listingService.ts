@@ -19,7 +19,7 @@ import { geoPoint, int, listOf, oneOf, optionalNum, str, type GeoPoint } from '.
 import { assertOwnImageKeys, type ImageStore } from '../../storage/imageStore';
 import { gsi1, keys } from '../../store/keys';
 import { withOptimisticRetry } from '../../store/retry';
-import { putNew, putVersioned, type Item, type Table, type WriteOp } from '../../store/table';
+import { ConditionFailedError, putNew, putVersioned, type Item, type Table, type WriteOp } from '../../store/table';
 import { timerOp } from '../jobs/timers';
 import type { Analysis } from '../ai/aiService';
 import type { BillingService } from '../billing/billingService';
@@ -37,6 +37,8 @@ export const CONFIRMATION_TTL_MS = DAY_MS;
 const OFFER_HOURS = { min: 24, max: 168, default: 72 };
 /** Gỡ tin trong khoảng này sau khi giao dịch bị hủy / thất bại → nghi bán ngoài, tính phí (QĐ-39). */
 export const SUSPECT_WINDOW_MS = 72 * HOUR_MS;
+/** Ghép tin chạy nền chưa xong sau khoảng này → job định kỳ chạy lại (B7). */
+const MATCH_RETRY_MS = 5 * 60 * 1000;
 
 export interface Listing extends Item {
   listingId: string;
@@ -133,6 +135,13 @@ export class ListingService {
    * để tin quay lại Chợ đúng hạn mà không chờ job 15 phút. app.ts gán = TransactionService.loadAndSettle.
    */
   settleTransaction?: (transactionId: string) => Promise<unknown>;
+
+  /**
+   * Ghép tin chạy nền (QĐ-13, B7): đăng tin trả kết quả ngay, ghép tin chạy sau.
+   * Mặc định (local / test) chạy ngay trong request; lambda.ts thay bằng Lambda tự gọi chính nó dạng async.
+   * Lỗi gọi / lỗi chạy → mốc LISTING_MATCH (job 15 phút) chạy lại.
+   */
+  dispatchMatching: (listingId: string) => Promise<void> = (id) => this.matchIfPending(id);
 
   constructor(
     private readonly table: Table,
@@ -298,11 +307,40 @@ export class ListingService {
     await this.table.transact([
       putVersioned(listing, 0),
       timerOp('LISTING_EXPIRE', listingId, listing.expiresAt),
+      this.matchRetryTimer(listingId, now),
       putNew({ ...keys.feedItem(createdAt.slice(0, 7), createdAt, listingId), listingId }),
       ...(label ? [label] : []),
     ]);
-    // TODO(QĐ-13): chuyển matching sang Lambda chạy nền; hiện chạy ngay trong request (≤ 9 query).
-    return this.runMatching({ ...listing, version: 1 });
+    return this.startMatching(listingId);
+  }
+
+  // ------------------------------------------------------------------ Ghép tin chạy nền (QĐ-13, B7)
+
+  /** Mốc dự phòng: lượt chạy nền chưa xong sau 5 phút (gọi lỗi, Lambda lỗi) → job định kỳ chạy lại. */
+  private matchRetryTimer(listingId: string, now: Date) {
+    return timerOp('LISTING_MATCH', listingId, new Date(now.getTime() + MATCH_RETRY_MS).toISOString());
+  }
+
+  /** Gửi việc ghép tin đi rồi trả tin hiện tại (local: đã ghép xong; AWS: matchingStatus PENDING). */
+  private async startMatching(listingId: string): Promise<Listing> {
+    try {
+      await this.dispatchMatching(listingId);
+    } catch (err) {
+      // Không làm hỏng việc đăng tin — mốc LISTING_MATCH sẽ chạy lại
+      log('error', 'matching_dispatch_failed', { listingId, error: err instanceof Error ? err.message : String(err) });
+    }
+    return this.load(listingId);
+  }
+
+  /**
+   * Worker / job: ghép tin nếu tin còn mở và chưa ghép xong. Chạy trùng / chạy lại an toàn:
+   * báo giá đã có không bị ghi đè, thông báo chỉ gửi bởi lượt chuyển PENDING → DONE.
+   */
+  async matchIfPending(listingId: string): Promise<void> {
+    const k = keys.listing(listingId);
+    const listing = await this.table.get<Listing>(k.pk, k.sk);
+    if (!listing || listing.matchingStatus !== 'PENDING' || this.effectiveListingStatus(listing) !== 'ACTIVE') return;
+    await this.runMatching(listing);
   }
 
   /**
@@ -393,7 +431,11 @@ export class ListingService {
         { type: 'delete', ...keys.listingReview(listing.review?.at ?? listing.createdAt, listingId) },
       ];
       if (approve) {
-        ops.push(timerOp('LISTING_EXPIRE', listingId, next.expiresAt), putNew({ ...keys.feedItem(at.slice(0, 7), at, listingId), listingId }));
+        ops.push(
+          timerOp('LISTING_EXPIRE', listingId, next.expiresAt),
+          this.matchRetryTimer(listingId, now),
+          putNew({ ...keys.feedItem(at.slice(0, 7), at, listingId), listingId }),
+        );
       }
       await this.table.transact(ops);
       return { ...next, version: (listing.version ?? 1) + 1 };
@@ -406,7 +448,7 @@ export class ListingService {
       body: note ?? decided.title,
       link: `/listings/${listingId}`,
     });
-    return approve ? this.runMatching(decided) : decided;
+    return approve ? this.startMatching(listingId) : decided;
   }
 
   // ------------------------------------------------------------------ Matching + Auto-Quote (T6.1, T7.2)
@@ -423,6 +465,7 @@ export class ListingService {
     const now = this.clock.now().toISOString();
     const amount = amountFor(listing);
     const ops: WriteOp[] = [];
+    const quoteOps: WriteOp[] = [];
     let matchCount = 0;
     let quoteCount = 0;
     const matchedPartners = new Set<string>();
@@ -501,20 +544,32 @@ export class ListingService {
         },
         createdAt: now,
         updatedAt: now,
-        version: 1,
       };
-      ops.push({ type: 'put', item: quote });
+      // putNew: lượt ghép chạy lại (worker + job dự phòng) không ghi đè báo giá chủ tin đã thao tác
+      quoteOps.push(putVersioned(quote, 0));
     }
 
+    // Ghép / tin phù hợp: ghi đè cùng dữ liệu nên chạy lại vô hại. Lỗi giữa chừng → mốc LISTING_MATCH chạy lại từ đầu.
     for (let i = 0; i < ops.length; i += 25) await this.table.transact(ops.slice(i, i + 25));
+    for (const op of quoteOps) {
+      try {
+        await this.table.transact([op]);
+      } catch (err) {
+        if (!(err instanceof ConditionFailedError)) throw err; // đã có từ lượt trước
+      }
+    }
 
-    // Đọc lại tin mỗi lần thử: chủ tin có thể vừa hủy / sửa tin trong lúc ghép (mục 10 danhgia) → không văng 500
-    const done = await withOptimisticRetry(async () => {
+    // Đọc lại tin mỗi lần thử: chủ tin có thể vừa hủy / sửa tin trong lúc ghép (mục 10 danhgia) → không văng 500.
+    // Lượt khác đã chuyển DONE → không ghi lại, không báo trùng.
+    const { listing: done, first } = await withOptimisticRetry(async () => {
       const current = await this.load(listing.listingId);
+      if (current.matchingStatus === 'DONE') return { listing: current, first: false };
       const next: Listing = { ...current, matchingStatus: 'DONE', matchCount, quoteCount, updatedAt: now };
       await this.table.transact([putVersioned(next, current.version ?? 1)]);
-      return { ...next, version: (current.version ?? 1) + 1 };
+      return { listing: { ...next, version: (current.version ?? 1) + 1 }, first: true };
     });
+    if (!first) return done;
+    log('info', 'listing_matched', { listingId: listing.listingId, matchCount, quoteCount });
     await this.notifications.notify([...matchedPartners], {
       type: 'NEW_MATCH',
       title: 'Có tin mới phù hợp khu vực của bạn',

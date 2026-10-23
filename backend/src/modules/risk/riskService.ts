@@ -1,5 +1,5 @@
 import { log } from '../../http/log';
-import { HOUR_MS, type Clock } from '../../shared/clock';
+import { HOUR_MS, vnMonth, type Clock } from '../../shared/clock';
 import { AppError, conflict, notFound } from '../../shared/errors';
 import { newId } from '../../shared/ids';
 import { oneOf, str } from '../../shared/validate';
@@ -177,6 +177,25 @@ export class RiskService {
       if (current?.status !== 'OPEN') log('warn', 'risk_flag_opened', { userId, reasons: reasons.map((r) => r.code) });
       return { ...next, version: (current?.version ?? 0) + 1 };
     });
+  }
+
+  /**
+   * Lịch sử giao dịch 30 ngày của người bán, hiện công khai trên tin (QĐ-39 hướng A): số giao dịch hoàn tất
+   * (dòng phí giao dịch — QĐ-37) và số giao dịch bị hủy / thất bại do hai bên. Không nói ai hủy: chỉ là dữ kiện để người mua cân nhắc.
+   */
+  async sellerHistory(userId: string) {
+    const now = this.clock.now();
+    const since = new Date(now.getTime() - RISK_WINDOW_MS).toISOString();
+    const months = [...new Set([vnMonth(now), vnMonth(since)])];
+    const [ends, ...feeMonths] = await Promise.all([
+      this.table.query<DealEnded>(keys.userPk(userId), { skPrefix: 'DEALEND#', ascending: false, limit: 200 }),
+      ...months.map((m) => this.table.query<Item & { kind?: string; completedAt: string }>(keys.userPk(userId), { skPrefix: `FEE#${m}#` })),
+    ]);
+    return {
+      days: RISK_WINDOW_MS / (24 * HOUR_MS),
+      completed: feeMonths.flat().filter((l) => (l.kind ?? 'TRANSACTION') === 'TRANSACTION' && l.completedAt >= since).length,
+      cancelled: ends.filter((e) => e.at >= since).length,
+    };
   }
 
   /** Chỉ đếm cờ đang mở (badge Admin) — không đọc lịch sử sự việc. */

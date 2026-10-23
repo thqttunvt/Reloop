@@ -42,6 +42,18 @@ export function ListingDetailPage() {
     }
   }, [id]);
 
+  // Ghép tin chạy nền (B7): vừa đăng xong → hỏi lại 3 giây/lần tới khi ghép xong (tối đa ~1 phút)
+  const [matchPolls, setMatchPolls] = useState(0);
+  const matching = data?.role === 'OWNER' && data.listing.status === 'ACTIVE' && data.listing.matchingStatus === 'PENDING';
+  useEffect(() => {
+    if (!matching || matchPolls >= 20) return;
+    const timer = setTimeout(() => {
+      setMatchPolls((n) => n + 1);
+      void load();
+    }, 3_000);
+    return () => clearTimeout(timer);
+  }, [matching, matchPolls, load]);
+
   useEffect(() => {
     void load();
     // Báo giá thay đổi khi bên kia thao tác → làm mới 30 giây/lần khi tab đang mở (giaiphap E8).
@@ -121,6 +133,16 @@ export function ListingDetailPage() {
                     ? 'Chưa đủ đánh giá'
                     : `${data.sellerReputation.averageRating}★ (${data.sellerReputation.reviewCount} đánh giá)`}
                 </div>
+                {data.sellerHistory && (
+                  <div className="muted small">
+                    {data.sellerHistory.days} ngày qua: {data.sellerHistory.completed} giao dịch hoàn tất
+                    {data.sellerHistory.cancelled > 0 ? (
+                      <span className="warn-text"> · {data.sellerHistory.cancelled} bị hủy / thất bại</span>
+                    ) : (
+                      ' · không có giao dịch bị hủy'
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <ContactLine contact={data.seller.contact} />
@@ -172,9 +194,11 @@ export function ListingDetailPage() {
         <section className="card">
           <h2>Báo giá</h2>
           <p className="muted">
-            {l.matchCount === 0
-              ? 'Chưa có đơn vị thu mua phù hợp trong bán kính 5 km.'
-              : `${l.matchCount} đơn vị thu mua phù hợp, ${data.quotes.length} báo giá.`}
+            {matching
+              ? 'Đang tìm đơn vị thu mua phù hợp quanh bạn… (vài giây)'
+              : l.matchCount === 0
+                ? 'Chưa có đơn vị thu mua phù hợp trong bán kính 5 km.'
+                : `${l.matchCount} đơn vị thu mua phù hợp, ${data.quotes.length} báo giá.`}
           </p>
           {data.quotes.map((q) => (
             <QuoteCard key={q.quoteId} q={q} reputation={data.reputation[q.partnerId]}>

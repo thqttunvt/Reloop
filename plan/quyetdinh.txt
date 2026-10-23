@@ -50,8 +50,10 @@ QĐ-12  Bỏ phân giai đoạn ưu tiên 24h. Listing: ACTIVE → MATCHED → C
        ACTIVE → EXPIRED (7 ngày) | CANCELLED. (Code có thêm PENDING_REVIEW của QĐ-36 — sơ đồ đầy đủ ở mục 5.)
 
 QĐ-13  AI và Matching chạy nền (bất đồng bộ) + frontend polling.
-       Code hiện tại: AI chạy nền (Lambda tự gọi async, 202 + polling). MATCHING CHƯA chạy nền — chạy ngay trong
-       request đăng tin / Admin duyệt tin (≤ 9 query GSI1); chuyển sang nền là task B7.
+       Code hiện tại (2026-10-24): AI và MATCHING đều chạy nền — Lambda tự gọi chính nó dạng async (task ai-analysis /
+       listing-matching). Đăng tin / Admin duyệt tin trả ngay với matchingStatus PENDING, trang tin hỏi lại 3 giây/lần.
+       Dự phòng: mốc LISTING_MATCH 5 phút → job định kỳ ghép lại nếu worker lỗi. Chạy lại an toàn (báo giá đã có
+       không bị ghi đè, thông báo đối tác chỉ gửi 1 lần). Local / test: ghép ngay trong request.
 
 QĐ-17  Ngân sách: 20–50 USD/tháng cho AWS + dịch vụ ngoài. AWS Budgets cảnh báo 50/80/100%.
        Code hiện tại: Terraform CHƯA có AWS Budgets (task O2); cảnh báo vận hành qua CloudWatch alarm → SNS email.
@@ -230,7 +232,8 @@ QĐ-38  RA GIÁ TRONG CHAT + HỦY GIAO DỊCH SAU 5 PHÚT (chốt 2026-10-20)
        • Né phí (hủy trên web rồi giao dịch bên ngoài): xử lý ở QĐ-39.
 
 QĐ-39  CHỐNG NÉ PHÍ 10.000đ: TÍNH PHÍ KHI CÓ DẤU HIỆU + CỜ CHO ADMIN (chốt 2026-10-21; hướng C + B ở plan/danhgia.txt;
-       hướng A — hiện chỉ số uy tín — làm sau)
+       hướng A làm 2026-10-24: trang tin hiện "30 ngày qua: X giao dịch hoàn tất · Y bị hủy / thất bại" của người bán
+       cho người xem / đối tác — đếm từ dòng phí giao dịch (QĐ-37) và DEALEND#; không nói bên nào hủy)
        • C — PHÍ NGHI BÁN NGOÀI: giao dịch bị HỦY hoặc BÁO THẤT BẠI bởi hai bên (không tính Admin kết luận tranh chấp)
          → tin mở lại; nếu trong 72 GIỜ sau đó NGƯỜI BÁN TỰ GỠ TIN (không bán cho ai khác) → coi như đã bán ngoài,
          tự cộng 10.000đ vào phí tháng hiện tại của người bán (dòng phí loại "nghi bán ngoài ReLoop") + thông báo.

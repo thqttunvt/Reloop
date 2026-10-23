@@ -289,7 +289,9 @@ export function apiRoutes(s: Services): Route[] {
         const reputation = Object.fromEntries(await Promise.all(partnerIds.map(async (id) => [id, await s.reputation.of(id, 'PARTNER')])));
         // Người xem từ bảng tin thấy uy tín người bán (đánh giá nhận được khi bán)
         const sellerReputation = detail.role === 'OWNER' ? undefined : await s.reputation.of(detail.listing.ownerId, 'OWNER');
-        return { body: { ...detail, reputation, sellerReputation } };
+        // Giao dịch hoàn tất / bị hủy 30 ngày của người bán (QĐ-39 hướng A)
+        const sellerHistory = detail.role === 'OWNER' ? undefined : await s.risk.sellerHistory(detail.listing.ownerId);
+        return { body: { ...detail, reputation, sellerReputation, sellerHistory } };
       },
     },
     {

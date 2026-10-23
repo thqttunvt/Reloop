@@ -7,6 +7,7 @@ Dùng:  AWS_PROFILE=reloop AWS_REGION=ap-southeast-1 python scripts/smoke-aws.py
        → tin test ẩn khỏi Chợ (không xóa gì).
 """
 import datetime
+import time
 import json, os, struct, subprocess, sys, tempfile, urllib.parse, urllib.request, uuid, zlib
 
 sys.stdout.reconfigure(encoding='utf-8')  # console Windows (cp1252) không in được tiếng Việt
@@ -94,8 +95,14 @@ s, lst = call('POST', '/listings', OWNER, {
     'title': '[TEST] smoke laptop', 'category': 'LAPTOP', 'condition': 'NOT_WORKING', 'unit': 'PER_DEVICE', 'quantity': 1, 'description': 'smoke test cleanup',
     'handoverMethods': ['DROP_OFF'], 'location': {'lat': SEA['lat'] + 0.01, 'lng': SEA['lng'], 'address': 'test'}, 'area': 'Test',
     'imageKeys': [IMG]}, idem=True)
-check('create listing + matching (GSI1 geo)', s == 201 and lst['matchCount'] >= 1 and lst['quoteCount'] >= 1, lst)
+check('create listing returns immediately (matching in background, B7)', s == 201 and lst.get('matchingStatus') in ('PENDING', 'DONE'), lst)
 lid = lst.get('listingId')
+for _ in range(15):  # worker Lambda async ghép tin, thường vài giây
+    lst = call('GET', f'/listings/{lid}', OWNER)[1]['listing']
+    if lst.get('matchingStatus') == 'DONE':
+        break
+    time.sleep(2)
+check('background matching (GSI1 geo)', lst.get('matchingStatus') == 'DONE' and lst['matchCount'] >= 1 and lst['quoteCount'] >= 1, lst)
 BUYER = f'smoke-buyer-{RUN}'
 s, feed = call('GET', '/feed', BUYER)
 check('feed shows new listing (public, no location, partner contact)', s == 200 and any(i['listing']['listingId'] == lid and 'location' not in i['listing'] and i['seller']['contact']['email'] == f'seller-{RUN}@example.com' for i in feed['items']), feed)
@@ -175,6 +182,10 @@ check('admin dispute queue', s == 200 and any(t['transactionId'] == tx2 for t in
 s, b = call('POST', f'/admin/transactions/{tx2}/resolve', ADMIN, {'outcome': 'FAILED', 'note': 'smoke test'}, **AD)
 s2, d = call('GET', f'/listings/{lid2}', OWNER)
 check('admin resolves FAILED -> listing reopens', s == 200 and b['status'] == 'FAILED' and d['listing']['status'] == 'ACTIVE', [b, d.get('listing', {}).get('status')])
+
+s, b = call('GET', f'/listings/{lid2}', BUYER)
+h = b.get('sellerHistory') or {}
+check('seller 30-day history on listing (QĐ-39 A)', s == 200 and h.get('completed', 0) >= 1 and h.get('cancelled', 0) >= 1, b.get('sellerHistory'))
 
 # API trang Admin mới (get.md A1–A6)
 s, b = call('GET', '/admin/audit', ADMIN, **AD)

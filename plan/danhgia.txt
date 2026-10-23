@@ -63,7 +63,7 @@ TÀI LIỆU mâu thuẫn với code / với nhau
 
 ---------------------------------------------------------------------
 NÉ PHÍ 10.000đ bằng cách hủy trên web rồi giao dịch ngoài (QĐ-38) — đã chốt QĐ-39 (2026-10-21)
-[x] B + C đã làm (2026-10-21, chưa commit / deploy). [ ] A (hiện chỉ số hủy trên hồ sơ người bán) — làm sau.
+[x] B + C đã làm (2026-10-21, chưa commit / deploy). [x] A (2026-10-24, hiện trên trang tin).
 ---------------------------------------------------------------------
 Không chặn tuyệt đối được (tiền trả offline). Đề xuất kết hợp, từ nhẹ tới mạnh:
   A. Ghi nhận + uy tín: giao dịch bị hủy sau khi đã thống nhất lịch bàn giao, hoặc hủy rồi người bán gỡ /
@@ -158,8 +158,8 @@ MỨC THẤP — điều hướng / hiển thị sau khi tách trang
 CÒN MỞ TỪ TRƯỚC (nhắc lại để gom một chỗ)
 ---------------------------------------------------------------------
 [ ] 12 Lượt AI 20 / ngày đếm theo ngày UTC (aiService.ts:717, reset lúc 7h sáng giờ VN), hóa đơn theo giờ VN.
-[ ] B7 Ghép tin với đơn vị thu mua chạy ngay trong request đăng tin (listingService.ts:304, TODO QĐ-13).
-[ ] A  Hiện số lần hủy trên hồ sơ người bán (phần A chống né phí).
+[x] B7 (2026-10-24) Ghép tin chạy nền: Lambda async + mốc dự phòng LISTING_MATCH 5 phút (QĐ-13).
+[x] A  (2026-10-24) Trang tin hiện giao dịch hoàn tất / bị hủy 30 ngày của người bán (QĐ-39 hướng A).
 [ ] 35 (thêm 2026-10-24) Số liệu tháng ở Dashboard Admin chưa có doanh thu VIP 1 — từ QĐ-44 tiền VIP trả trước theo hóa đơn riêng,
        không còn nằm trong Phí phát sinh / Đã thu. PO: để sau, làm cùng đợt đổi giao diện.
 

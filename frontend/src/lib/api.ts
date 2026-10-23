@@ -161,6 +161,8 @@ export interface ListingDetail {
   reputation: Record<string, Reputation>;
   /** Uy tín người bán (người xem / đối tác) */
   sellerReputation?: Reputation;
+  /** Giao dịch hoàn tất / bị hủy hoặc thất bại của người bán trong 30 ngày (người xem / đối tác — QĐ-39 hướng A) */
+  sellerHistory?: { days: number; completed: number; cancelled: number };
 }
 
 export interface FeedItem {

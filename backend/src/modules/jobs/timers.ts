@@ -9,7 +9,7 @@ import { putNew, type Item, type Table, type WriteOp } from '../../store/table';
  * Job quét định kỳ đọc các ngăn từ 72 giờ trước tới hiện tại, xử lý mốc đã tới hạn rồi xóa.
  * Mọi xử lý đều kiểm tra lại trạng thái hiện tại → chạy trễ / chạy trùng không gây sai (T10.2).
  */
-export type TimerKind = 'LISTING_EXPIRE' | 'TX_REMIND' | 'TX_AUTO_COMPLETE' | 'TX_CANCEL';
+export type TimerKind = 'LISTING_EXPIRE' | 'LISTING_MATCH' | 'TX_REMIND' | 'TX_AUTO_COMPLETE' | 'TX_CANCEL';
 
 export interface Timer extends Item {
   kind: TimerKind;
