@@ -1,7 +1,7 @@
 # ReLoop — Bàn giao ngữ cảnh (đọc file này đầu tiên)
 
 > **Mục đích:** lưu toàn bộ ngữ cảnh dự án để khi mở lại máy, Claude (hoặc thành viên mới) đọc là biết đã làm tới đâu.
-> **Cập nhật lần cuối:** 2026-10-24 (rà soát sau tách trang, sửa danhgia 23–28, VIP 1 trả trước QĐ-44)
+> **Cập nhật lần cuối:** 2026-10-25 (rà soát đêm — fix.txt) · trước đó 2026-10-24 (rà soát sau tách trang, sửa danhgia 23–28, VIP 1 trả trước QĐ-44)
 > **Quy tắc:** mỗi khi xong một phần việc hoặc chốt quyết định mới, cập nhật mục 6 (Trạng thái), mục 7 (Việc tiếp theo) và mục 9 (Nhật ký).
 
 ---
@@ -79,7 +79,7 @@ Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chi�
 - **frontend/** React + Vite; Leaflet/OSM; đăng nhập Cognito (OAuth code + PKCE); polling: thông báo 30s, chat 5s.
 - **infra/** Terraform (state S3 `reloop-tfstate-926583575243`); tài nguyên nhóm dựng tay được đọc qua `data`. CloudWatch 9 alarm → SNS `reloop-dev-alarms` (email Admin đăng ký qua `make-admin.sh`).
 - **scripts/** `smoke-aws.py`, `make-admin.sh` (cấp quyền Admin + đăng ký email cảnh báo), `loadtest.mjs`.
-- **Test:** 171 test vitest (backend).
+- **Test:** 172 test vitest (backend).
 
 **Nguyên tắc code (phải giữ):** đổi trạng thái qua `stateMachines.ts`; ghi có điều kiện version + `withOptimisticRetry`; không Scan; việc nền idempotent; nghiệp vụ không gọi AWS trực tiếp; API tạo dữ liệu quan trọng bắt buộc `Idempotency-Key`; tiền là số nguyên VND, phí ghi qua `BillingService` cùng transaction đổi trạng thái.
 
@@ -169,3 +169,4 @@ Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chi�
 | 2026-10-24 | Rà soát sau khi tách trang → `danhgia.txt` mục 23–34. Sửa mức cao + trung bình: 23 đơn cấp 2 chờ duyệt thêm lại được chi nhánh / bảng giá (lỗi do tách trang), 24 Admin xem tin mọi trạng thái (`GET /admin/listings/{id}` pii-read + trang `/admin/listings/:id`), 25 báo 2 bên khi Admin kết luận tranh chấp, 26 tạm ngừng bắt buộc lý do ≥ 5 ký tự + hỏi lại, 27 `/admin/stats` chỉ đếm (số liệu tháng chỉ khi có `?month=`), 28 tranh chấp hỏi lại + chặn giá trống + tên người bán. **QĐ-44 VIP 1 trả trước**: `POST /partners/me/vip-requests` → Admin tài chính `/invoice` (mã RLV) → `/approve` (bật gói) / `/reject`; trang Admin "Ngân hàng → Yêu cầu VIP 1"; bỏ `POST /partners/me/vip` và dòng phí VIP trong hóa đơn tháng. Điều khoản 2026-10-24. 161 test, typecheck + build sạch, terraform plan 0 / 1 / 0. Đã deploy dev (Terraform 0 thêm / 1 sửa / 0 xóa); smoke-aws.py RUN 796139 ALL PASS (thêm bước Admin xem tin + VIP trả trước). |
 | 2026-10-24 | danhgia 34: dòng nhật ký Admin có `auditId` (backend ghi, web dùng làm key; dòng cũ dùng key ghép + params). Commit 2d7998e. Deploy dev 0 / 1 / 0, smoke-aws.py RUN 28cec4 ALL PASS. |
 | 2026-10-24 | B7 ghép tin chạy nền: Lambda tự gọi async (task `listing-matching`), đăng tin / Admin duyệt trả ngay `matchingStatus: PENDING`, trang tin hỏi lại 3 giây/lần; mốc `LISTING_MATCH` 5 phút để job chạy lại nếu worker lỗi; chạy lại không ghi đè báo giá, không báo trùng. QĐ-39 hướng A: trang tin hiện "30 ngày qua: X hoàn tất · Y bị hủy / thất bại" của người bán (`sellerHistory`). 165 test. Commit a1f2323, deploy dev 0 / 1 / 0, smoke RUN f141ac ALL PASS. |
+| 2026-10-25 | Rà soát đêm (PO giao toàn quyền 3h30 → 6h), chi tiết `fix.txt` (cạnh README.md) + `danhgia.txt` 36–45. Sửa 16 mục: lượt AI theo ngày VN (12), phân trang Tin / Giao dịch của tôi (`pageQuery` thêm `prefix`), thông báo đọc theo khóa (`?at=`), chat `after` >=, bỏ phản ánh REVIEW, 401 → về đăng nhập, `/uploads/moderate` bỏ qua ảnh đã kiểm duyệt (chi phí Rekognition + tag pending xóa nhầm ảnh), giá cuối trống / báo thất bại hỏi lại, tên người bán + doanh thu VIP ở Admin (32, 35), link phí `/partner/billing` (29), nhãn PN (30), link đăng tin (31), FinanceAdmins-only không vào Admin (33), `deploy.sh` giữ key Gemini, react-router-dom 6.30.6. Bảng API devdocx khớp 99 route. 172 test. Deploy dev 2 lần 0 / 1 / 0, smoke RUN 63cbf8 + 38b0f7 ALL PASS. Không có key Gemini trên máy / Lambda; không đụng Claude 3.5. |

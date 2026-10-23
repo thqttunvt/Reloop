@@ -41,7 +41,7 @@ MỨC THẤP — kỹ thuật
 [x] 9  (2026-10-21) Hủy / gỡ / hết hạn tin → báo giá hết hạn qua quoteMachine (SYSTEM), hàm chung expireOpenQuotes.
 [x] 10 (2026-10-21) Hủy tin đúng lúc đang matching → đọc lại tin và ghi lại, không còn lỗi 500.
 [x] 11 (2026-10-21) Chợ chỉ đọc 200 tin / tháng → phân trang thật theo khoảng sort key trong 7 ngày gần nhất.
-[ ] 12 Lượt AI theo ngày UTC, hóa đơn theo tháng giờ VN.
+[x] 12 (2026-10-25, rà soát đêm — xem fix.txt) Lượt AI theo ngày UTC, hóa đơn theo tháng giờ VN → lượt AI đếm theo ngày giờ VN.
 
 ---------------------------------------------------------------------
 TÀI LIỆU mâu thuẫn với code / với nhau
@@ -135,20 +135,20 @@ MỨC TRUNG BÌNH — thao tác Admin dễ nhầm / chi phí
 ---------------------------------------------------------------------
 MỨC THẤP — điều hướng / hiển thị sau khi tách trang
 ---------------------------------------------------------------------
-[ ] 29 Thông báo về phí đều dẫn tới /partner (Tổng quan) thay vì /partner/billing: hóa đơn mới, đã nhận
+[x] 29 (2026-10-25, rà soát đêm — xem fix.txt) Thông báo về phí đều dẫn tới /partner (Tổng quan) thay vì /partner/billing: hóa đơn mới, đã nhận
        thanh toán, phí nghi bán ngoài, kết quả khiếu nại, VIP 1 (billingService.ts:224, :343, :429;
        listingService.ts:743; partnerService.ts:296). Người dùng phải tự tìm mục "Phí dịch vụ".
        Đề xuất: đổi link sang /partner/billing (thông báo cũ vẫn chạy vì /partner vẫn tồn tại).
-[ ] 30 Nhãn trên thanh trên cùng (Cấp 1 / Cấp 2, PN1 / PN1V / PN2) chỉ tải lại khi vào đúng /partner
+[x] 30 (2026-10-25, rà soát đêm — xem fix.txt) Nhãn trên thanh trên cùng (Cấp 1 / Cấp 2, PN1 / PN1V / PN2) chỉ tải lại khi vào đúng /partner
        (App.tsx:37 so sánh pathname === '/partner'). Mua VIP 1 xong vẫn hiện PN1; được duyệt rồi vào thẳng
        /partner/billing vẫn hiện "Làm đối tác". Đề xuất: so sánh startsWith('/partner') hoặc tải lại sau mua VIP.
-[ ] 31 Một số link đưa người dùng ra khỏi khu vực đang ở: "đăng tin" trong Hồ sơ đối tác (PartnerPage.tsx:280)
+[x] 31 (2026-10-25, rà soát đêm — xem fix.txt) Một số link đưa người dùng ra khỏi khu vực đang ở: "đăng tin" trong Hồ sơ đối tác (PartnerPage.tsx:280)
        và "+ Đăng tin" ở Tin của tôi (MyListingsPage.tsx:21) trỏ /listings/new (mất menu đối tác);
        trong trang Admin, Đăng tin / Tin của tôi / link giao dịch, tin mở ra giao diện người dùng.
        Đề xuất: trong /partner/* dùng /partner/new; trong Admin chấp nhận được (có nút Back), ghi chú UI.
-[ ] 32 "Giao dịch theo trạng thái" (lists.tsx:58) và "Tất cả tin theo tháng" (lists.tsx:102) hiện người bán
+[x] 32 (2026-10-25, rà soát đêm — xem fix.txt) "Giao dịch theo trạng thái" (lists.tsx:58) và "Tất cả tin theo tháng" (lists.tsx:102) hiện người bán
        bằng mã người dùng dài. Đề xuất: backend trả kèm tên (đã có sẵn partnerName cho người mua).
-[ ] 33 Tài khoản chỉ thuộc FinanceAdmins (không thuộc Admins) vào được trang Admin (App.tsx:79) nhưng mọi
+[x] 33 (2026-10-25, rà soát đêm — xem fix.txt) Tài khoản chỉ thuộc FinanceAdmins (không thuộc Admins) vào được trang Admin (App.tsx:79) nhưng mọi
        API /admin/* bắt nhóm admin → trang toàn lỗi 403. make-admin.sh luôn thêm Admins nên hiện chưa xảy ra.
        Đề xuất: isAdmin chỉ xét nhóm admin, hoặc ghi rõ trong make-admin.sh.
 [x] 34 (2026-10-24, backend ghi auditId, web dùng làm key; dòng cũ dùng key ghép + params) Nhật ký Admin: key dòng = thời điểm + admin + route (lists.tsx:157) có thể trùng khi 2 thao tác cùng
@@ -157,12 +157,32 @@ MỨC THẤP — điều hướng / hiển thị sau khi tách trang
 ---------------------------------------------------------------------
 CÒN MỞ TỪ TRƯỚC (nhắc lại để gom một chỗ)
 ---------------------------------------------------------------------
-[ ] 12 Lượt AI 20 / ngày đếm theo ngày UTC (aiService.ts:717, reset lúc 7h sáng giờ VN), hóa đơn theo giờ VN.
+[x] 12 (2026-10-25, rà soát đêm — xem fix.txt) Lượt AI 20 / ngày đếm theo ngày UTC (aiService.ts:717, reset lúc 7h sáng giờ VN), hóa đơn theo giờ VN.
 [x] B7 (2026-10-24) Ghép tin chạy nền: Lambda async + mốc dự phòng LISTING_MATCH 5 phút (QĐ-13).
 [x] A  (2026-10-24) Trang tin hiện giao dịch hoàn tất / bị hủy 30 ngày của người bán (QĐ-39 hướng A).
-[ ] 35 (thêm 2026-10-24) Số liệu tháng ở Dashboard Admin chưa có doanh thu VIP 1 — từ QĐ-44 tiền VIP trả trước theo hóa đơn riêng,
+[x] 35 (2026-10-25, rà soát đêm — xem fix.txt) (thêm 2026-10-24) Số liệu tháng ở Dashboard Admin chưa có doanh thu VIP 1 — từ QĐ-44 tiền VIP trả trước theo hóa đơn riêng,
        không còn nằm trong Phí phát sinh / Đã thu. PO: để sau, làm cùng đợt đổi giao diện.
 
 Đã kiểm, KHÔNG có lỗi: route /admin/* + /partner/* khớp, đường dẫn cũ /admin và /partner vẫn vào được,
 khóa tài khoản do nợ phí vẫn chặn đúng trong khu đối tác, phân trang dùng chung (pageQuery / PagedTable),
 bộ lọc trên URL, nút tiền chỉ hiện cho Admin tài chính, nhật ký ghi đúng thao tác + lượt xem dữ liệu cá nhân.
+
+=====================================================================
+RÀ SOÁT ĐÊM 2026-10-25 (PO giao toàn quyền 3h30 → 6h) — chi tiết từng mục ở fix.txt (cạnh README.md)
+=====================================================================
+[x] 36 react-router-dom 6.28.0 có lỗ hổng mức CAO (open redirect / XSS) → nâng 6.30.6.
+       Còn 2 cảnh báo mức VỪA cần lên v7 (thay đổi lớn) — 1 cái chỉ áp dụng render phía server (không dính), 1 cái
+       open redirect qua dấu "\" trong Link (link của ReLoop đều là hằng số) → để sau.
+[x] 37 deploy.sh không truyền key Gemini → mỗi lần deploy Terraform đặt GEMINI_API_KEY trên Lambda về rỗng → giờ giữ key đang có.
+[x] 38 Thông báo cũ hơn 100 cái gần nhất bấm "đã đọc" báo lỗi → web gửi kèm thời điểm, backend đọc theo khóa; chuông hiện 99+.
+[x] 39 "Tin của tôi" / "Giao dịch của tôi" chỉ 50 dòng gần nhất → phân trang thật (30 / trang, nút Tải thêm).
+[x] 40 Chat: tin gửi cùng mili giây với tin cuối web đã có có thể bị bỏ sót khi hỏi tin mới → điều kiện >=.
+[x] 41 Phản ánh loại REVIEW: API nhận nhưng Admin không xử lý được (không xác định người vi phạm) → bỏ loại này.
+[x] 42 Phiên đăng nhập hết hạn hẳn (API 401) → web chỉ báo lỗi từng chỗ → giờ đưa về trang đăng nhập kèm thông báo.
+[x] 43 Gọi lại /uploads/moderate cùng ảnh → chạy Rekognition lại (tốn tiền, không giới hạn) và đặt lại tag state=pending
+       (ảnh đã gắn tin bị S3 xóa sau 1 ngày) → ảnh đã kiểm duyệt thì bỏ qua.
+[x] 44 Trang giao dịch: ô "Giá cuối" để trống gửi 0đ; "Báo thất bại" không hỏi lại → chặn giá trống + hỏi lại cả hai.
+[ ] 45 Còn mở (quyết định / để sau): duyệt VIP cho người đang bị tạm ngừng vẫn bật gói (họ đã trả tiền); hóa đơn VIP quá hạn
+       3 ngày không tự hủy (Admin từ chối tay); API GET /wallet, /wallet/ledger giữ lại theo QĐ (ví tạm ngưng, chỉ đọc);
+       cảnh báo npm audit ở công cụ dev (vite / vitest / esbuild) cần nâng bản lớn; "Tin phù hợp" của cấp 2 vẫn 50 dòng
+       (tin chỉ mở 7 ngày nên đủ); chưa có key Gemini trên máy / Lambda để thử AI.

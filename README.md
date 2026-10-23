@@ -36,7 +36,7 @@ backend/    API serverless (TypeScript) — chạy local bằng Node, lên AWS b
     modules/risk        đếm vi phạm, cờ "nghi né phí / vi phạm nhiều lần" cho Admin
     modules/jobs        hẹn giờ việc nền theo "ngăn giờ" (không Scan)
     modules/wallet      sổ cái, giữ tiền, hoa hồng, phí đăng bài (chưa nối vào luồng)
-  test/                 vitest — 171 test
+  test/                 vitest — 172 test
 frontend/   React + TypeScript + Vite; Leaflet + OpenStreetMap; đăng nhập Cognito (OAuth code + PKCE)
 infra/      Terraform môi trường dev (state trên S3) + bootstrap.sh + deploy.sh
 scripts/    smoke-aws.py (integration test trên AWS) · make-admin.sh · loadtest.mjs

@@ -1,0 +1,107 @@
+RELOOP — GHI CHÚ RÀ SOÁT & SỬA LỖI ĐÊM 25/10/2026 (3h30 → 6h)
+=====================================================================
+Người đọc: Product Owner. Viết bằng ngôn ngữ thường; vị trí code ghi trong ngoặc để nhóm tra khi cần.
+Nhánh: feature/doi-tac-2-cap (đã push GitHub). Web dev: https://d1cjl1tvcp0r6q.cloudfront.net
+
+---------------------------------------------------------------------
+TÓM TẮT
+---------------------------------------------------------------------
+• Sửa 16 lỗi / điểm mâu thuẫn (danhgia.txt mục 12, 29–33, 35–44). Không đụng tới Claude 3.5 (đang xin quota).
+• Mỗi đợt sửa đều: chạy toàn bộ test + kiểm tra kiểu + build web → commit → deploy dev → chạy smoke test trên AWS thật.
+• Test: 165 → 172 (tất cả pass). Smoke trên AWS: 2 lượt, đều ALL PASS (RUN 63cbf8, RUN 38b0f7).
+• Deploy dev 2 lần, mỗi lần Terraform chỉ cập nhật code Lambda: 0 thêm / 1 sửa / 0 xóa — không tạo / xóa tài nguyên AWS nào,
+  không phát sinh chi phí cố định mới.
+• Commit: 50a5752 (đợt 1) · 9c0fc74 (tài liệu) · 63f9f40 (đợt 2) · commit cuối ghi file này.
+
+---------------------------------------------------------------------
+1. BẢO MẬT & CHI PHÍ
+---------------------------------------------------------------------
+[ĐÃ SỬA] Thư viện react-router-dom 6.28.0 (chạy trên web thật) có lỗ hổng mức CAO: chuyển hướng sang trang lạ / XSS.
+   → Nâng lên 6.30.6 (cùng dòng v6, không đổi code). (frontend/package.json)
+   Còn 2 cảnh báo mức VỪA chỉ hết khi lên v7 (thay đổi lớn, không nên làm lúc đêm):
+     - 1 cái chỉ áp dụng khi render phía server → ReLoop là SPA, không dính.
+     - 1 cái là chuyển hướng qua dấu "\" trong Link → link của ReLoop đều là hằng số trong code, rủi ro thấp.
+   Cảnh báo ở công cụ dev (vite, vitest, esbuild) không chạy trên web thật → để sau.
+
+[ĐÃ SỬA] Gọi lại "kiểm duyệt ảnh" trên cùng 1 ảnh → mỗi lần chạy Rekognition lại (tốn tiền, không giới hạn số lần)
+   VÀ đặt lại nhãn ảnh về "chưa dùng" → ảnh đang gắn vào tin sẽ bị S3 tự xóa sau 1 ngày.
+   → Ảnh đã kiểm duyệt rồi thì bỏ qua, không gọi Rekognition, không đổi nhãn. (backend/src/storage/imageStore.ts)
+
+[ĐÃ SỬA] Mỗi lần deploy (infra/deploy.sh) Terraform đặt key Gemini trên Lambda về RỖNG nếu người deploy không truyền key
+   → ai đã gắn key thì lần deploy sau sẽ mất. Giờ deploy giữ nguyên key đang có trên Lambda; muốn tắt Gemini thì truyền
+   TF_VAR_gemini_api_key= (rỗng) có chủ đích.
+
+---------------------------------------------------------------------
+2. LỖI NGHIỆP VỤ / DỮ LIỆU
+---------------------------------------------------------------------
+[ĐÃ SỬA] Lượt AI 20 lượt / ngày reset lúc 7h sáng giờ VN (đếm theo ngày UTC) → giờ reset đúng 0h giờ VN. (danhgia 12)
+   Test chứng minh: 23h59 vẫn hết lượt, 0h01 có lượt mới.
+
+[ĐÃ SỬA] "Tin của tôi" và "Giao dịch của tôi" chỉ hiện 50 dòng gần nhất — cũ hơn là MẤT khỏi danh sách.
+   → Phân trang thật (30 dòng / trang, nút "Tải thêm"). Đã thử trên DynamoDB thật: đúng thứ tự, không lẫn dữ liệu khác.
+
+[ĐÃ SỬA] Thông báo cũ hơn 100 cái gần nhất: bấm vào báo lỗi "không tìm thấy", không đánh dấu đã đọc được.
+   → Web gửi kèm thời điểm thông báo, backend đọc thẳng theo khóa. Chuông hiện "99+" khi nhiều.
+
+[ĐÃ SỬA] Chat: tin nhắn gửi cùng mili giây với tin cuối cùng web đã nhận có thể bị bỏ sót (không hiện).
+   → Điều kiện lấy tin mới tính cả mốc đó; web tự bỏ tin trùng.
+
+[ĐÃ SỬA] Trang giao dịch: ô "Giá cuối" để trống → gửi giá 0đ (bên kia chỉ Chấp nhận / Khiếu nại được).
+   → Chặn ô trống + hỏi lại "Xác nhận giá cuối X đ?". Nút "Báo thất bại" (không hoàn tác được) cũng hỏi lại.
+
+[ĐÃ SỬA] Phản ánh loại "đánh giá" (REVIEW): API nhận nhưng Admin không xử lý được (không biết ai vi phạm, chỉ Bỏ qua).
+   Web cũng không có nút này → bỏ loại REVIEW khỏi API.
+
+[ĐÃ SỬA] Phiên đăng nhập hết hạn hẳn (sau ~30 ngày không vào, hoặc bị thu hồi): web báo lỗi ở từng ô, không về trang
+   đăng nhập → giờ tự về trang đăng nhập kèm "Phiên đăng nhập đã hết hạn — hãy đăng nhập lại".
+
+---------------------------------------------------------------------
+3. TRANG ADMIN
+---------------------------------------------------------------------
+[ĐÃ SỬA] Danh sách "Giao dịch theo trạng thái" và "Tất cả tin theo tháng" hiện người bán bằng mã dài → giờ hiện tên. (danhgia 32)
+[ĐÃ SỬA] Dashboard → Số liệu tháng có thêm ô "VIP 1 đã thu (N gói)" — tính theo tháng Admin xác nhận đã thu. (danhgia 35)
+[ĐÃ SỬA] Tài khoản chỉ có quyền tài chính (FinanceAdmins, không thuộc Admins) vào được trang Admin nhưng mọi mục lỗi 403
+   → giờ không hiện "Trang Admin" cho tài khoản đó. (make-admin.sh luôn thêm cả Admins nên bình thường không gặp.) (danhgia 33)
+
+---------------------------------------------------------------------
+4. KHU ĐỐI TÁC / ĐIỀU HƯỚNG
+---------------------------------------------------------------------
+[ĐÃ SỬA] Thông báo về phí (hóa đơn tháng, đã nhận tiền, phí nghi bán ngoài, kết quả khiếu nại) giờ dẫn thẳng tới
+   Đối tác → Phí dịch vụ (/partner/billing). Thông báo VIP vẫn dẫn tới Tổng quan (nơi có thẻ VIP). (danhgia 29)
+[ĐÃ SỬA] Nhãn PN1 / PN1V / PN2 trên thanh trên cùng cập nhật khi đi giữa các mục trong khu đối tác (trước chỉ khi vào đúng /partner). (danhgia 30)
+[ĐÃ SỬA] Nút "+ Đăng tin" ở "Tin của tôi" và link "đăng tin" trong Hồ sơ đối tác giữ người dùng trong khu đang đứng
+   (khu đối tác → /partner/new, trang Admin → /admin/posts/new). (danhgia 31)
+
+---------------------------------------------------------------------
+5. TÀI LIỆU LỆCH VỚI CODE (đã sửa tài liệu, code là chuẩn)
+---------------------------------------------------------------------
+• plan/devdocx.txt mục 9.5 (bảng API): thiếu 12 route, còn 1 route đã bỏ (POST /partners/me/vip), còn trỏ "AdminPage" đã xóa.
+  → Đã đối chiếu tự động: bảng giờ khớp đúng 99 route trong code. Mục 9.4 (tên hàm) cập nhật VIP mới.
+• README.md, plan/docx/readmeall.md: số test (140 → 172), số API (88 → 99), VIP trả trước, ghép tin chạy nền.
+• plan/docx/let.md: bảng API Admin thêm route VIP / xem tin, tạm ngừng bắt buộc lý do, /admin/stats chỉ đếm khi không có tháng.
+• plan/danhgia.txt: đánh dấu đã sửa + thêm mục 36–45 (đêm nay).
+
+---------------------------------------------------------------------
+6. CHƯA LÀM / CẦN BẠN QUYẾT (danhgia 45)
+---------------------------------------------------------------------
+• AI: KHÔNG tìm thấy key Gemini trên máy này lẫn trên Lambda (độ dài 0) — tài liệu cũng ghi chưa từng gắn. Nên chưa thử AI
+  bằng Gemini được. Claude 3.5: không đụng tới, như bạn dặn.
+  Cách gắn khi có key (không dán key vào chat / file):
+      export TF_VAR_gemini_api_key='<key>'   rồi   AWS_PROFILE=reloop bash infra/deploy.sh
+  Từ lần sau deploy sẽ tự giữ key này.
+• Duyệt VIP cho người đang bị tạm ngừng: hiện vẫn bật gói (họ đã trả tiền). Nếu muốn chặn / cảnh báo thì báo tôi.
+• Hóa đơn VIP quá hạn 3 ngày không tự hủy — Admin tài chính tự bấm Từ chối.
+• API GET /wallet, /wallet/ledger vẫn còn (chỉ đọc) — giữ theo quyết định "ví tạm ngưng, code giữ lại" trong quyetdinh.txt.
+• "Tin phù hợp" của đối tác cấp 2 vẫn tối đa 50 dòng — tin chỉ mở 7 ngày nên đủ dùng.
+• Nâng react-router lên v7 và các công cụ dev (vite / vitest) — thay đổi lớn, nên làm cùng đợt bạn đưa giao diện mới.
+• Việc cũ còn chờ: gộp PR #14 vào main (đã có thêm nhiều commit, CI chạy lại khi push), đăng ký email cảnh báo cho Admin
+  (gửi tôi email từng Admin), logo SVG.
+
+---------------------------------------------------------------------
+7. CÁCH KIỂM TRA NHANH TRÊN WEB
+---------------------------------------------------------------------
+1. Đăng nhập → Tin của tôi / Giao dịch: có nút "Tải thêm" khi nhiều hơn 30 dòng.
+2. Vào một giao dịch đang chờ bàn giao → xóa trống ô Giá cuối → nút bị khóa; nhập giá → bấm → có hộp hỏi lại.
+3. Trang Admin → Dashboard: ô "VIP 1 đã thu"; Giao dịch theo trạng thái: cột Người bán hiện tên.
+4. Khu đối tác → Tin của tôi → "+ Đăng tin": vẫn ở trong menu đối tác.
+5. Chuông thông báo → bấm thông báo hóa đơn → vào thẳng mục Phí dịch vụ.

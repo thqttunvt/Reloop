@@ -52,7 +52,7 @@ Bản đồ thư mục:
   backend/src/store/keys.ts     TẤT CẢ khóa DynamoDB ở một file
   backend/src/domain/           state machine Listing / Quote / Transaction, danh mục
   backend/src/storage, ai/      S3, Rekognition, Bedrock (adapter — nghiệp vụ không gọi AWS trực tiếp)
-  backend/test/                 vitest (171 test)
+  backend/test/                 vitest (172 test)
   frontend/src/pages, lib/      React; lib/api.ts = kiểu dữ liệu + gọi API; lib/catalog.ts = nhãn tiếng Việt
   infra/*.tf                    Terraform; infra/deploy.sh = build + apply + upload web
   scripts/                      smoke-aws.py (test trên AWS), make-admin.sh, loadtest.mjs
@@ -435,6 +435,11 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
          Người làm: [Tên người làm]   Kiểm chứng: 161 test, typecheck + build sạch, deploy dev 0 thêm / 1 sửa / 0 xóa · smoke RUN 796139 ALL PASS
   24/10  Ghép tin chạy nền (QĐ-13, B7) + dự phòng job 5 phút; trang tin hiện giao dịch hoàn tất / bị hủy 30 ngày của người bán (QĐ-39 A).
          Người làm: [Tên người làm]   Kiểm chứng: commit a1f2323 · 165 test · smoke RUN f141ac ALL PASS
+  25/10  Rà soát đêm (PO giao toàn quyền): sửa 16 lỗi / mâu thuẫn — lượt AI theo ngày VN, phân trang Tin / Giao dịch của tôi,
+         kiểm duyệt ảnh không chạy lại (chi phí + ảnh bị xóa nhầm), deploy giữ key Gemini, react-router vá lỗ hổng cao,
+         thông báo cũ, chat cùng mili giây, hết phiên → về đăng nhập, giá cuối trống, tên người bán / doanh thu VIP ở Admin,
+         link phí, bảng API khớp 99 route. Chi tiết: fix.txt.
+         Người làm: [Tên người làm]   Kiểm chứng: commit 50a5752, 63f9f40 · 172 test · smoke RUN 63cbf8, 38b0f7 ALL PASS
 
 
 =====================================================================
