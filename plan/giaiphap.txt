@@ -1,3 +1,6 @@
+[GHI CHÚ 2026-10-22] Tài liệu LỊCH SỬ (giai đoạn phân tích / lập kế hoạch). Hành vi hiện tại của hệ thống theo CODE,
+sau đó plan/quyetdinh.txt và plan/devdocx.txt (mục 9 = tham chiếu kỹ thuật). Không cập nhật file này theo code.
+
 RELOOP — ĐỀ XUẤT GIẢI PHÁP CHO CÁC ĐIỂM BẤT CẬP (đi kèm baton.txt)
 =====================================================================
 Mỗi mục dưới đây trả lời đúng mã tương ứng trong baton.txt (A1, B2, C4...).

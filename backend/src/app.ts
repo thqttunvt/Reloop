@@ -1,29 +1,50 @@
+import { BedrockAnalyzer, DEFAULT_GEMINI_MODEL, DisabledAnalyzer, FallbackAnalyzer, GeminiAnalyzer, type Analyzer } from './ai/analyzer';
 import { CognitoAuthProvider, LocalAuthProvider, type AuthProvider } from './auth/auth';
-import { FakeBankProvider, type BankProvider } from './bank/bankProvider';
-import { apiRoutes, devRoutes, type Services } from './http/routes';
-import { createApiHandler } from './http/router';
+import { apiRoutes, type Services } from './http/routes';
+import { AdminService } from './modules/admin/adminService';
+import { BillingService, DEFAULT_BILLING, type BillingBank } from './modules/billing/billingService';
+import { ChatService } from './modules/chat/chatService';
+import { AiService } from './modules/ai/aiService';
+import { TimerSweeper } from './modules/jobs/timers';
+import { LocationService } from './modules/locations/locationService';
+import { ReportService } from './modules/reports/reportService';
+import { RiskService } from './modules/risk/riskService';
+import { ListingService } from './modules/listings/listingService';
+import { NotificationService } from './modules/notifications/notificationService';
+import { ReputationService } from './modules/reputation/reputationService';
+import { TransactionService } from './modules/transactions/transactionService';
+import { PartnerService } from './modules/partners/partnerService';
+import { createApiHandler, type AccessGuard } from './http/router';
 import { UserService } from './modules/users/userService';
 import { Ledger } from './modules/wallet/ledger';
-import { PayoutService } from './modules/wallet/payoutService';
-import {
-  DEFAULT_FEES,
-  DEFAULT_LIMITS,
-  type BankAccountInfo,
-  type FeePolicy,
-  type WalletLimits,
-} from './modules/wallet/walletConfig';
+import { DEFAULT_FEES, type FeePolicy } from './modules/wallet/walletConfig';
 import { WalletService } from './modules/wallet/walletService';
 import { systemClock, type Clock } from './shared/clock';
+import { DynamoTable } from './store/dynamoTable';
+import { DisabledImageStore, S3ImageStore, type ImageStore } from './storage/imageStore';
+import { DisabledModerator, RekognitionModerator, type ImageModerator } from './storage/moderator';
+import { DisabledTextScreener, RekognitionGuardrailScreener, type TextScreener } from './storage/textScreener';
 import { MemoryTable } from './store/memoryTable';
 import type { Table } from './store/table';
 
 export interface AppConfig {
   stage: 'local' | 'aws';
   authMode: 'local' | 'cognito';
-  receivingAccount: BankAccountInfo;
-  webhookSecret: string;
-  limits: WalletLimits;
   fees: FeePolicy;
+  /** Bảng DynamoDB khi STAGE=aws. */
+  tableName?: string;
+  /** Bucket ảnh thiết bị. Không có → tắt upload ảnh (dev local không có AWS). */
+  imageBucket?: string;
+  /** Model Bedrock cho AI phân tích ảnh (mặc định Amazon Nova Pro). Không có → tắt AI, người dùng nhập tay. */
+  aiModelId?: string;
+  /** Bedrock Guardrail áp cho mỗi lần gọi AI (không bắt buộc). */
+  aiGuardrail?: { id: string; version: string };
+  /** Google AI Studio (Gemini miễn phí) — có thì dùng trước, Bedrock làm dự phòng. */
+  geminiApiKey?: string;
+  geminiModelId: string;
+  awsRegion: string;
+  /** Tài khoản nhận phí dịch vụ (QĐ-37) — hiện trên hóa đơn. */
+  billingBank?: BillingBank;
   /** Chỉ dùng với MemoryTable khi dev local. */
   dataFile?: string;
 }
@@ -32,37 +53,83 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const stage = env.STAGE === 'aws' ? 'aws' : 'local';
   const authMode = env.AUTH_MODE === 'cognito' ? 'cognito' : 'local';
   if (stage === 'aws' && authMode !== 'cognito') throw new Error('STAGE=aws bắt buộc AUTH_MODE=cognito');
-  const webhookSecret = env.BANK_WEBHOOK_SECRET ?? '';
-  if (stage === 'aws' && webhookSecret.length < 16) throw new Error('BANK_WEBHOOK_SECRET quá ngắn');
+  if (stage === 'aws' && !env.TABLE_NAME) throw new Error('STAGE=aws bắt buộc TABLE_NAME');
   return {
     stage,
     authMode,
-    receivingAccount: {
-      bankBin: env.BANK_BIN ?? '970422',
-      accountNo: env.BANK_ACCOUNT_NO ?? '0000000000',
-      accountName: env.BANK_ACCOUNT_NAME ?? 'RELOOP DEMO',
-    },
-    webhookSecret: webhookSecret || 'dev-secret',
-    limits: DEFAULT_LIMITS,
     fees: DEFAULT_FEES,
+    tableName: env.TABLE_NAME,
+    imageBucket: env.IMAGE_BUCKET || undefined,
+    aiModelId: env.AI_MODEL_ID || undefined,
+    aiGuardrail: env.AI_GUARDRAIL_ID ? { id: env.AI_GUARDRAIL_ID, version: env.AI_GUARDRAIL_VERSION || 'DRAFT' } : undefined,
+    geminiApiKey: env.GEMINI_API_KEY || undefined,
+    geminiModelId: env.GEMINI_MODEL_ID || DEFAULT_GEMINI_MODEL,
+    awsRegion: env.AWS_REGION ?? 'ap-southeast-1',
+    billingBank:
+      env.BILLING_BANK_NAME && env.BILLING_ACCOUNT_NO && env.BILLING_ACCOUNT_NAME
+        ? { bankName: env.BILLING_BANK_NAME, accountNo: env.BILLING_ACCOUNT_NO, accountName: env.BILLING_ACCOUNT_NAME }
+        : undefined,
     dataFile: env.DATA_FILE ?? '.data/db.json',
   };
 }
 
+/** AI phân tích ảnh: Gemini (nếu có key) → dự phòng Bedrock Nova Pro; chỉ có một thì dùng cái đó; không có → tắt. */
+export function analyzerFor(config: AppConfig): Analyzer {
+  const bedrock = config.aiModelId ? new BedrockAnalyzer(config.aiModelId, config.awsRegion, config.aiGuardrail) : undefined;
+  const gemini = config.geminiApiKey ? new GeminiAnalyzer(config.geminiApiKey, config.geminiModelId) : undefined;
+  if (gemini && bedrock) return new FallbackAnalyzer(gemini, bedrock);
+  return gemini ?? bedrock ?? new DisabledAnalyzer();
+}
+
 /** Lắp các adapter theo môi trường. Test truyền overrides (bảng trong bộ nhớ, đồng hồ giả). */
-export function buildApp(config: AppConfig, overrides: { table?: Table; clock?: Clock; bankProvider?: BankProvider } = {}) {
+export function buildApp(
+  config: AppConfig,
+  overrides: { table?: Table; clock?: Clock; images?: ImageStore; analyzer?: Analyzer; moderator?: ImageModerator; screener?: TextScreener } = {},
+) {
   const clock = overrides.clock ?? systemClock;
-  // TODO(tuần 5–6): DynamoTable cho STAGE=aws (cùng interface Table).
-  const table = overrides.table ?? new MemoryTable(config.stage === 'local' ? config.dataFile : undefined);
+  const table =
+    overrides.table ??
+    (config.stage === 'aws' ? new DynamoTable(config.tableName ?? '') : new MemoryTable(config.dataFile));
   const auth: AuthProvider = config.authMode === 'cognito' ? new CognitoAuthProvider() : new LocalAuthProvider();
-  const bankProvider = overrides.bankProvider ?? new FakeBankProvider(config.webhookSecret);
+  const images = overrides.images ?? (config.imageBucket ? new S3ImageStore(config.imageBucket) : new DisabledImageStore());
+  const moderator = overrides.moderator ?? (config.imageBucket ? new RekognitionModerator(config.imageBucket) : new DisabledModerator());
+  // QĐ-36: đọc chữ trong ảnh + Guardrail để gắn cờ — cần cả bucket ảnh lẫn Guardrail
+  const screener =
+    overrides.screener ??
+    (config.imageBucket && config.aiGuardrail
+      ? new RekognitionGuardrailScreener(config.imageBucket, config.aiGuardrail, config.awsRegion)
+      : new DisabledTextScreener());
 
   const users = new UserService(table, clock);
-  const ledger = new Ledger(table, clock);
-  const wallet = new WalletService(table, clock, ledger, users, config.receivingAccount, config.limits, config.fees);
-  const payouts = new PayoutService(table, clock, ledger, users, config.limits);
-  const services: Services = { users, wallet, payouts, bankProvider };
+  const wallet = new WalletService(table, clock, new Ledger(table, clock), config.fees);
+  const notifications = new NotificationService(table, clock);
+  const billing = new BillingService(table, clock, notifications, DEFAULT_BILLING, config.billingBank);
+  const partners = new PartnerService(table, clock, users, notifications, billing);
+  const risk = new RiskService(table, clock, notifications, partners);
+  const listings = new ListingService(table, clock, users, partners, images, notifications, billing, risk);
+  const transactions = new TransactionService(table, clock, users, partners, listings, notifications, images, billing, risk);
+  const reputation = new ReputationService(table, clock);
+  const analyzer = overrides.analyzer ?? analyzerFor(config);
+  const ai = new AiService(table, clock, analyzer, images);
+  const locations = new LocationService(table, clock);
+  const reports = new ReportService(table, clock, listings, notifications, partners, users, risk);
+  const chat = new ChatService(table, clock, listings, partners, users, notifications, transactions);
+  listings.settleTransaction = (id) => transactions.loadAndSettle(id);
+  const admin = new AdminService(table, clock, users, partners, listings, billing);
+  const services: Services = { admin, users, wallet, billing, risk, partners, listings, images, moderator, screener, notifications, transactions, reputation, ai, locations, reports, chat };
+  const sweeper = new TimerSweeper(table, clock, {
+    LISTING_EXPIRE: (t) => listings.expireIfDue(t.targetId),
+    LISTING_MATCH: (t) => listings.matchIfPending(t.targetId), // dự phòng khi ghép tin chạy nền lỗi (B7)
+    TX_REMIND: (t) => transactions.remindIfWaiting(t.targetId),
+    TX_AUTO_COMPLETE: async (t) => void (await transactions.autoComplete(t.targetId)),
+    TX_CANCEL: async (t) => void (await transactions.finalizeCancel(t.targetId)),
+  }, [() => billing.issuePreviousMonthIfDue()]);
 
-  const routes = [...apiRoutes(services), ...(config.stage === 'local' ? devRoutes(services, config.webhookSecret) : [])];
-  return { handler: createApiHandler({ routes, auth, table, clock }), services, table };
+  const routes = apiRoutes(services);
+  // Nợ phí quá hạn > 7 ngày → khóa mọi chức năng trừ route allowWhenLocked (QĐ-40). Trang Admin không bị ảnh hưởng.
+  const guard: AccessGuard = async (principal, route) => {
+    if (route.path.startsWith('/admin/')) return;
+    await billing.assertNotLocked(principal.userId);
+  };
+  return { handler: createApiHandler({ routes, auth, table, clock, guard }), services, table, sweeper };
 }

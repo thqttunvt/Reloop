@@ -1,3 +1,5 @@
+> **[Ghi chú 2026-10-22]** Bản tóm tắt task ĐẦU TIÊN, viết trước buổi hỏi đáp — **đã lỗi thời** (còn giai đoạn ưu tiên 24h, Owner / Partner kiểu cũ, chưa có đối tác 2 cấp, phí, chat ra giá…). Hành vi hiện tại: code → `plan/quyetdinh.txt` → `plan/devdocx.txt`.
+
 # ReLoop — AI-Assisted Electronics Reuse & Recycling Marketplace
 
 > Nền tảng kết nối **Owner** (người có thiết bị điện tử cũ/hỏng) với **Partner** (cửa hàng sửa chữa, thu mua, tái chế) — hỗ trợ đăng tin bằng AI, matching theo vị trí, báo giá tự động theo quy tắc, quản lý giao dịch và đánh giá uy tín.

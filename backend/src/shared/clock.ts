@@ -16,3 +16,11 @@ export class ManualClock implements Clock {
 }
 
 export const HOUR_MS = 60 * 60 * 1000;
+
+/** Tháng theo giờ Việt Nam (UTC+7): giao dịch xong 23h ngày 31 vẫn thuộc tháng đó. */
+export const vnMonth = (at: Date | string) => new Date(new Date(at).getTime() + 7 * HOUR_MS).toISOString().slice(0, 7);
+
+/** Ngày theo giờ Việt Nam (YYYY-MM-DD) — hạn mức theo ngày reset lúc 0h giờ VN, không phải 7h sáng (mục 12 danhgia). */
+export const vnDay = (at: Date | string) => new Date(new Date(at).getTime() + 7 * HOUR_MS).toISOString().slice(0, 10);
+
+export const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;

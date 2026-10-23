@@ -34,6 +34,12 @@ export class LocalAuthProvider implements AuthProvider {
   }
 }
 
+/**
+ * Tên group trong user pool ReLoop-user-pool → nhóm quyền trong code.
+ * "Owners" / "Partners" không dùng để phân quyền: vai trò nghiệp vụ lấy từ hồ sơ DynamoDB (D11).
+ */
+export const COGNITO_GROUP_MAP: Record<string, AdminGroup> = { Admins: 'admin', FinanceAdmins: 'admin_finance' };
+
 /** API Gateway HTTP API đã kiểm tra JWT; Lambda chỉ đọc claims đã được xác thực. */
 export class CognitoAuthProvider implements AuthProvider {
   authenticate(event: APIGatewayProxyEventV2): Principal | undefined {
@@ -44,7 +50,7 @@ export class CognitoAuthProvider implements AuthProvider {
     return {
       userId: sub,
       email: typeof claims?.email === 'string' ? claims.email : undefined,
-      groups: splitGroups(claims?.['cognito:groups']),
+      groups: splitGroups(claims?.['cognito:groups']).flatMap((g) => (COGNITO_GROUP_MAP[g] ? [COGNITO_GROUP_MAP[g]] : [])),
     };
   }
 }

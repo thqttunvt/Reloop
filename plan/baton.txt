@@ -1,3 +1,6 @@
+[GHI CHÚ 2026-10-22] Tài liệu LỊCH SỬ (giai đoạn phân tích / lập kế hoạch). Hành vi hiện tại của hệ thống theo CODE,
+sau đó plan/quyetdinh.txt và plan/devdocx.txt (mục 9 = tham chiếu kỹ thuật). Không cập nhật file này theo code.
+
 RELOOP — CÁC ĐIỂM BẤT CẬP / CHƯA RÕ TRONG TÀI LIỆU ĐẶC TẢ (v1.0)
 =====================================================================
 Nguồn: file "Theo báo cáo Global E-waste Monitor 2024 ... .docx"

@@ -13,7 +13,9 @@ try {
 }
 const config = loadConfig();
 if (config.stage !== 'local') throw new Error('server local chỉ chạy với STAGE=local');
-const { handler } = buildApp(config);
+const { handler, sweeper } = buildApp(config);
+// Dev local: chạy job nền mỗi phút thay cho EventBridge
+setInterval(() => void sweeper.sweep(), 60_000);
 const port = Number(process.env.PORT ?? 3001);
 
 const readBody = (req: IncomingMessage) =>

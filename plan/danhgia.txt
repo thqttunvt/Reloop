@@ -1,0 +1,188 @@
+RELOOP — ĐÁNH GIÁ TOÀN WEBSITE: LỖI & MÂU THUẪN
+=====================================================================
+Rà soát: 2026-10-20 (backend, frontend, quyetdinh.txt, devdocx.txt). Rà soát lại 2026-10-24 sau khi tách trang (mục 23 → 34, cuối file).
+Cập nhật trạng thái mỗi khi sửa xong một mục: [ ] chưa làm · [~] đang làm · [x] đã sửa (ngày, commit).
+
+---------------------------------------------------------------------
+MỨC CAO — ảnh hưởng người dùng thật
+---------------------------------------------------------------------
+[x] 1  (2026-10-20, chưa commit / deploy) Đã chốt với khách / đối tác khác nhưng những người còn lại không biết; báo giá của đối tác
+       khác vẫn hiện "Đã xác nhận giá"; chat của khách khác vẫn mở.
+       → Làm theo QĐ-38 (2026-10-20): ra giá trong chat, chấp nhận → giao dịch, tin rời Chợ, báo cho
+         khách khác + đối tác đã match, khóa chat của họ; hủy giao dịch sau 5 phút, tin quay lại Chợ.
+       Còn lại của mục 1: hiển thị báo giá (luồng đối tác cấp 2) khi tin MATCHED / COMPLETED vẫn là
+       "Đã xác nhận giá" — đề xuất hiện "Chủ tin đã chọn người khác", ẩn nút (làm cùng mục 1b).
+[x] 1b (2026-10-21) Hiển thị báo giá khi tin đã MATCHED / COMPLETED → "đang giao dịch với người khác" + ẩn nút,
+       đơn vị thu mua được báo (cả luồng chọn báo giá), tin hoàn tất → báo giá hết hiệu lực.
+[x] 2  (2026-10-21) Nợ phí quá hạn khóa cả "Từ chối" và "Rút báo giá" → thay bằng QĐ-40: nợ > 3 ngày không đăng tin mới,
+       > 7 ngày khóa mọi chức năng; báo giá không còn bị khóa riêng.
+[x] 3  (2026-10-21) Người bán bị Admin tạm ngừng vẫn còn tin trên Chợ, vẫn nhận báo giá → tin ẩn, không chốt /
+       báo giá / chat mới (QĐ-40); mở lại thì hiện lại.
+       → Khi tạm ngừng: hủy / ẩn tin đang mở hoặc lọc khỏi Chợ và matching.
+       (Từ QĐ-38: người bán bị tạm ngừng / nợ quá hạn không chấp nhận được lời ra giá trong chat.)
+[x] 4  (2026-10-20) Khách thường nhắn tin được nhưng không có cách chốt mua → giải quyết bằng QĐ-38 (ra giá trong chat).
+
+---------------------------------------------------------------------
+MỨC TRUNG BÌNH
+---------------------------------------------------------------------
+[x] 5  (2026-10-22, QĐ-43) Báo cáo vi phạm xử lý theo mức, cảnh cáo gửi đúng người vi phạm, tin đang giao dịch không gỡ được
+       → báo Admin + báo cáo vẫn mở, chặn bấm nhầm tạm ngừng, lý do soạn sẵn; kèm ảnh nghi nhạy cảm chờ duyệt + đếm vi phạm.
+[x] 6  (2026-10-21) Nút "Đã thu" / "Lập hóa đơn" / "Miễn – Giữ phí" chỉ hiện với Admin tài chính; người khác thấy ghi chú.
+[x] 7  (2026-10-21, QĐ-42) Bỏ "2 bên nhập giá cuối": bên trước nhập giá, bên kia chỉ Chấp nhận / Khiếu nại; thông báo ghi rõ giá.
+       (2026-10-22) Admin được báo khi có khiếu nại: chuông hộp thư chung Admin + email qua CloudWatch alarm / SNS
+       (email Admin đăng ký tự động khi chạy scripts/make-admin.sh).
+[x] 8  (2026-10-21) updateBranch / updateRule giờ kiểm tra như addBranch / addRule (tạm ngừng / cấp 1 → 403).
+[x] 20 (2026-10-21 — đã sửa: GET /admin/listings/{id}/chats, thẻ "Tin nhắn về tin này" ở trang giao dịch) Admin không xem được nội dung chat khi xét khiếu nại phí / cờ nghi né phí (QĐ-39) —
+       chỉ thấy giao dịch. → Thêm API Admin đọc chat của một tin (chỉ đọc, ghi log ai xem) + nút "Xem chat".
+
+---------------------------------------------------------------------
+MỨC THẤP — kỹ thuật
+---------------------------------------------------------------------
+[x] 9  (2026-10-21) Hủy / gỡ / hết hạn tin → báo giá hết hạn qua quoteMachine (SYSTEM), hàm chung expireOpenQuotes.
+[x] 10 (2026-10-21) Hủy tin đúng lúc đang matching → đọc lại tin và ghi lại, không còn lỗi 500.
+[x] 11 (2026-10-21) Chợ chỉ đọc 200 tin / tháng → phân trang thật theo khoảng sort key trong 7 ngày gần nhất.
+[x] 12 (2026-10-25, rà soát đêm — xem fix.txt) Lượt AI theo ngày UTC, hóa đơn theo tháng giờ VN → lượt AI đếm theo ngày giờ VN.
+
+---------------------------------------------------------------------
+TÀI LIỆU mâu thuẫn với code / với nhau
+---------------------------------------------------------------------
+(2026-10-22: đối chiếu toàn bộ tài liệu với code — CHỈ sửa tài liệu, code là chuẩn.)
+[x] 13 QĐ-10 "không nhận cá nhân làm Partner" ↔ QĐ-34 → QĐ-10 đánh dấu [ĐÃ THAY BẰNG QĐ-34], chỉ áp cho cấp 2.
+[x] 14 QĐ-02 vẫn ghi 2 loại phí → QĐ-02 viết lại theo code (phí giao dịch, phí nghi bán ngoài, VIP 1; không qua ví).
+[x] 15 QĐ ví / giữ tiền → cả mục 2 + QĐ-07, 08, 09, 14, 15, 18, 19, 23, 24, 26, TL-03 đánh dấu [TẠM NGƯNG] kèm "Code hiện tại";
+       QĐ-20 sửa thành "mở liên lạc khi tạo giao dịch"; state machine + TL-02/04/06 viết lại theo code.
+[x] 16 devdocx Q2 → [ĐÃ CHỐT — QĐ-36]; B8 = nhắc Admin.
+[x] 17 (2026-10-22) S3 đổi sang xóa ảnh 90 ngày sau khi upload (tiết kiệm); điều khoản sửa "90 ngày sau khi tải lên";
+       QĐ-27, devdocx, README cập nhật theo.
+[x] 18 (2026-10-22) PO quyết bỏ ví khỏi website: xóa menu, route /wallet, trang WalletPage. Module ví backend vẫn giữ (QĐ tạm ngưng).
+[x] 19 (2026-10-22, chưa commit) Comment IAM trong infra/api.tf còn ghi "Claude Haiku" → sửa thành Amazon Nova Pro.
+[x] 21 (thêm 2026-10-22) devdocx mục 1 / 4 / 5 / 6 / 7 và README chưa có QĐ-38 → 43, còn ghi "8 alarm", "quá hạn 7 ngày khóa
+       đăng tin" → đã cập nhật theo code (9 alarm + SNS, khóa 2 mức, hạn mức, chat ra giá…).
+[x] 22 (thêm 2026-10-22) readmeall.md còn ví nội bộ, hoa hồng 10%, Claude Haiku, 37 QĐ, Node 26 / Windows 11 → viết lại mục 1–8
+       theo code; nhật ký thêm 20–22/10. Tài liệu lịch sử (baton, giaiphap, task, plan/README.md) có ghi chú "lịch sử" ở đầu.
+
+---------------------------------------------------------------------
+NÉ PHÍ 10.000đ bằng cách hủy trên web rồi giao dịch ngoài (QĐ-38) — đã chốt QĐ-39 (2026-10-21)
+[x] B + C đã làm (2026-10-21, chưa commit / deploy). [x] A (2026-10-24, hiện trên trang tin).
+---------------------------------------------------------------------
+Không chặn tuyệt đối được (tiền trả offline). Đề xuất kết hợp, từ nhẹ tới mạnh:
+  A. Ghi nhận + uy tín: giao dịch bị hủy sau khi đã thống nhất lịch bàn giao, hoặc hủy rồi người bán gỡ /
+     để hết hạn tin trong 72 giờ mà không có giao dịch mới → tính vào tỷ lệ hủy, hiện trên hồ sơ người bán.
+  B. Cờ cho Admin: cùng cặp người bán – người mua hủy ≥ 2 lần, hoặc người bán có ≥ 3 lần "hủy rồi gỡ tin"
+     trong 30 ngày → vào hàng đợi Admin xem chat + lịch sử; Admin cảnh cáo / tạm ngừng.
+  C. Phí theo nghi vấn (khuyến nghị cho MVP): hủy rồi người bán gỡ tin trong 72 giờ (không bán cho ai khác)
+     → coi như đã bán ngoài, tự tính 10.000đ vào hóa đơn tháng; người bán khiếu nại được, Admin miễn nếu hợp lý.
+  D. Mạnh nhất: thu phí ngay khi chấp nhận giá (không phụ thuộc hoàn tất), hoàn lại khi hủy có lý do được
+     bên kia xác nhận hoặc Admin duyệt. Chặn né phí tốt nhưng phiền và dễ tranh cãi.
+
+=====================================================================
+RÀ SOÁT 2026-10-24 — SAU KHI TÁCH TRANG (/admin/*, /partner/*)
+=====================================================================
+Phạm vi: toàn bộ frontend (App, AdminLayout, sections, lists, members, PartnerPage, trang chi tiết)
++ các API backend mà trang mới gọi. Nền: HEAD 4679ae5, 156 test pass, typecheck + build web sạch.
+2026-10-24: đã sửa 23 → 28 (mức cao + trung bình) + đổi VIP 1 sang trả trước (QĐ-44). Mục thấp 29 → 34 chưa làm.
+
+---------------------------------------------------------------------
+MỨC CAO — chặn luồng nghiệp vụ thật
+---------------------------------------------------------------------
+[x] 23 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Đối tác cấp 2 MỚI không bao giờ được duyệt (lỗi do tách trang, commit 48b9c3a).
+       Hiện tượng: hồ sơ cấp 2 đang chờ duyệt (PENDING) hoặc bị từ chối chỉ thấy form đăng ký; không còn khối
+       Chi nhánh / Bảng giá. Form vẫn ghi "Hãy thêm ít nhất 1 chi nhánh và bảng giá" nhưng không có chỗ thêm.
+       Admin bấm Duyệt → backend trả PARTNER_NO_BRANCH (nút Duyệt cũng bị khóa vì "Chưa có chi nhánh").
+       Chỗ: frontend/src/pages/PartnerPage.tsx:121 (nhánh "chưa là đối tác"). Bản trước (48b9c3a~1) hiện
+       BranchesCard + RulesCard cho mọi hồ sơ cấp 2, kể cả PENDING.
+       Backend vẫn cho thêm chi nhánh khi PENDING (requireAppliedBusiness) → chỉ là lỗi giao diện.
+       Đề xuất: hồ sơ cấp 2 PENDING / REJECTED → dưới form hiện thêm BranchesCard + RulesCard như cũ.
+       Kiểm tra: đăng ký cấp 2 bằng tài khoản mới → thêm chi nhánh → Admin duyệt được.
+
+[x] 24 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Admin mở tin từ trang Admin bị "Không tìm thấy tin đăng" (404).
+       Hiện tượng: link tin ở "Tất cả tin theo tháng", hồ sơ thành viên, phản ánh đã xử lý… với tin
+       Đã hủy / Hết hạn / Hoàn tất / Chờ duyệt, hoặc tin của người bán đang bị tạm ngừng → 404.
+       Đúng các tin Admin cần xem nhất (tin bị gỡ, tin của người bị tạm ngừng).
+       Nguyên nhân: backend coi Admin như người xem thường (VIEWER), xem listingService.ts:674 và :680.
+       Phụ: Admin vào tin đang mở thấy giao diện người mua (nút nhắn tin, ra giá, phản ánh).
+       Đề xuất: API chỉ đọc GET /admin/listings/{id} (mọi trạng thái, ghi nhật ký pii-read như xem giao dịch),
+       trang chi tiết tin trong /admin/listings/:id; các link tin trong trang Admin trỏ về đó.
+
+[x] 25 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Admin kết luận tranh chấp → người bán và người mua KHÔNG nhận được thông báo nào.
+       Chỗ: backend/src/modules/transactions/transactionService.ts:457 (resolveDispute gọi mutate, không notify).
+       Phí 10.000đ và trạng thái tin vẫn cập nhật đúng; chỉ thiếu báo.
+       Đề xuất: báo cả 2 bên "Admin kết luận: hoàn tất với giá …đ / thất bại — <ghi chú>", link tới giao dịch.
+
+---------------------------------------------------------------------
+MỨC TRUNG BÌNH — thao tác Admin dễ nhầm / chi phí
+---------------------------------------------------------------------
+[x] 26 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Tạm ngừng đối tác ở trang "Duyệt / tạm ngừng" không hỏi lại, lý do không bắt buộc.
+       Chỗ: frontend/src/pages/admin/sections.tsx:142-148; API /admin/partners/{id}/suspend (routes.ts:570)
+       nhận note tùy ý. Trái QĐ-43 (tạm ngừng bắt buộc lý do + hỏi lại) và trái chính trang Thành viên
+       (members.tsx:89 bắt ≥ 5 ký tự). Người bị ngừng nhận thông báo không có lý do.
+       Đề xuất: backend bắt note ≥ 5 ký tự cho suspend (một chỗ cho mọi trang); frontend confirm() kèm
+       số vi phạm 30 ngày như trang Phản ánh.
+
+[x] 27 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Mỗi lần bấm sang mục khác trong trang Admin đều gọi /admin/stats, kéo theo rất nhiều lượt đọc DynamoDB.
+       Chỗ: AdminLayout.tsx:66 (gọi theo location.pathname) → routes.ts:809-818: đọc ĐẦY ĐỦ đối tác của cả
+       4 trạng thái, mỗi đối tác thêm 1 lần đọc hồ sơ + 1 lần đọc chi nhánh (chỉ để đếm), cộng tin chờ duyệt
+       (kèm tạo link ảnh), cờ rủi ro (kèm 3 truy vấn lịch sử / người), số liệu tháng (2 lần đọc / người có phí).
+       Với ~100 đối tác ≈ vài trăm lượt đọc cho MỖI cú bấm menu. Chưa đắt ở dev, nhưng tăng tuyến tính.
+       Đề xuất: /admin/stats chỉ đếm (hàm count không kéo hồ sơ / ảnh / lịch sử); số liệu tháng tách ra,
+       chỉ gọi ở Dashboard; badge làm mới mỗi 60 giây hoặc sau thao tác thay vì mỗi lần đổi trang.
+
+[x] 28 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Trang Tranh chấp: bấm "Hoàn tất với giá này" / "Kết luận thất bại" không hỏi lại; ô giá để trống
+       → gửi 0đ (Number('') = 0, backend nhận min 0). Người bán hiện bằng mã người dùng thay vì tên.
+       Chỗ: sections.tsx:180-190, :216. Đề xuất: confirm() ghi rõ kết luận + giá; chặn giá trống;
+       backend trả kèm tên người bán để hiện tên.
+
+---------------------------------------------------------------------
+MỨC THẤP — điều hướng / hiển thị sau khi tách trang
+---------------------------------------------------------------------
+[x] 29 (2026-10-25, rà soát đêm — xem fix.txt) Thông báo về phí đều dẫn tới /partner (Tổng quan) thay vì /partner/billing: hóa đơn mới, đã nhận
+       thanh toán, phí nghi bán ngoài, kết quả khiếu nại, VIP 1 (billingService.ts:224, :343, :429;
+       listingService.ts:743; partnerService.ts:296). Người dùng phải tự tìm mục "Phí dịch vụ".
+       Đề xuất: đổi link sang /partner/billing (thông báo cũ vẫn chạy vì /partner vẫn tồn tại).
+[x] 30 (2026-10-25, rà soát đêm — xem fix.txt) Nhãn trên thanh trên cùng (Cấp 1 / Cấp 2, PN1 / PN1V / PN2) chỉ tải lại khi vào đúng /partner
+       (App.tsx:37 so sánh pathname === '/partner'). Mua VIP 1 xong vẫn hiện PN1; được duyệt rồi vào thẳng
+       /partner/billing vẫn hiện "Làm đối tác". Đề xuất: so sánh startsWith('/partner') hoặc tải lại sau mua VIP.
+[x] 31 (2026-10-25, rà soát đêm — xem fix.txt) Một số link đưa người dùng ra khỏi khu vực đang ở: "đăng tin" trong Hồ sơ đối tác (PartnerPage.tsx:280)
+       và "+ Đăng tin" ở Tin của tôi (MyListingsPage.tsx:21) trỏ /listings/new (mất menu đối tác);
+       trong trang Admin, Đăng tin / Tin của tôi / link giao dịch, tin mở ra giao diện người dùng.
+       Đề xuất: trong /partner/* dùng /partner/new; trong Admin chấp nhận được (có nút Back), ghi chú UI.
+[x] 32 (2026-10-25, rà soát đêm — xem fix.txt) "Giao dịch theo trạng thái" (lists.tsx:58) và "Tất cả tin theo tháng" (lists.tsx:102) hiện người bán
+       bằng mã người dùng dài. Đề xuất: backend trả kèm tên (đã có sẵn partnerName cho người mua).
+[x] 33 (2026-10-25, rà soát đêm — xem fix.txt) Tài khoản chỉ thuộc FinanceAdmins (không thuộc Admins) vào được trang Admin (App.tsx:79) nhưng mọi
+       API /admin/* bắt nhóm admin → trang toàn lỗi 403. make-admin.sh luôn thêm Admins nên hiện chưa xảy ra.
+       Đề xuất: isAdmin chỉ xét nhóm admin, hoặc ghi rõ trong make-admin.sh.
+[x] 34 (2026-10-24, backend ghi auditId, web dùng làm key; dòng cũ dùng key ghép + params) Nhật ký Admin: key dòng = thời điểm + admin + route (lists.tsx:157) có thể trùng khi 2 thao tác cùng
+       mili giây → React cảnh báo, hiện thiếu dòng. Đề xuất: trả id dòng nhật ký (đã có trong sort key).
+
+---------------------------------------------------------------------
+CÒN MỞ TỪ TRƯỚC (nhắc lại để gom một chỗ)
+---------------------------------------------------------------------
+[x] 12 (2026-10-25, rà soát đêm — xem fix.txt) Lượt AI 20 / ngày đếm theo ngày UTC (aiService.ts:717, reset lúc 7h sáng giờ VN), hóa đơn theo giờ VN.
+[x] B7 (2026-10-24) Ghép tin chạy nền: Lambda async + mốc dự phòng LISTING_MATCH 5 phút (QĐ-13).
+[x] A  (2026-10-24) Trang tin hiện giao dịch hoàn tất / bị hủy 30 ngày của người bán (QĐ-39 hướng A).
+[x] 35 (2026-10-25, rà soát đêm — xem fix.txt) (thêm 2026-10-24) Số liệu tháng ở Dashboard Admin chưa có doanh thu VIP 1 — từ QĐ-44 tiền VIP trả trước theo hóa đơn riêng,
+       không còn nằm trong Phí phát sinh / Đã thu. PO: để sau, làm cùng đợt đổi giao diện.
+
+Đã kiểm, KHÔNG có lỗi: route /admin/* + /partner/* khớp, đường dẫn cũ /admin và /partner vẫn vào được,
+khóa tài khoản do nợ phí vẫn chặn đúng trong khu đối tác, phân trang dùng chung (pageQuery / PagedTable),
+bộ lọc trên URL, nút tiền chỉ hiện cho Admin tài chính, nhật ký ghi đúng thao tác + lượt xem dữ liệu cá nhân.
+
+=====================================================================
+RÀ SOÁT ĐÊM 2026-10-25 (PO giao toàn quyền 3h30 → 6h) — chi tiết từng mục ở fix.txt (cạnh README.md)
+=====================================================================
+[x] 36 react-router-dom 6.28.0 có lỗ hổng mức CAO (open redirect / XSS) → nâng 6.30.6.
+       Còn 2 cảnh báo mức VỪA cần lên v7 (thay đổi lớn) — 1 cái chỉ áp dụng render phía server (không dính), 1 cái
+       open redirect qua dấu "\" trong Link (link của ReLoop đều là hằng số) → để sau.
+[x] 37 deploy.sh không truyền key Gemini → mỗi lần deploy Terraform đặt GEMINI_API_KEY trên Lambda về rỗng → giờ giữ key đang có.
+[x] 38 Thông báo cũ hơn 100 cái gần nhất bấm "đã đọc" báo lỗi → web gửi kèm thời điểm, backend đọc theo khóa; chuông hiện 99+.
+[x] 39 "Tin của tôi" / "Giao dịch của tôi" chỉ 50 dòng gần nhất → phân trang thật (30 / trang, nút Tải thêm).
+[x] 40 Chat: tin gửi cùng mili giây với tin cuối web đã có có thể bị bỏ sót khi hỏi tin mới → điều kiện >=.
+[x] 41 Phản ánh loại REVIEW: API nhận nhưng Admin không xử lý được (không xác định người vi phạm) → bỏ loại này.
+[x] 42 Phiên đăng nhập hết hạn hẳn (API 401) → web chỉ báo lỗi từng chỗ → giờ đưa về trang đăng nhập kèm thông báo.
+[x] 43 Gọi lại /uploads/moderate cùng ảnh → chạy Rekognition lại (tốn tiền, không giới hạn) và đặt lại tag state=pending
+       (ảnh đã gắn tin bị S3 xóa sau 1 ngày) → ảnh đã kiểm duyệt thì bỏ qua.
+[x] 44 Trang giao dịch: ô "Giá cuối" để trống gửi 0đ; "Báo thất bại" không hỏi lại → chặn giá trống + hỏi lại cả hai.
+[ ] 45 Còn mở (quyết định / để sau): duyệt VIP cho người đang bị tạm ngừng vẫn bật gói (họ đã trả tiền); hóa đơn VIP quá hạn
+       3 ngày không tự hủy (Admin từ chối tay); API GET /wallet, /wallet/ledger giữ lại theo QĐ (ví tạm ngưng, chỉ đọc);
+       cảnh báo npm audit ở công cụ dev (vite / vitest / esbuild) cần nâng bản lớn; "Tin phù hợp" của cấp 2 vẫn 50 dòng
+       (tin chỉ mở 7 ngày nên đủ); chưa có key Gemini trên máy / Lambda để thử AI.

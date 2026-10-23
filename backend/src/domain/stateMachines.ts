@@ -34,15 +34,28 @@ function createMachine<S extends string>(name: string, transitions: Transition<S
 const edges = <S extends string>(froms: S[], to: S, actors: Actor[]): Transition<S>[] =>
   froms.map((from) => ({ from, to, actors }));
 
-// ---------------------------------------------------------------- Listing (QĐ-12)
-export type ListingStatus = 'ACTIVE' | 'MATCHED' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED';
+// ---------------------------------------------------------------- Listing (QĐ-12, QĐ-36)
+export type ListingStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'MATCHED' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED';
 export const listingMachine = createMachine<ListingStatus>('Listing', [
+  // Ảnh bị gắn cờ → chờ Admin duyệt (QĐ-36)
+  { from: 'PENDING_REVIEW', to: 'ACTIVE', actors: ['ADMIN'] },
+  { from: 'PENDING_REVIEW', to: 'CANCELLED', actors: ['ADMIN', 'OWNER'] },
   { from: 'ACTIVE', to: 'MATCHED', actors: ['SYSTEM'] },
   { from: 'ACTIVE', to: 'EXPIRED', actors: ['SYSTEM'] },
   { from: 'ACTIVE', to: 'CANCELLED', actors: ['OWNER', 'ADMIN'] },
   { from: 'MATCHED', to: 'COMPLETED', actors: ['SYSTEM'] },
   { from: 'MATCHED', to: 'ACTIVE', actors: ['SYSTEM'] }, // giao dịch hủy/thất bại, còn hạn
   { from: 'MATCHED', to: 'EXPIRED', actors: ['SYSTEM'] }, // giao dịch hủy/thất bại, hết hạn
+]);
+
+// ---------------------------------------------------------------- Yêu cầu gói VIP 1 (QĐ-44)
+// Cấp 1 gửi yêu cầu → Admin gửi hóa đơn → người bán chuyển khoản → Admin tài chính xác nhận đã thu → gói tự bật.
+export type VipRequestStatus = 'REQUESTED' | 'INVOICED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export const vipRequestMachine = createMachine<VipRequestStatus>('VipRequest', [
+  { from: 'REQUESTED', to: 'INVOICED', actors: ['ADMIN'] },
+  { from: 'INVOICED', to: 'APPROVED', actors: ['ADMIN'] },
+  ...edges<VipRequestStatus>(['REQUESTED', 'INVOICED'], 'REJECTED', ['ADMIN']),
+  ...edges<VipRequestStatus>(['REQUESTED', 'INVOICED'], 'CANCELLED', ['OWNER']),
 ]);
 
 // ---------------------------------------------------------------- Quote (giaiphap B1)
@@ -66,15 +79,17 @@ export const quoteMachine = createMachine<QuoteStatus>('Quote', [
 ]);
 
 // ---------------------------------------------------------------- Transaction (quyetdinh mục 5)
-export type TransactionStatus =
-  | 'AWAITING_PAYMENT'
-  | 'HANDOVER_PENDING'
-  | 'PRICE_ADJUSTMENT_PENDING'
-  | 'AWAITING_COUNTERPARTY'
-  | 'COMPLETED'
-  | 'CANCELLED'
-  | 'FAILED'
-  | 'DISPUTED';
+export const TRANSACTION_STATUSES = [
+  'AWAITING_PAYMENT',
+  'HANDOVER_PENDING',
+  'PRICE_ADJUSTMENT_PENDING',
+  'AWAITING_COUNTERPARTY',
+  'COMPLETED',
+  'CANCELLED',
+  'FAILED',
+  'DISPUTED',
+] as const;
+export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 export const transactionMachine = createMachine<TransactionStatus>('Transaction', [
   { from: 'AWAITING_PAYMENT', to: 'HANDOVER_PENDING', actors: ['SYSTEM'] }, // ví đã giữ tiền
   { from: 'AWAITING_PAYMENT', to: 'CANCELLED', actors: ['SYSTEM', 'OWNER', 'PARTNER'] }, // quá 12h / hủy
@@ -87,20 +102,4 @@ export const transactionMachine = createMachine<TransactionStatus>('Transaction'
   ...edges<TransactionStatus>(['HANDOVER_PENDING', 'PRICE_ADJUSTMENT_PENDING'], 'FAILED', ['OWNER', 'PARTNER']),
   { from: 'DISPUTED', to: 'COMPLETED', actors: ['ADMIN'] },
   { from: 'DISPUTED', to: 'FAILED', actors: ['ADMIN'] },
-]);
-
-// ---------------------------------------------------------------- Lệnh nạp / rút (quyetdinh mục 5)
-export type TopUpStatus = 'CREATED' | 'CREDITED' | 'EXPIRED';
-export const topUpMachine = createMachine<TopUpStatus>('TopUp', [
-  { from: 'CREATED', to: 'CREDITED', actors: ['SYSTEM'] },
-  { from: 'CREATED', to: 'EXPIRED', actors: ['SYSTEM'] },
-  { from: 'EXPIRED', to: 'CREDITED', actors: ['SYSTEM'] }, // tiền về trễ vẫn cộng
-]);
-
-export type WithdrawalStatus = 'REQUESTED' | 'PROCESSING' | 'PAID' | 'FAILED';
-export const withdrawalMachine = createMachine<WithdrawalStatus>('Withdrawal', [
-  { from: 'REQUESTED', to: 'PROCESSING', actors: ['ADMIN'] },
-  // webhook tiền ra khớp; nhận cả REQUESTED vì Admin có thể chuyển mà quên bấm "đang chuyển"
-  ...edges<WithdrawalStatus>(['REQUESTED', 'PROCESSING'], 'PAID', ['SYSTEM']),
-  ...edges<WithdrawalStatus>(['REQUESTED', 'PROCESSING'], 'FAILED', ['ADMIN', 'SYSTEM']),
 ]);

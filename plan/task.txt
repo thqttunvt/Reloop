@@ -1,3 +1,6 @@
+[GHI CHÚ 2026-10-22] Tài liệu LỊCH SỬ (giai đoạn phân tích / lập kế hoạch). Hành vi hiện tại của hệ thống theo CODE,
+sau đó plan/quyetdinh.txt và plan/devdocx.txt (mục 9 = tham chiếu kỹ thuật). Không cập nhật file này theo code.
+
 RELOOP — DANH SÁCH TASK TRIỂN KHAI (bản chốt sau buổi hỏi đáp)
 =====================================================================
 Căn cứ: spec v1.0 + quyetdinh.txt (ưu tiên cao nhất) + giaiphap.txt.

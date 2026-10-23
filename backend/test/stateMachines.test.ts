@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { listingMachine, quoteMachine, transactionMachine, withdrawalMachine } from '../src/domain/stateMachines';
+import { listingMachine, quoteMachine, transactionMachine } from '../src/domain/stateMachines';
 import { AppError } from '../src/shared/errors';
 
 const errorOf = (fn: () => void) => {
@@ -35,7 +35,7 @@ describe('state machines', () => {
   });
 
   it('cạnh không tồn tại → 409 INVALID_STATE_TRANSITION', () => {
-    const err = errorOf(() => withdrawalMachine.assertTransition('PAID', 'FAILED', 'ADMIN'));
+    const err = errorOf(() => listingMachine.assertTransition('COMPLETED', 'ACTIVE', 'SYSTEM'));
     expect(err.status).toBe(409);
     expect(err.code).toBe('INVALID_STATE_TRANSITION');
   });

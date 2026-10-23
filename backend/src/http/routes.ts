@@ -1,32 +1,169 @@
 import { requireGroup } from '../auth/auth';
-import type { BankProvider } from '../bank/bankProvider';
-import type { WithdrawalStatus } from '../domain/stateMachines';
 import { badRequest } from '../shared/errors';
+import type { AdminService } from '../modules/admin/adminService';
+import type { AiService } from '../modules/ai/aiService';
+import type { BillingService, InvoiceStatus } from '../modules/billing/billingService';
+import type { ChatService } from '../modules/chat/chatService';
+import type { ListingService } from '../modules/listings/listingService';
+import type { LocationService } from '../modules/locations/locationService';
+import type { ReportService } from '../modules/reports/reportService';
+import type { RiskService } from '../modules/risk/riskService';
+import { TERMS_VERSION } from '../modules/users/userService';
+import { ADMIN_INBOX, type NotificationService } from '../modules/notifications/notificationService';
+import type { ReputationService } from '../modules/reputation/reputationService';
+import type { TransactionService } from '../modules/transactions/transactionService';
+import { PARTNER_STATUSES, partnerTier, type PartnerService, type PartnerStatus } from '../modules/partners/partnerService';
 import type { UserService } from '../modules/users/userService';
-import type { BankAccountStatus, PayoutService } from '../modules/wallet/payoutService';
 import type { WalletService } from '../modules/wallet/walletService';
+import { log } from './log';
+import { moderateUpload, type ImageStore } from '../storage/imageStore';
+import type { ImageModerator } from '../storage/moderator';
+import type { TextScreener } from '../storage/textScreener';
 import type { Route } from './router';
 
 export interface Services {
+  admin: AdminService;
   users: UserService;
   wallet: WalletService;
-  payouts: PayoutService;
-  bankProvider: BankProvider;
+  billing: BillingService;
+  risk: RiskService;
+  partners: PartnerService;
+  listings: ListingService;
+  images: ImageStore;
+  moderator: ImageModerator;
+  screener: TextScreener;
+  notifications: NotificationService;
+  transactions: TransactionService;
+  reputation: ReputationService;
+  ai: AiService;
+  locations: LocationService;
+  reports: ReportService;
+  chat: ChatService;
 }
 
-const WITHDRAWAL_STATUSES: WithdrawalStatus[] = ['REQUESTED', 'PROCESSING', 'PAID', 'FAILED'];
-const BANK_ACCOUNT_STATUSES: BankAccountStatus[] = ['PENDING_VERIFICATION', 'VERIFIED', 'REJECTED'];
-
-const oneOf = <T extends string>(value: string | undefined, allowed: T[], fallback: T): T => {
+const oneOf = <T extends string>(value: string | undefined, allowed: readonly T[], fallback: T): T => {
   if (value === undefined) return fallback;
   if (!allowed.includes(value as T)) throw badRequest('INVALID_QUERY', `Giá trị phải thuộc: ${allowed.join(', ')}`);
   return value as T;
 };
 
+/** Lý do bắt buộc (≥ 5 ký tự) cho thao tác gửi tới người dùng: tạm ngừng, từ chối VIP. */
+const requiredNote = (raw: unknown, what: string) => {
+  const note = typeof raw === 'string' ? raw.trim() : '';
+  if (note.length < 5) throw badRequest('NOTE_REQUIRED', `${what} cần ghi lý do (ít nhất 5 ký tự) — lý do được gửi cho người dùng`);
+  return note.slice(0, 1000);
+};
+const suspendNote = (raw: unknown) => requiredNote(raw, 'Tạm ngừng');
+const VIP_STATUSES = ['REQUESTED', 'INVOICED', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
+
 export function apiRoutes(s: Services): Route[] {
+  /** Tên người bán cho danh sách Admin (mục 32 danhgia) — tên đối tác, không có thì họ tên / phần trước @ của email. */
+  const sellerNames = async (ids: string[]) =>
+    Object.fromEntries(await Promise.all([...new Set(ids)].map(async (id) => [id, (await s.listings.sellerOf(id)).displayName] as const)));
+
   return [
     // ------------------------------------------------------------ Hồ sơ
-    { method: 'GET', path: '/me', auth: 'required', handle: async (c) => ({ body: await s.users.getOrCreate(c.principal) }) },
+    {
+      method: 'GET',
+      path: '/me',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => ({ body: { ...(await s.users.getOrCreate(c.principal)), currentTermsVersion: TERMS_VERSION } }),
+    },
+    {
+      method: 'POST',
+      path: '/me/accept-terms',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => ({ body: await s.users.acceptTerms(c.principal, c.body.version) }),
+    },
+
+    // ------------------------------------------------------------ Địa điểm đã lưu (T2.1)
+    {
+      method: 'GET',
+      path: '/locations',
+      auth: 'required',
+      handle: async (c) => ({ body: { items: await s.locations.list(c.principal.userId) } }),
+    },
+    {
+      method: 'POST',
+      path: '/locations',
+      auth: 'required',
+      handle: async (c) => ({ status: 201, body: await s.locations.create(c.principal.userId, c.body) }),
+    },
+    {
+      method: 'PATCH',
+      path: '/locations/{id}',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.locations.update(c.principal.userId, c.params.id!, c.body) }),
+    },
+    {
+      method: 'DELETE',
+      path: '/locations/{id}',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.locations.remove(c.principal.userId, c.params.id!) }),
+    },
+
+    // ------------------------------------------------------------ Chat người bán ↔ đơn vị thu mua
+    {
+      method: 'POST',
+      path: '/listings/{id}/conversations',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.chat.open(c.principal.userId, c.params.id!, c.body.partnerId) }),
+    },
+    {
+      method: 'GET',
+      path: '/conversations',
+      auth: 'required',
+      handle: async (c) => ({ body: { items: await s.chat.list(c.principal.userId) } }),
+    },
+    {
+      method: 'GET',
+      path: '/conversations/{id}/messages',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.chat.messages(c.principal.userId, c.params.id!, c.query.after) }),
+    },
+    {
+      method: 'POST',
+      path: '/conversations/{id}/messages',
+      auth: 'required',
+      handle: async (c) => ({ status: 201, body: await s.chat.send(c.principal.userId, c.params.id!, c.body.text) }),
+    },
+    {
+      // Ra giá trong chat (QĐ-38)
+      method: 'POST',
+      path: '/conversations/{id}/offers',
+      auth: 'required',
+      handle: async (c) => ({ status: 201, body: await s.chat.sendOffer(c.principal.userId, c.params.id!, c.body.price) }),
+    },
+    {
+      // Chấp nhận khi tin đang mở → tạo giao dịch; bấm lại do mạng lỗi không tạo trùng
+      method: 'POST',
+      path: '/conversations/{id}/offers/{offerId}/accept',
+      auth: 'required',
+      idempotent: true,
+      handle: async (c) => ({ body: await s.chat.respondOffer(c.principal.userId, c.params.id!, c.params.offerId!, true) }),
+    },
+    {
+      method: 'POST',
+      path: '/conversations/{id}/offers/{offerId}/reject',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.chat.respondOffer(c.principal.userId, c.params.id!, c.params.offerId!, false) }),
+    },
+    {
+      method: 'POST',
+      path: '/conversations/{id}/read',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.chat.markRead(c.principal.userId, c.params.id!) }),
+    },
+
+    // ------------------------------------------------------------ Báo cáo vi phạm (C13)
+    {
+      method: 'POST',
+      path: '/reports',
+      auth: 'required',
+      handle: async (c) => ({ status: 201, body: await s.reports.create(c.principal.userId, c.body) }),
+    },
     {
       method: 'PATCH',
       path: '/me',
@@ -34,19 +171,32 @@ export function apiRoutes(s: Services): Route[] {
       handle: async (c) => ({ body: await s.users.update(c.principal, { fullName: c.body.fullName, phone: c.body.phone }) }),
     },
 
-    // ------------------------------------------------------------ Phí (QĐ-32, QĐ-33)
+    // ------------------------------------------------------------ Phí dịch vụ theo tháng (QĐ-37) & ví (chỉ xem)
     {
       method: 'GET',
       path: '/fees',
       auth: 'required',
-      handle: async (c) => {
-        const price = c.query.price === undefined ? 0 : Number(c.query.price);
-        if (!Number.isSafeInteger(price) || price < 0) throw badRequest('INVALID_QUERY', 'price phải là số nguyên VND ≥ 0');
-        return { body: s.wallet.feeQuote(price) };
-      },
+      allowWhenLocked: true,
+      handle: async () => ({
+        body: { feePerTransaction: s.billing.feePerTransaction, payer: 'SELLER', billing: 'MONTHLY', appliesTo: 'COMPLETED_TRANSACTIONS' },
+      }),
     },
-
-    // ------------------------------------------------------------ Ví
+    {
+      // Phí tháng này (tạm tính) + các hóa đơn của tôi
+      method: 'GET',
+      path: '/billing/me',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => ({ body: await s.billing.summaryFor(c.principal.userId) }),
+    },
+    {
+      // Khiếu nại phí nghi bán ngoài ReLoop (QĐ-39)
+      method: 'POST',
+      path: '/billing/fees/{month}/{transactionId}/appeal',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => ({ body: await s.billing.appeal(c.principal.userId, c.params.month!, c.params.transactionId!, c.body.reason) }),
+    },
     { method: 'GET', path: '/wallet', auth: 'required', handle: async (c) => ({ body: await s.wallet.getWallet(c.principal.userId) }) },
     {
       method: 'GET',
@@ -54,187 +204,734 @@ export function apiRoutes(s: Services): Route[] {
       auth: 'required',
       handle: async (c) => ({ body: { items: await s.wallet.listLedger(c.principal.userId) } }),
     },
+
+    // ------------------------------------------------------------ Ảnh (T4.1)
     {
       method: 'POST',
-      path: '/wallet/topups',
+      path: '/uploads/presign',
       auth: 'required',
-      idempotent: true,
-      handle: async (c) => ({ status: 201, body: await s.wallet.createTopUp(c.principal.userId, c.body.amount) }),
+      handle: async (c) => ({ status: 201, body: await s.images.createUpload(c.principal.userId, c.body.contentType) }),
     },
     {
-      method: 'GET',
-      path: '/wallet/topups/{id}',
-      auth: 'required',
-      handle: async (c) => ({ body: await s.wallet.getTopUp(c.principal.userId, c.params.id!) }),
-    },
-    {
+      // Gọi ngay sau khi trình duyệt upload xong: Rekognition kiểm duyệt, ảnh vi phạm bị xóa (M6, giaiphap E5)
       method: 'POST',
-      path: '/wallet/withdrawals',
+      path: '/uploads/moderate',
       auth: 'required',
-      idempotent: true,
-      handle: async (c) => ({ status: 201, body: await s.payouts.requestWithdrawal(c.principal.userId, c.body) }),
+      handle: async (c) => ({
+        body: await moderateUpload(
+          s.images,
+          s.moderator,
+          c.principal.userId,
+          c.body.key,
+          async (key, labels) => {
+            log('warn', 'image_rejected', { userId: c.principal.userId, key, labels });
+            // Ảnh nhạy cảm bị chặn = 1 lần vi phạm (QĐ-43)
+            await s.risk.recordViolation(c.principal.userId, 'IMAGE_REJECTED', { type: 'IMAGE', id: key }, labels.map((l) => `${l.name} ${l.confidence}%`).join(', '));
+          },
+          {
+            // Chữ giống câu lệnh (QĐ-36) / nghi ảnh nhạy cảm 50–70% (QĐ-43) → gắn cờ, tin dùng ảnh này chờ Admin duyệt
+            screener: s.screener,
+            onFlagged: async (key, text, kind = 'TEXT') => {
+              log('warn', kind === 'SENSITIVE' ? 'image_sensitive_suspected' : 'image_text_flagged', { userId: c.principal.userId, key });
+              await s.listings.recordImageFlag(c.principal.userId, key, text, kind);
+            },
+          },
+        ),
+      }),
     },
     {
+      // Frontend hỏi để biết có hiện bước upload ảnh / AI hay không
       method: 'GET',
-      path: '/wallet/withdrawals',
+      path: '/features',
       auth: 'required',
-      handle: async (c) => ({ body: { items: await s.payouts.listWithdrawals(c.principal.userId) } }),
-    },
-    {
-      method: 'POST',
-      path: '/bank-accounts',
-      auth: 'required',
-      handle: async (c) => ({ status: 201, body: await s.payouts.addBankAccount(c.principal.userId, c.body) }),
-    },
-    {
-      method: 'GET',
-      path: '/bank-accounts',
-      auth: 'required',
-      handle: async (c) => ({ body: { items: await s.payouts.listBankAccounts(c.principal.userId) } }),
+      handle: async () => ({ body: { images: s.images.enabled, ai: s.ai.enabled, textCheck: s.screener.enabled } }),
     },
 
-    // ------------------------------------------------------------ Webhook ngân hàng (không JWT — xác thực bằng bí mật của nhà cung cấp)
+    // ------------------------------------------------------------ AI phân tích ảnh (Epic 5)
     {
       method: 'POST',
-      path: '/webhooks/bank',
-      auth: 'public',
+      path: '/ai/analyses',
+      auth: 'required',
+      handle: async (c) => ({ status: 202, body: await s.ai.create(c.principal.userId, c.body.imageKeys) }),
+    },
+    {
+      method: 'GET',
+      path: '/ai/analyses/{id}',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.ai.get(c.principal.userId, c.params.id!) }),
+    },
+
+    // ------------------------------------------------------------ Tin đăng (Owner)
+    {
+      method: 'POST',
+      path: '/listings',
+      auth: 'required',
+      idempotent: true,
+      handle: async (c) => ({ status: 201, body: await s.listings.create(c.principal, c.body) }),
+    },
+    {
+      // Bảng tin kiểu chợ — mọi người đã đăng nhập
+      method: 'GET',
+      path: '/feed',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.listings.feed(c.principal.userId, c.query.cursor) }),
+    },
+    {
+      method: 'GET',
+      path: '/listings/mine',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.listings.listMine(c.principal.userId, c.query.cursor) }),
+    },
+    {
+      method: 'GET',
+      path: '/listings/{id}',
+      auth: 'required',
       handle: async (c) => {
-        const events = s.bankProvider.parseWebhook(c.headers, c.rawBody);
-        const results = [];
-        for (const e of events) {
-          const r = await s.wallet.handleBankEvent(e);
-          results.push({ bankTxnId: e.bankTxnId, type: r.journal.type, alreadyProcessed: r.alreadyPosted });
-        }
-        return { body: { ok: true, results } };
+        const detail = await s.listings.getForViewer(c.params.id!, c.principal.userId);
+        // Owner so sánh báo giá kèm uy tín đối tác (T8.6 spec)
+        const partnerIds = detail.role === 'OWNER' ? [...new Set(detail.quotes.map((q) => q.partnerId))] : [];
+        const reputation = Object.fromEntries(await Promise.all(partnerIds.map(async (id) => [id, await s.reputation.of(id, 'PARTNER')])));
+        // Người xem từ bảng tin thấy uy tín người bán (đánh giá nhận được khi bán)
+        const sellerReputation = detail.role === 'OWNER' ? undefined : await s.reputation.of(detail.listing.ownerId, 'OWNER');
+        // Giao dịch hoàn tất / bị hủy 30 ngày của người bán (QĐ-39 hướng A)
+        const sellerHistory = detail.role === 'OWNER' ? undefined : await s.risk.sellerHistory(detail.listing.ownerId);
+        return { body: { ...detail, reputation, sellerReputation, sellerHistory } };
       },
+    },
+    {
+      method: 'POST',
+      path: '/listings/{id}/cancel',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.listings.cancel(c.principal.userId, c.params.id!) }),
+    },
+    {
+      method: 'POST',
+      path: '/listings/{id}/quotes/{quoteId}/request-confirmation',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.listings.requestConfirmation(c.principal.userId, c.params.id!, c.params.quoteId!) }),
+    },
+
+    // ------------------------------------------------------------ Báo giá (Partner)
+    {
+      method: 'POST',
+      path: '/listings/{id}/quotes/{quoteId}/confirm',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.listings.confirm(c.principal.userId, c.params.id!, c.params.quoteId!, c.body) }),
+    },
+    {
+      method: 'POST',
+      path: '/listings/{id}/quotes/{quoteId}/reject',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.listings.reject(c.principal.userId, c.params.id!, c.params.quoteId!, c.body) }),
+    },
+    {
+      method: 'POST',
+      path: '/listings/{id}/quotes/{quoteId}/withdraw',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.listings.withdraw(c.principal.userId, c.params.id!, c.params.quoteId!) }),
+    },
+    {
+      method: 'POST',
+      path: '/listings/{id}/offers',
+      auth: 'required',
+      idempotent: true,
+      handle: async (c) => ({ status: 201, body: await s.listings.manualOffer(c.principal.userId, c.params.id!, c.body) }),
+    },
+
+    // ------------------------------------------------------------ Giao dịch (Epic 9)
+    {
+      method: 'POST',
+      path: '/transactions',
+      auth: 'required',
+      idempotent: true,
+      handle: async (c) => ({ status: 201, body: await s.transactions.select(c.principal.userId, c.body) }),
+    },
+    {
+      method: 'GET',
+      path: '/transactions',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.list(c.principal.userId, c.query.cursor) }),
+    },
+    {
+      method: 'GET',
+      path: '/transactions/{id}',
+      auth: 'required',
+      handle: async (c) => {
+        const detail = await s.transactions.get(c.principal.userId, c.params.id!, c.principal.groups.includes('admin'));
+        // Admin xem giao dịch của người khác (liên hệ, địa chỉ) → ghi nhật ký (NĐ 13/2023)
+        return { body: detail, audit: detail.role === 'ADMIN' ? 'pii-read' : undefined };
+      },
+    },
+    {
+      method: 'PUT',
+      path: '/transactions/{id}/handover-plan',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.proposeHandover(c.principal.userId, c.params.id!, c.body) }),
+    },
+    {
+      method: 'POST',
+      path: '/transactions/{id}/handover-plan/accept',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.acceptHandover(c.principal.userId, c.params.id!) }),
+    },
+    {
+      method: 'POST',
+      path: '/transactions/{id}/price-adjustment',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.proposePriceAdjustment(c.principal.userId, c.params.id!, c.body) }),
+    },
+    {
+      method: 'POST',
+      path: '/transactions/{id}/price-adjustment/accept',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.respondPriceAdjustment(c.principal.userId, c.params.id!, true) }),
+    },
+    {
+      method: 'POST',
+      path: '/transactions/{id}/price-adjustment/reject',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.respondPriceAdjustment(c.principal.userId, c.params.id!, false) }),
+    },
+    {
+      method: 'POST',
+      path: '/transactions/{id}/confirm-completion',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.confirmCompletion(c.principal.userId, c.params.id!, c.body) }),
+    },
+    {
+      method: 'POST',
+      path: '/transactions/{id}/dispute',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.dispute(c.principal.userId, c.params.id!, c.body) }),
+    },
+    {
+      method: 'POST',
+      path: '/transactions/{id}/cancel',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.cancel(c.principal.userId, c.params.id!, c.body) }),
+    },
+    {
+      // Người yêu cầu hủy rút lại trong 5 phút (QĐ-38)
+      method: 'POST',
+      path: '/transactions/{id}/cancel/withdraw',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.withdrawCancel(c.principal.userId, c.params.id!) }),
+    },
+    {
+      // Bên kia đồng ý → hủy ngay
+      method: 'POST',
+      path: '/transactions/{id}/cancel/confirm',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.confirmCancel(c.principal.userId, c.params.id!) }),
+    },
+    {
+      method: 'POST',
+      path: '/transactions/{id}/report-failure',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.transactions.reportFailure(c.principal.userId, c.params.id!, c.body) }),
+    },
+    {
+      method: 'POST',
+      path: '/transactions/{id}/review',
+      auth: 'required',
+      handle: async (c) => ({ status: 201, body: await s.transactions.review(c.principal.userId, c.params.id!, c.body) }),
+    },
+
+    // ------------------------------------------------------------ Thông báo (Epic 11)
+    {
+      method: 'GET',
+      path: '/notifications',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => ({ body: { items: await s.notifications.list(c.principal.userId) } }),
+    },
+    {
+      method: 'GET',
+      path: '/notifications/unread-count',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => ({ body: { count: await s.notifications.unreadCount(c.principal.userId) } }),
+    },
+    {
+      method: 'POST',
+      path: '/notifications/read-all',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => ({ body: await s.notifications.markAllRead(c.principal.userId) }),
+    },
+    {
+      method: 'POST',
+      path: '/notifications/{id}/read',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => ({ body: await s.notifications.markRead(c.principal.userId, c.params.id!, c.query.at) }),
+    },
+
+    // ------------------------------------------------------------ Đối tác
+    {
+      method: 'GET',
+      path: '/partners/{id}/public',
+      auth: 'required',
+      handle: async (c) => {
+        const partner = await s.partners.get(c.params.id!);
+        if (!partner || partner.status !== 'APPROVED') return { status: 404, body: { code: 'NOT_FOUND', message: 'Không tìm thấy đối tác' } };
+        const branches = (await s.partners.listBranches(partner.partnerId)).filter((b) => b.active);
+        return {
+          body: {
+            partnerId: partner.partnerId,
+            businessName: partner.businessName,
+            tier: partnerTier(partner),
+            businessType: partner.businessType,
+            contact: await s.partners.contactOf(partner),
+            branches: branches.map((b) => ({ name: b.name, address: b.location.address, radiusKm: b.radiusKm, categories: b.categories })),
+            reputation: await s.reputation.of(partner.partnerId, 'PARTNER'),
+          },
+        };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/partners/apply',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.partners.apply(c.principal, c.body) }),
+    },
+    {
+      method: 'GET',
+      path: '/partners/me',
+      auth: 'required',
+      allowWhenLocked: true,
+      handle: async (c) => {
+        const id = c.principal.userId;
+        const [partner, branches, rules, open, vipRequest] = await Promise.all([
+          s.partners.get(id),
+          s.partners.listBranches(id),
+          s.partners.listRules(id),
+          s.listings.openListingCount(id),
+          s.partners.latestVipRequest(id),
+        ]);
+        // Hạn mức tin đang mở + gói VIP 1 (QĐ-41) + yêu cầu VIP gần nhất và tài khoản nhận tiền (QĐ-44)
+        const quota = partner
+          ? { ...s.partners.listingQuota(partner), open, vipPrice: s.billing.vipPlan.price, vipDays: s.billing.vipPlan.days, vipRequest: vipRequest ?? null, bank: s.billing.bankInfo ?? null }
+          : null;
+        return { body: { partner: partner ?? null, branches, rules, quota } };
+      },
+    },
+    {
+      // Đăng ký VIP 1 (QĐ-44): chỉ tạo yêu cầu — gói bật sau khi Admin xác nhận đã nhận tiền
+      method: 'POST',
+      path: '/partners/me/vip-requests',
+      auth: 'required',
+      idempotent: true,
+      handle: async (c) => ({ status: 201, body: await s.partners.requestVip(c.principal.userId) }),
+    },
+    {
+      method: 'POST',
+      path: '/partners/me/vip-requests/{id}/cancel',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.partners.cancelVip(c.principal.userId, c.params.id!) }),
+    },
+    {
+      method: 'PATCH',
+      path: '/partners/me/contact',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.partners.updateContact(c.principal.userId, c.body) }),
+    },
+    {
+      method: 'POST',
+      path: '/partners/me/branches',
+      auth: 'required',
+      handle: async (c) => ({ status: 201, body: await s.partners.addBranch(c.principal.userId, c.body) }),
+    },
+    {
+      method: 'PATCH',
+      path: '/partners/me/branches/{id}',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.partners.updateBranch(c.principal.userId, c.params.id!, c.body) }),
+    },
+    {
+      method: 'POST',
+      path: '/partners/me/rules',
+      auth: 'required',
+      handle: async (c) => ({ status: 201, body: await s.partners.addRule(c.principal.userId, c.body) }),
+    },
+    {
+      method: 'PATCH',
+      path: '/partners/me/rules/{id}',
+      auth: 'required',
+      handle: async (c) => ({ body: await s.partners.updateRule(c.principal.userId, c.params.id!, c.body) }),
+    },
+    {
+      method: 'GET',
+      path: '/partners/me/requests',
+      auth: 'required',
+      handle: async (c) => ({ body: { items: await s.listings.partnerRequests(c.principal.userId) } }),
     },
 
     // ------------------------------------------------------------ Admin
     {
       method: 'GET',
-      path: '/admin/bank-accounts',
+      path: '/admin/partners',
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
-        const status = oneOf(c.query.status, BANK_ACCOUNT_STATUSES, 'PENDING_VERIFICATION');
-        return { body: { items: await s.payouts.listBankAccountsByStatus(status) } };
+        const status = oneOf<PartnerStatus>(c.query.status, PARTNER_STATUSES, 'PENDING');
+        return { body: { items: await s.partners.listByStatus(status) } };
       },
     },
     {
       method: 'POST',
-      path: '/admin/users/{userId}/bank-accounts/{accountId}/review',
+      path: '/admin/partners/{id}/review',
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
         if (typeof c.body.approve !== 'boolean') throw badRequest('INVALID_BODY', 'approve phải là true/false');
-        const note = typeof c.body.note === 'string' ? c.body.note : undefined;
-        return {
-          body: await s.payouts.reviewBankAccount(c.principal.userId, c.params.userId!, c.params.accountId!, c.body.approve, note),
-        };
-      },
-    },
-    {
-      method: 'GET',
-      path: '/admin/withdrawals',
-      auth: 'required',
-      handle: async (c) => {
-        requireGroup(c.principal, 'admin_finance');
-        const status = oneOf(c.query.status, WITHDRAWAL_STATUSES, 'REQUESTED');
-        return { body: { items: await s.payouts.listWithdrawalsByStatus(status) } };
+        const note = typeof c.body.note === 'string' && c.body.note.trim() ? c.body.note.trim() : undefined;
+        return { body: await s.partners.review(c.principal.userId, c.params.id!, c.body.approve, note) };
       },
     },
     {
       method: 'POST',
-      path: '/admin/users/{userId}/withdrawals/{withdrawalId}/processing',
+      path: '/admin/partners/{id}/suspend',
       auth: 'required',
       handle: async (c) => {
-        requireGroup(c.principal, 'admin_finance');
-        return { body: await s.payouts.markProcessing(c.principal.userId, c.params.userId!, c.params.withdrawalId!) };
+        requireGroup(c.principal, 'admin');
+        // Tạm ngừng bắt buộc lý do — được gửi cho người bị tạm ngừng (QĐ-43, mục 26 danhgia)
+        return { body: await s.partners.setSuspended(c.principal.userId, c.params.id!, true, suspendNote(c.body.note)) };
       },
     },
     {
       method: 'POST',
-      path: '/admin/users/{userId}/withdrawals/{withdrawalId}/fail',
+      path: '/admin/partners/{id}/reactivate',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.partners.setSuspended(c.principal.userId, c.params.id!, false) };
+      },
+    },
+    {
+      // Hóa đơn phí dịch vụ (QĐ-37) — xem: admin; thu tiền: admin_finance (TL-05)
+      method: 'GET',
+      path: '/admin/invoices',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const status = oneOf<InvoiceStatus>(c.query.status, ['ISSUED', 'PAID'], 'ISSUED');
+        const items = await s.billing.listByStatus(status);
+        const names = Object.fromEntries(await Promise.all(items.map(async (i) => [i.userId, (await s.partners.get(i.userId))?.businessName] as const)));
+        return { body: { items: items.map((i) => ({ ...i, partnerName: names[i.userId] })) } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/invoices/{userId}/{month}/paid',
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin_finance');
-        const reason = typeof c.body.reason === 'string' && c.body.reason.trim() ? c.body.reason.trim() : undefined;
-        if (!reason) throw badRequest('REASON_REQUIRED', 'Cần ghi lý do');
-        return { body: await s.payouts.markFailed(c.params.userId!, c.params.withdrawalId!, reason) };
+        const note = typeof c.body.note === 'string' && c.body.note.trim() ? c.body.note.trim().slice(0, 500) : undefined;
+        return { body: await s.billing.markPaid(c.principal.userId, c.params.userId!, c.params.month!, note) };
+      },
+    },
+    {
+      // Lập hóa đơn tay cho một tháng đã kết thúc (job nền cũng tự chạy ngày 1 hằng tháng)
+      method: 'POST',
+      path: '/admin/billing/issue',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        return { body: await s.billing.issueMonth(String(c.body.month ?? '')) };
+      },
+    },
+    // Hộp thư chung của Admin (mục 7 danhgia): tranh chấp mới…
+    {
+      method: 'GET',
+      path: '/admin/notifications',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: { items: await s.notifications.list(ADMIN_INBOX) } };
       },
     },
     {
       method: 'GET',
-      path: '/admin/reconciliation',
+      path: '/admin/notifications/unread-count',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: { count: await s.notifications.unreadCount(ADMIN_INBOX) } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/notifications/read-all',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.notifications.markAllRead(ADMIN_INBOX) };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/notifications/{id}/read',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.notifications.markRead(ADMIN_INBOX, c.params.id!, c.query.at) };
+      },
+    },
+    {
+      // Admin xem chat của một tin (chỉ đọc, ghi log) — mục 20 danhgia
+      method: 'GET',
+      path: '/admin/listings/{id}/chats',
+      auth: 'required',
+      audit: 'pii-read',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.chat.adminListingChats(c.principal.userId, c.params.id!) };
+      },
+    },
+    {
+      // Khiếu nại phí nghi bán ngoài (QĐ-39) — xem: admin; miễn / giữ phí: admin_finance
+      method: 'GET',
+      path: '/admin/fee-appeals',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const items = await s.billing.listAppeals();
+        const names = Object.fromEntries(await Promise.all(items.map(async (i) => [i.userId, (await s.partners.get(i.userId))?.businessName] as const)));
+        return { body: { items: items.map((i) => ({ ...i, partnerName: names[i.userId] })) } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/fee-appeals/{userId}/{month}/{transactionId}/resolve',
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin_finance');
+        if (typeof c.body.waive !== 'boolean') throw badRequest('INVALID_BODY', 'waive phải là true/false');
+        const note = typeof c.body.note === 'string' && c.body.note.trim() ? c.body.note.trim().slice(0, 500) : undefined;
+        return { body: await s.billing.resolveAppeal(c.principal.userId, c.params.userId!, c.params.month!, c.params.transactionId!, c.body.waive, note) };
+      },
+    },
+    {
+      // Yêu cầu VIP 1 (QĐ-44) — xem: admin; gửi hóa đơn / xác nhận đã thu / từ chối: admin_finance
+      method: 'GET',
+      path: '/admin/vip-requests',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const status = oneOf(c.query.status, VIP_STATUSES, 'REQUESTED');
+        return { body: { items: await s.partners.listVipRequests(status) } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/vip-requests/{userId}/{id}/invoice',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        return { body: await s.partners.invoiceVip(c.principal.userId, c.params.userId!, c.params.id!) };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/vip-requests/{userId}/{id}/approve',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        const note = typeof c.body.note === 'string' && c.body.note.trim() ? c.body.note.trim().slice(0, 500) : undefined;
+        return { body: await s.partners.approveVip(c.principal.userId, c.params.userId!, c.params.id!, note) };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/vip-requests/{userId}/{id}/reject',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin_finance');
+        return { body: await s.partners.rejectVip(c.principal.userId, c.params.userId!, c.params.id!, requiredNote(c.body.note, 'Từ chối')) };
+      },
+    },
+    {
+      // Cờ "nghi né phí" (QĐ-39)
+      method: 'GET',
+      path: '/admin/risk-flags',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: { items: await s.risk.listOpen() } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/risk-flags/{userId}/resolve',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.risk.resolve(c.principal.userId, c.params.userId!, c.body) };
+      },
+    },
+    {
+      // Tin có ảnh bị gắn cờ chờ duyệt (QĐ-36)
+      method: 'GET',
+      path: '/admin/listings/review',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: { items: await s.listings.listPendingReview() } };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/listings/{id}/review',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        if (typeof c.body.approve !== 'boolean') throw badRequest('INVALID_BODY', 'approve phải là true/false');
+        const note = typeof c.body.note === 'string' && c.body.note.trim() ? c.body.note.trim().slice(0, 1000) : undefined;
+        if (!c.body.approve && !note) throw badRequest('INVALID_NOTE', 'Từ chối cần ghi lý do cho người đăng');
+        return { body: await s.listings.reviewListing(c.principal.userId, c.params.id!, c.body.approve, note) };
+      },
+    },
+    {
+      // OPEN: hàng đợi (như cũ) · RESOLVED: lịch sử, phân trang (get.md A1)
+      method: 'GET',
+      path: '/admin/reports',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const status = oneOf(c.query.status, ['OPEN', 'RESOLVED'] as const, 'OPEN');
+        return { body: status === 'OPEN' ? { items: await s.reports.listOpenDetailed() } : await s.reports.listResolved(c.query.cursor) };
+      },
+    },
+    {
+      // Nhật ký thao tác Admin theo tháng giờ VN (get.md A5)
+      method: 'GET',
+      path: '/admin/audit',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.admin.listAudit(c.query.month, c.query.cursor) };
+      },
+    },
+    {
+      // Thành viên: phân trang, hoặc tìm theo email (get.md A2)
+      method: 'GET',
+      path: '/admin/users',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: c.query.email !== undefined ? await s.admin.searchUsers(c.query.email) : await s.admin.listUsers(c.query.cursor) };
+      },
+    },
+    {
+      method: 'GET',
+      path: '/admin/users/{id}',
+      auth: 'required',
+      audit: 'pii-read',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.admin.userDetail(c.params.id!) };
+      },
+    },
+    {
+      // Giao dịch theo trạng thái (get.md A3)
+      method: 'GET',
+      path: '/admin/transactions',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const page = await s.admin.listTransactions(c.query.status, c.query.cursor);
+        const names = await sellerNames(page.items.map((t) => t.ownerId));
+        return { body: { ...page, items: page.items.map((t) => ({ ...t, ownerName: names[t.ownerId] })) } };
+      },
+    },
+    {
+      // Tin theo tháng UTC (get.md A4)
+      method: 'GET',
+      path: '/admin/listings',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const page = await s.admin.listListings(c.query.month, c.query.status, c.query.cursor);
+        const names = await sellerNames(page.items.map((l) => l.ownerId));
+        return { body: { ...page, items: page.items.map((l) => ({ ...l, ownerName: names[l.ownerId] })) } };
+      },
+    },
+    {
+      // Admin xem 1 tin ở MỌI trạng thái, kèm vị trí chính xác → ghi nhật ký xem dữ liệu cá nhân (mục 24 danhgia)
+      method: 'GET',
+      path: '/admin/listings/{id}',
+      auth: 'required',
+      audit: 'pii-read',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.listings.adminView(c.params.id!) };
+      },
+    },
+    {
+      method: 'POST',
+      path: '/admin/reports/{id}/resolve',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        return { body: await s.reports.resolve(c.principal.userId, c.params.id!, c.body) };
+      },
+    },
+    {
+      // Badge + Dashboard (T14.6). Trang Admin gọi ở MỖI lần đổi trang → chỉ ĐẾM theo trạng thái, không kéo hồ sơ / ảnh /
+      // lịch sử (mục 27 danhgia). Số liệu kinh doanh tháng (get.md A6) chỉ tính khi có ?month= (Dashboard).
+      method: 'GET',
+      path: '/admin/stats',
+      auth: 'required',
+      handle: async (c) => {
+        requireGroup(c.principal, 'admin');
+        const partnerCounts = Object.fromEntries(
+          await Promise.all(PARTNER_STATUSES.map(async (st) => [st, await s.partners.countByStatus(st)] as const)),
+        );
+        const [disputes, reports, pendingListings, riskFlags, feeAppeals, vipRequested, vipInvoiced, month] = await Promise.all([
+          s.transactions.listDisputed(),
+          s.reports.listOpen(),
+          s.listings.pendingReviewCount(),
+          s.risk.openCount(),
+          s.billing.listAppeals(),
+          s.partners.listVipRequests('REQUESTED'),
+          s.partners.listVipRequests('INVOICED'),
+          c.query.month === undefined ? undefined : s.admin.monthStats(c.query.month),
+        ]);
         return {
           body: {
-            invariant: await s.wallet.reconcile(),
-            revenue: (await s.wallet.getRevenueWallet()).balances.available,
-            openItems: await s.wallet.listOpenReconciliation(),
+            partners: partnerCounts,
+            openDisputes: disputes.length,
+            openReports: reports.length,
+            pendingListings,
+            riskFlags,
+            feeAppeals: feeAppeals.length,
+            vipRequests: vipRequested.length + vipInvoiced.length,
+            month,
           },
         };
       },
     },
-  ];
-}
-
-/**
- * CHỈ BẬT KHI STAGE=local. Thay cho các phần chưa có: OTP thật, webhook ngân hàng thật,
- * module giao dịch (giữ / kết thúc tiền).
- */
-export function devRoutes(s: Services, webhookSecret: string): Route[] {
-  let seq = 0;
-  return [
     {
-      method: 'POST',
-      path: '/dev/verify-phone',
-      auth: 'required',
-      handle: async (c) => ({ body: await s.users.markPhoneVerified(c.principal.userId) }),
-    },
-    {
-      // Giả lập "vừa có biến động số dư" — đi qua đúng đường webhook thật.
-      method: 'POST',
-      path: '/dev/bank-events',
+      method: 'GET',
+      path: '/admin/disputes',
       auth: 'required',
       handle: async (c) => {
-        const payload = { bankTxnId: `dev-${Date.now()}-${++seq}`, ...c.body };
-        const events = s.bankProvider.parseWebhook({ 'x-webhook-secret': webhookSecret }, JSON.stringify(payload));
-        const results = [];
-        for (const e of events) results.push(await s.wallet.handleBankEvent(e));
-        return { body: { results } };
+        requireGroup(c.principal, 'admin');
+        const items = await s.transactions.listDisputed();
+        // Tên người bán để Admin không phải đọc mã người dùng (mục 28 danhgia)
+        const names = Object.fromEntries(await Promise.all([...new Set(items.map((t) => t.ownerId))].map(async (id) => [id, (await s.listings.sellerOf(id)).displayName] as const)));
+        return { body: { items: items.map((t) => ({ ...t, ownerName: names[t.ownerId] })) } };
       },
     },
     {
       method: 'POST',
-      path: '/dev/transactions/{id}/hold',
-      auth: 'required',
-      handle: async (c) => ({ body: await s.wallet.holdForTransaction(c.params.id!, c.principal.userId, c.body.amount) }),
-    },
-    {
-      method: 'POST',
-      path: '/dev/transactions/{id}/settle',
+      path: '/admin/transactions/{id}/resolve',
       auth: 'required',
       handle: async (c) => {
-        const payeeId = typeof c.body.payeeId === 'string' ? c.body.payeeId : undefined;
-        const payeeAmount = typeof c.body.payeeAmount === 'number' ? c.body.payeeAmount : Number.NaN;
-        return { body: await s.wallet.settleTransaction(c.params.id!, payeeId, payeeAmount) };
+        requireGroup(c.principal, 'admin');
+        return { body: await s.transactions.resolveDispute(c.principal.userId, c.params.id!, c.body) };
       },
-    },
-    {
-      // Tạm thay cho module Listing: thu phí đăng bài khi bấm Đăng.
-      method: 'POST',
-      path: '/dev/listings/{id}/fee',
-      auth: 'required',
-      handle: async (c) => ({ body: await s.wallet.chargeListingFee(c.params.id!, c.principal.userId) }),
-    },
-    {
-      method: 'POST',
-      path: '/dev/listings/{id}/fee-refund',
-      auth: 'required',
-      handle: async (c) => ({ body: await s.wallet.refundListingFee(c.params.id!) }),
     },
   ];
 }
