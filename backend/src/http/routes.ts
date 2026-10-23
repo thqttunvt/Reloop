@@ -57,6 +57,10 @@ const suspendNote = (raw: unknown) => requiredNote(raw, 'Tạm ngừng');
 const VIP_STATUSES = ['REQUESTED', 'INVOICED', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
 
 export function apiRoutes(s: Services): Route[] {
+  /** Tên người bán cho danh sách Admin (mục 32 danhgia) — tên đối tác, không có thì họ tên / phần trước @ của email. */
+  const sellerNames = async (ids: string[]) =>
+    Object.fromEntries(await Promise.all([...new Set(ids)].map(async (id) => [id, (await s.listings.sellerOf(id)).displayName] as const)));
+
   return [
     // ------------------------------------------------------------ Hồ sơ
     {
@@ -276,7 +280,7 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/listings/mine',
       auth: 'required',
-      handle: async (c) => ({ body: { items: await s.listings.listMine(c.principal.userId) } }),
+      handle: async (c) => ({ body: await s.listings.listMine(c.principal.userId, c.query.cursor) }),
     },
     {
       method: 'GET',
@@ -346,7 +350,7 @@ export function apiRoutes(s: Services): Route[] {
       method: 'GET',
       path: '/transactions',
       auth: 'required',
-      handle: async (c) => ({ body: { items: await s.transactions.list(c.principal.userId) } }),
+      handle: async (c) => ({ body: await s.transactions.list(c.principal.userId, c.query.cursor) }),
     },
     {
       method: 'GET',
@@ -460,7 +464,7 @@ export function apiRoutes(s: Services): Route[] {
       path: '/notifications/{id}/read',
       auth: 'required',
       allowWhenLocked: true,
-      handle: async (c) => ({ body: await s.notifications.markRead(c.principal.userId, c.params.id!) }),
+      handle: async (c) => ({ body: await s.notifications.markRead(c.principal.userId, c.params.id!, c.query.at) }),
     },
 
     // ------------------------------------------------------------ Đối tác
@@ -671,7 +675,7 @@ export function apiRoutes(s: Services): Route[] {
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
-        return { body: await s.notifications.markRead(ADMIN_INBOX, c.params.id!) };
+        return { body: await s.notifications.markRead(ADMIN_INBOX, c.params.id!, c.query.at) };
       },
     },
     {
@@ -836,7 +840,9 @@ export function apiRoutes(s: Services): Route[] {
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
-        return { body: await s.admin.listTransactions(c.query.status, c.query.cursor) };
+        const page = await s.admin.listTransactions(c.query.status, c.query.cursor);
+        const names = await sellerNames(page.items.map((t) => t.ownerId));
+        return { body: { ...page, items: page.items.map((t) => ({ ...t, ownerName: names[t.ownerId] })) } };
       },
     },
     {
@@ -846,7 +852,9 @@ export function apiRoutes(s: Services): Route[] {
       auth: 'required',
       handle: async (c) => {
         requireGroup(c.principal, 'admin');
-        return { body: await s.admin.listListings(c.query.month, c.query.status, c.query.cursor) };
+        const page = await s.admin.listListings(c.query.month, c.query.status, c.query.cursor);
+        const names = await sellerNames(page.items.map((l) => l.ownerId));
+        return { body: { ...page, items: page.items.map((l) => ({ ...l, ownerName: names[l.ownerId] })) } };
       },
     },
     {

@@ -75,6 +75,10 @@ export function OverviewPage() {
               <span className="muted">Đã thu</span>
               <strong>{vnd(stats.month.feesPaid)}</strong>
             </div>
+            <div className="tile">
+              <span className="muted">VIP 1 đã thu ({stats.month.vipSold ?? 0} gói)</span>
+              <strong>{vnd(stats.month.vipPaid ?? 0)}</strong>
+            </div>
           </div>
         )}
         <p className="muted small">Tháng theo giờ Việt Nam. Hóa đơn tháng được lập ngày 1 tháng sau.</p>

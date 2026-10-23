@@ -35,7 +35,8 @@ const encodeCursor = (c: Cursor) => Buffer.from(JSON.stringify(c)).toString('bas
 export async function pageQuery<T extends Item>(
   table: Table,
   pk: string,
-  opts: { index?: 'gsi1'; limit?: number; cursor?: string } = {},
+  /** prefix: chỉ lấy sort key bắt đầu bằng tiền tố (partition có nhiều loại item, vd USER#<id> → 'TX#'). */
+  opts: { index?: 'gsi1'; limit?: number; cursor?: string; prefix?: string } = {},
 ): Promise<Page<T>> {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
   const cursor = decodeCursor(opts.cursor);
@@ -44,7 +45,7 @@ export async function pageQuery<T extends Item>(
   const raw = await table.query<T>(pk, {
     index: opts.index,
     ascending: false,
-    skRange: cursor ? { to: cursor.sk } : undefined,
+    skRange: opts.prefix ? { from: opts.prefix, to: cursor?.sk ?? `${opts.prefix}\uffff` } : cursor ? { to: cursor.sk } : undefined,
     limit: limit + seen.size + 1,
   });
   const fresh = raw.filter((it) => !(cursor && skOf(it) === cursor.sk && seen.has(idOf(it))));

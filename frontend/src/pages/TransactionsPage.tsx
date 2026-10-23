@@ -1,18 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { usePagedList, type Page } from '../components/PagedTable';
 import { api, type Transaction } from '../lib/api';
 import { TX_STATUS_LABEL, statusTone } from '../lib/catalog';
-import { dateTime, errorText, vnd } from '../lib/format';
+import { dateTime, vnd } from '../lib/format';
 
 export function TransactionsPage({ userId }: { userId: string }) {
-  const [items, setItems] = useState<Transaction[] | null>(null);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    api<{ items: Transaction[] }>('GET', '/transactions')
-      .then((r) => setItems(r.items))
-      .catch((e) => setError(errorText(e)));
-  }, []);
+  // Phân trang thật: giao dịch cũ không còn bị mất khỏi danh sách
+  const fetchPage = useCallback((cursor?: string) => api<Page<Transaction>>('GET', `/transactions${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`), []);
+  const list = usePagedList(fetchPage);
+  const items = list.items.length === 0 && list.loading ? null : list.items;
+  const error = list.error;
 
   return (
     <section className="card">
@@ -38,6 +36,11 @@ export function TransactionsPage({ userId }: { userId: string }) {
             </li>
           ))}
         </ul>
+      )}
+      {list.hasMore && !list.loading && (
+        <button className="secondary" onClick={list.loadMore}>
+          Tải thêm
+        </button>
       )}
     </section>
   );

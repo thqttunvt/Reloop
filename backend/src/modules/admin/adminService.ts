@@ -165,6 +165,8 @@ export class AdminService {
     );
     const lines = rows.flatMap((r) => r.lines).filter((l) => l.amount > 0);
     const invoices = rows.flatMap((r) => (r.invoice ? [r.invoice] : []));
+    // VIP 1 trả trước (QĐ-44) không nằm trong dòng phí → tính riêng theo tháng xác nhận đã thu (mục 35 danhgia)
+    const vip = (await this.partners.listVipRequests('APPROVED')).filter((r) => r.paidAt && vnMonth(r.paidAt) === m);
     return {
       month: m,
       sellers: members.length,
@@ -172,6 +174,8 @@ export class AdminService {
       feesAccrued: lines.reduce((s, l) => s + l.amount, 0),
       feesIssued: invoices.reduce((s, i) => s + i.amount, 0),
       feesPaid: invoices.filter((i) => i.status === 'PAID').reduce((s, i) => s + i.amount, 0),
+      vipSold: vip.length,
+      vipPaid: vip.reduce((s, r) => s + r.amount, 0),
     };
   }
 }

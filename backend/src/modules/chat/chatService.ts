@@ -201,7 +201,8 @@ export class ChatService {
   async messages(userId: string, conversationId: string, after?: string) {
     const conv = await this.require(userId, conversationId);
     const latest = await this.table.query<Message>(keys.conversationPk(conversationId), { skPrefix: 'MSG#', ascending: false, limit: 100 });
-    const items = latest.reverse().filter((m) => !after || m.at > after);
+    // >= : tin gửi cùng mili giây với tin cuối web đã có không bị bỏ sót (web tự bỏ trùng theo messageId)
+    const items = latest.reverse().filter((m) => !after || m.at >= after);
     const listing = await this.listings.current(conv.listingId);
     const tx = await this.activeTransaction(listing);
     return {

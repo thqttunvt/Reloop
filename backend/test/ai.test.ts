@@ -40,14 +40,15 @@ function setup(analyze: Analyzer['analyze']) {
     },
   };
   const table = new MemoryTable();
-  const app = buildApp({ ...loadConfig({ STAGE: 'local' }), dataFile: undefined }, { table, clock: new ManualClock(), images: fakeImages, analyzer });
+  const clock = new ManualClock();
+  const app = buildApp({ ...loadConfig({ STAGE: 'local' }), dataFile: undefined }, { table, clock, images: fakeImages, analyzer });
   const ai = app.services.ai;
   const pending: string[] = [];
   ai.dispatch = async (ref) => void pending.push(ref); // worker chạy khi test gọi flush()
   const flush = async () => {
     for (const ref of pending.splice(0)) await ai.run(ref);
   };
-  return { app, table, ai, calls, flush };
+  return { app, table, ai, calls, flush, clock };
 }
 
 const KEYS = (u: string, n = 1) => Array.from({ length: n }, (_, i) => `listings/${u}/img${i}.jpg`);
@@ -82,6 +83,15 @@ describe('AI phân tích ảnh chạy nền (Epic 5)', () => {
     await expect(ai.create('u1', KEYS('u2'))).rejects.toMatchObject({ code: 'INVALID_IMAGE_KEYS' });
     for (let i = 0; i < 20; i++) await ai.create('u1', KEYS('u1'));
     await expect(ai.create('u1', KEYS('u1'))).rejects.toMatchObject({ code: 'AI_DAILY_LIMIT' });
+  });
+
+  it('lượt AI reset lúc 0h giờ Việt Nam, không phải 7h sáng (mục 12 danhgia)', async () => {
+    const { ai, clock } = setup(async () => validateResult({}));
+    for (let i = 0; i < 20; i++) await ai.create('u1', KEYS('u1')); // 07:00 giờ VN ngày 01/01
+    clock.advance(16 * 3_600_000 + 59 * 60_000); // 23:59 giờ VN cùng ngày → vẫn hết lượt
+    await expect(ai.create('u1', KEYS('u1'))).rejects.toMatchObject({ code: 'AI_DAILY_LIMIT' });
+    clock.advance(2 * 60_000); // 00:01 giờ VN ngày 02/01 (vẫn là 01/01 theo UTC) → có lượt mới
+    await expect(ai.create('u1', KEYS('u1'))).resolves.toMatchObject({ status: 'PENDING' });
   });
 
   it('validateResult: giá trị lạ → UNKNOWN / OTHER, không tin tuyệt đối đầu ra của model (T5.2)', () => {

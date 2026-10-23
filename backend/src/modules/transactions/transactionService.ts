@@ -6,6 +6,7 @@ import { newId } from '../../shared/ids';
 import { int, oneOf, str } from '../../shared/validate';
 import { assertOwnImageKeys, type ImageStore } from '../../storage/imageStore';
 import { gsi1, keys } from '../../store/keys';
+import { pageQuery } from '../../store/paging';
 import { withOptimisticRetry } from '../../store/retry';
 import { putNew, putVersioned, type Item, type Table, type WriteOp } from '../../store/table';
 import { timerOp } from '../jobs/timers';
@@ -230,10 +231,11 @@ export class TransactionService {
 
   // ------------------------------------------------------------------ Đọc
 
-  async list(userId: string) {
-    const refs = await this.table.query<Item & { transactionId: string }>(keys.userPk(userId), { skPrefix: 'TX#', ascending: false, limit: 50 });
-    const txs = await Promise.all(refs.map((r) => this.loadAndSettle(r.transactionId)));
-    return txs.filter((t): t is Transaction => !!t);
+  /** Giao dịch của tôi, mới nhất trước, phân trang (trước đây chỉ 50 giao dịch gần nhất). */
+  async list(userId: string, cursor?: string) {
+    const page = await pageQuery<Item & { transactionId: string }>(this.table, keys.userPk(userId), { prefix: 'TX#', limit: 30, cursor });
+    const txs = await Promise.all(page.items.map((r) => this.loadAndSettle(r.transactionId)));
+    return { items: txs.filter((t): t is Transaction => !!t), nextCursor: page.nextCursor };
   }
 
   /** Chi tiết + thông tin liên lạc của bên kia (mở ngay khi chọn offer — QĐ-20, thanh toán offline). */

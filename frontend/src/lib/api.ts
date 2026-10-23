@@ -4,6 +4,8 @@ import { loadSession } from './session';
 const BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
 export const ACCOUNT_LOCKED_EVENT = 'reloop:account-locked';
+/** API trả 401 (phiên hết hạn, refresh token hết hạn / bị thu hồi) → App đưa về trang đăng nhập. */
+export const SESSION_EXPIRED_EVENT = 'reloop:session-expired';
 
 export class ApiError extends Error {
   constructor(
@@ -40,6 +42,7 @@ export async function api<T>(
   if (!res.ok) {
     // Nợ phí quá hạn > 7 ngày → App chuyển sang màn hình "cần thanh toán phí" (QĐ-40)
     if (data?.code === 'ACCOUNT_LOCKED_UNPAID') window.dispatchEvent(new Event(ACCOUNT_LOCKED_EVENT));
+    if (res.status === 401 && session) window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
     throw new ApiError(res.status, data?.code ?? 'HTTP_ERROR', data?.message ?? res.statusText);
   }
   return data as T;
@@ -474,6 +477,9 @@ export interface MonthStats {
   feesAccrued: number;
   feesIssued: number;
   feesPaid: number;
+  /** VIP 1 trả trước, theo tháng Admin xác nhận đã thu (QĐ-44) */
+  vipSold: number;
+  vipPaid: number;
 }
 
 export interface AdminStats {

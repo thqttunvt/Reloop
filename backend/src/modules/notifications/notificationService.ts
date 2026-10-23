@@ -85,8 +85,10 @@ export class NotificationService {
     return (await this.list(userId, 100)).filter((n) => !n.read).length;
   }
 
-  async markRead(userId: string, notificationId: string) {
-    const n = (await this.list(userId, 100)).find((x) => x.notificationId === notificationId);
+  /** at = createdAt của thông báo (web gửi kèm) → đọc thẳng theo khóa, kể cả thông báo cũ hơn 100 cái gần nhất. */
+  async markRead(userId: string, notificationId: string, at?: string) {
+    const k = at ? keys.notification(userId, at, notificationId) : undefined;
+    const n = k ? await this.table.get<Notification>(k.pk, k.sk) : (await this.list(userId, 100)).find((x) => x.notificationId === notificationId);
     if (!n) throw notFound('thông báo');
     if (!n.read) await this.table.transact([putVersioned({ ...n, read: true }, n.version ?? 1)]);
     return { ...n, read: true };

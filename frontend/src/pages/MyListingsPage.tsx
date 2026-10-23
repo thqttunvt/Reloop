@@ -1,24 +1,25 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { usePagedList, type Page } from '../components/PagedTable';
 import { api, type Listing } from '../lib/api';
 import { CATEGORY_LABEL, CONDITION_LABEL, LISTING_STATUS_LABEL, statusTone } from '../lib/catalog';
-import { dateTime, errorText } from '../lib/format';
+import { dateTime } from '../lib/format';
 
 export function MyListingsPage() {
-  const [items, setItems] = useState<Listing[] | null>(null);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    api<{ items: Listing[] }>('GET', '/listings/mine')
-      .then((r) => setItems(r.items))
-      .catch((e) => setError(errorText(e)));
-  }, []);
+  // Phân trang thật: tin cũ không còn bị mất khỏi danh sách
+  const fetchPage = useCallback((cursor?: string) => api<Page<Listing>>('GET', `/listings/mine${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`), []);
+  const list = usePagedList(fetchPage);
+  const items = list.items.length === 0 && list.loading ? null : list.items;
+  const error = list.error;
+  // Trang này dùng ở 3 nơi — nút Đăng tin giữ người dùng trong khu đang đứng (mục 31 danhgia)
+  const { pathname } = useLocation();
+  const newPath = pathname.startsWith('/partner') ? '/partner/new' : pathname.startsWith('/admin') ? '/admin/posts/new' : '/listings/new';
 
   return (
     <section className="card">
       <div className="row between">
         <h2>Tin của tôi</h2>
-        <Link to="/listings/new" className="button">
+        <Link to={newPath} className="button">
           + Đăng tin
         </Link>
       </div>
@@ -46,6 +47,11 @@ export function MyListingsPage() {
             </li>
           ))}
         </ul>
+      )}
+      {list.hasMore && !list.loading && (
+        <button className="secondary" onClick={list.loadMore}>
+          Tải thêm
+        </button>
       )}
     </section>
   );

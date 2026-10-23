@@ -340,7 +340,7 @@ function ApplyCard({
       )}
       {partner?.status === 'APPROVED' && (
         <p className="muted">
-          Bạn đã có thể <Link to="/listings/new">đăng tin</Link>.
+          Bạn đã có thể <Link to="/partner/new">đăng tin</Link>.
         </p>
       )}
       {partner?.reviewNote && <p className="muted">Ghi chú của Admin: {partner.reviewNote}</p>}

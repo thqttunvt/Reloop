@@ -13,7 +13,8 @@ import type { RiskService, ViolationKind } from '../risk/riskService';
 import type { Transaction } from '../transactions/transactionService';
 import type { UserService } from '../users/userService';
 
-export const REPORT_TARGETS = ['LISTING', 'PARTNER', 'REVIEW', 'TRANSACTION'] as const;
+/** REVIEW đã bỏ: không xác định được người vi phạm nên Admin chỉ "Bỏ qua" được, web cũng không có nút phản ánh đánh giá. */
+export const REPORT_TARGETS = ['LISTING', 'PARTNER', 'TRANSACTION'] as const;
 export type ReportTarget = (typeof REPORT_TARGETS)[number];
 
 /**

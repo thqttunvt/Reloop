@@ -4,7 +4,7 @@ import { BillingCard } from './components/BillingCard';
 import { NotificationBell } from './components/NotificationBell';
 import { TermsGate } from './components/TermsGate';
 import { CALLBACK_PATH, completeLogin, logoutUrl } from './lib/cognito';
-import { ACCOUNT_LOCKED_EVENT, api, type BillingSummary, type Partner } from './lib/api';
+import { ACCOUNT_LOCKED_EVENT, SESSION_EXPIRED_EVENT, api, type BillingSummary, type Partner } from './lib/api';
 import { loadSession, saveSession, type Session } from './lib/session';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { partnerLabel } from './lib/role';
@@ -35,7 +35,7 @@ export function App() {
     api<{ partner: Partner | null }>('GET', '/partners/me')
       .then((r) => setPartner(r.partner))
       .catch(() => undefined);
-  }, [session, isCallback, location.pathname === '/partner']); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, isCallback, location.pathname.startsWith('/partner') ? location.pathname : '']); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Nợ phí quá hạn > 7 ngày → chỉ còn màn hình thanh toán phí (QĐ-40). Hỏi lại khi đổi trang / khi API báo khóa.
   const [locked, setLocked] = useState(false);
@@ -65,6 +65,17 @@ export function App() {
     setSession(s);
   };
 
+  // Phiên hết hạn hẳn (API trả 401) → về trang đăng nhập thay vì báo lỗi ở từng chỗ
+  useEffect(() => {
+    const expired = () => {
+      saveSession(null);
+      setSession(null);
+      setLoginError('Phiên đăng nhập đã hết hạn — hãy đăng nhập lại');
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, expired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, expired);
+  }, []);
+
   const signOut = () => {
     const wasCognito = session?.kind === 'cognito';
     signIn(null);
@@ -76,7 +87,8 @@ export function App() {
     return location.pathname === '/forgot-password' ? <ForgotPasswordPage /> : <LoginPage onSignIn={signIn} error={loginError} />;
   }
 
-  const isAdmin = session.groups.includes('admin') || session.groups.includes('admin_finance');
+  // Mọi API /admin/* cần nhóm Admins; chỉ thuộc FinanceAdmins thì không vào được trang Admin (mục 33 danhgia)
+  const isAdmin = session.groups.includes('admin');
   // Trang Admin tách riêng: layout + menu riêng, không có thanh menu người dùng (get.md B3)
   if (isAdmin && location.pathname.startsWith('/admin')) {
     return (

@@ -11,6 +11,15 @@ eval "$(aws configure export-credentials --format env)"
 
 tf() { terraform -chdir="$ROOT/infra" "$@"; }
 
+# Key Gemini chỉ truyền qua TF_VAR_gemini_api_key (không ghi file). Không truyền → GIỮ key đang có trên Lambda,
+# tránh mỗi lần deploy bị đặt lại về rỗng (biến Terraform mặc định ""). Muốn tắt Gemini: TF_VAR_gemini_api_key= (rỗng) có chủ đích.
+if [ -z "${TF_VAR_gemini_api_key+x}" ]; then
+  TF_VAR_gemini_api_key=$(aws lambda get-function-configuration --function-name reloop-dev-api \
+    --query 'Environment.Variables.GEMINI_API_KEY' --output text 2>/dev/null || true)
+  [ "$TF_VAR_gemini_api_key" = "None" ] && TF_VAR_gemini_api_key=""
+  export TF_VAR_gemini_api_key
+fi
+
 if [ "${1:-all}" != "frontend" ]; then
   npm run build -w backend --prefix "$ROOT"
   tf init -input=false >/dev/null

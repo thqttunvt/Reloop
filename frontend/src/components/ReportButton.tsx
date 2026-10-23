@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { errorText } from '../lib/format';
 
 /** Phản ánh vi phạm (giaiphap C13; đổi chữ "Báo cáo" → "Phản ánh" — get.md B3). */
-export function ReportButton({ targetType, targetId }: { targetType: 'LISTING' | 'PARTNER' | 'REVIEW' | 'TRANSACTION'; targetId: string }) {
+export function ReportButton({ targetType, targetId }: { targetType: 'LISTING' | 'PARTNER' | 'TRANSACTION'; targetId: string }) {
   const [msg, setMsg] = useState('');
   const report = async () => {
     const reason = prompt('Mô tả vi phạm (ít nhất 5 ký tự):');

@@ -18,6 +18,7 @@ import { newId } from '../../shared/ids';
 import { geoPoint, int, listOf, oneOf, optionalNum, str, type GeoPoint } from '../../shared/validate';
 import { assertOwnImageKeys, type ImageStore } from '../../storage/imageStore';
 import { gsi1, keys } from '../../store/keys';
+import { pageQuery } from '../../store/paging';
 import { withOptimisticRetry } from '../../store/retry';
 import { ConditionFailedError, putNew, putVersioned, type Item, type Table, type WriteOp } from '../../store/table';
 import { timerOp } from '../jobs/timers';
@@ -633,11 +634,11 @@ export class ListingService {
     return Promise.all(listing.imageKeys.map((k) => this.images.viewUrl(k)));
   }
 
-  async listMine(ownerId: string) {
-    const items = await Promise.all(
-      (await this.table.query<Listing>(gsi1.ownerListingPk(ownerId), { index: 'gsi1', ascending: false, limit: 50 })).map((l) => this.settled(l)),
-    );
-    return items.map((l) => ({ ...l, status: this.effectiveListingStatus(l) }));
+  /** Tin của tôi, mới nhất trước, phân trang (trước đây chỉ 50 tin gần nhất, tin cũ hơn bị mất khỏi danh sách). */
+  async listMine(ownerId: string, cursor?: string) {
+    const page = await pageQuery<Listing>(this.table, gsi1.ownerListingPk(ownerId), { index: 'gsi1', limit: 30, cursor });
+    const items = await Promise.all(page.items.map((l) => this.settled(l)));
+    return { items: items.map((l) => ({ ...l, status: this.effectiveListingStatus(l) })), nextCursor: page.nextCursor };
   }
 
   /**
@@ -826,7 +827,7 @@ export class ListingService {
         type: 'FEE_SUSPECTED',
         title: `Đã tính phí ${this.billing.feePerTransaction.toLocaleString('vi-VN')}đ: gỡ tin ngay sau khi hủy giao dịch`,
         body: `${done.title} — nếu bạn không bán bên ngoài, hãy khiếu nại ở trang Đối tác → Phí dịch vụ`,
-        link: '/partner',
+        link: '/partner/billing',
       });
       await this.risk.evaluate(ownerId).catch((err) => log('error', 'risk_evaluate_failed', { ownerId, error: err instanceof Error ? err.message : String(err) }));
     }

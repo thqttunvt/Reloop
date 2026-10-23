@@ -1,6 +1,6 @@
 import type { AiResult, Analyzer } from '../../ai/analyzer';
 import { log } from '../../http/log';
-import type { Clock } from '../../shared/clock';
+import { vnDay, type Clock } from '../../shared/clock';
 import { AppError, conflict, notFound } from '../../shared/errors';
 import { newId } from '../../shared/ids';
 import { assertOwnImageKeys, type ImageStore } from '../../storage/imageStore';
@@ -90,7 +90,7 @@ export class AiService {
   }
 
   private consumeQuota(userId: string) {
-    const day = this.clock.now().toISOString().slice(0, 10);
+    const day = vnDay(this.clock.now()); // ngày giờ VN (mục 12 danhgia)
     const k = keys.aiQuota(userId, day);
     return withOptimisticRetry(async () => {
       const q = await this.table.get<Item & { count: number }>(k.pk, k.sk);

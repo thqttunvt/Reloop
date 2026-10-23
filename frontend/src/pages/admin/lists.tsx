@@ -56,7 +56,7 @@ export function TransactionsPage() {
         rowKey={(t) => t.transactionId}
         columns={[
           { header: 'Tin', cell: (t) => <Link to={`/transactions/${t.transactionId}`}>{t.listingTitle}</Link> },
-          { header: 'Người bán', cell: (t) => <UserLink id={t.ownerId} /> },
+          { header: 'Người bán', cell: (t) => <UserLink id={t.ownerId}>{t.ownerName}</UserLink> },
           { header: 'Người mua', cell: (t) => <UserLink id={t.partnerId}>{t.partnerName}</UserLink> },
           { header: 'Giá', className: 'num', cell: (t) => vnd(t.finalPrice ?? t.agreedPrice) },
           { header: 'Nguồn', cell: (t) => (t.source === 'CHAT' ? 'Chat' : 'Báo giá') },
@@ -74,7 +74,7 @@ export function ListingsPage() {
   const [month, setMonth] = useParam('month', utcMonthNow());
   const [status, setStatus] = useParam('status', '');
   const fetchPage = useCallback(
-    (cursor?: string) => api<Page<Listing>>('GET', `/admin/listings?${qs({ month, status: status || undefined, cursor })}`),
+    (cursor?: string) => api<Page<Listing & { ownerName?: string }>>('GET', `/admin/listings?${qs({ month, status: status || undefined, cursor })}`),
     [month, status],
   );
   const list = usePagedList(fetchPage);
@@ -100,7 +100,7 @@ export function ListingsPage() {
         rowKey={(l) => l.listingId}
         columns={[
           { header: 'Tin', cell: (l) => <Link to={`/admin/listings/${l.listingId}`}>{l.title}</Link> },
-          { header: 'Người bán', cell: (l) => <UserLink id={l.ownerId} /> },
+          { header: 'Người bán', cell: (l) => <UserLink id={l.ownerId}>{l.ownerName}</UserLink> },
           { header: 'Khu vực', cell: (l) => l.area },
           { header: 'Đăng lúc', cell: (l) => dateTime(l.createdAt) },
           { header: 'Trạng thái', cell: (l) => <StatusBadge s={l.status} labels={LISTING_STATUS_LABEL} /> },

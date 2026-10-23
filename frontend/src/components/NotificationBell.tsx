@@ -55,7 +55,7 @@ export function NotificationBell({ admin = false }: { admin?: boolean }) {
   const go = async (n: Item) => {
     setOpen(false);
     if (!n.read) {
-      await api('POST', `${BASE[n.inbox]}/${n.notificationId}/read`).catch(() => undefined);
+      await api('POST', `${BASE[n.inbox]}/${n.notificationId}/read?at=${encodeURIComponent(n.createdAt)}`).catch(() => undefined);
       setCount((c) => Math.max(0, c - 1));
     }
     if (n.link) navigate(n.link);
@@ -70,7 +70,7 @@ export function NotificationBell({ admin = false }: { admin?: boolean }) {
   return (
     <div className="bell" ref={box}>
       <button className="secondary" onClick={() => void toggle()} aria-label="Thông báo">
-        🔔{count > 0 && <span className="dot">{count}</span>}
+        🔔{count > 0 && <span className="dot">{count >= 100 ? '99+' : count}</span>}
       </button>
       {open && (
         <div className="dropdown">

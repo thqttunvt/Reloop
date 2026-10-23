@@ -214,7 +214,7 @@ export class BillingService {
         type: 'INVOICE_ISSUED',
         title: `Hóa đơn phí dịch vụ tháng ${month}: ${invoice.amount.toLocaleString('vi-VN')}đ`,
         body: `${invoice.transactionCount} giao dịch hoàn tất × ${invoice.feePerTransaction.toLocaleString('vi-VN')}đ — hạn trả ${new Date(invoice.dueAt).toLocaleDateString('vi-VN')}, nội dung chuyển khoản ${invoice.paymentCode}`,
-        link: '/partner',
+        link: '/partner/billing',
       });
     }
     log('info', 'invoices_issued', { month, issued });
@@ -333,7 +333,7 @@ export class BillingService {
       type: waive ? 'FEE_WAIVED' : 'FEE_KEPT',
       title: waive ? 'Khiếu nại được chấp nhận — đã miễn phí 10.000đ' : 'Khiếu nại không được chấp nhận — giữ phí 10.000đ',
       body: note ?? result.line.listingTitle,
-      link: '/partner',
+      link: '/partner/billing',
     });
     return result;
   }
@@ -419,7 +419,7 @@ export class BillingService {
       type: 'INVOICE_PAID',
       title: `Đã nhận thanh toán phí tháng ${month}`,
       body: `${paid.amount.toLocaleString('vi-VN')}đ — cảm ơn bạn`,
-      link: '/partner',
+      link: '/partner/billing',
     });
     return paid;
   }

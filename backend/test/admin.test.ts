@@ -10,6 +10,22 @@ import { makeTestApp } from './helpers';
 const FINANCE = { user: 'fin1', groups: ['admin', 'admin_finance'] };
 
 describe('pageQuery (get.md 2.1)', () => {
+  it('prefix: chỉ lấy đúng loại item trong partition dùng chung, đủ dòng, không lặp (Tin / Giao dịch của tôi)', async () => {
+    const table = new MemoryTable();
+    const ops = [];
+    for (let i = 0; i < 7; i++) ops.push(putNew({ pk: 'USER#u', sk: `TX#2026-01-0${1 + Math.floor(i / 2)}T00:00:00.000Z#${i}`, n: i })); // 2 giao dịch / thời điểm
+    ops.push(putNew({ pk: 'USER#u', sk: 'PROFILE' }), putNew({ pk: 'USER#u', sk: 'VIOL#2026-01-09#x' }), putNew({ pk: 'USER#u', sk: 'TIMER' }), putNew({ pk: 'USER#u', sk: 'NOTIF#2026#y' }));
+    await table.transact(ops);
+    const got: number[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await pageQuery<Item & { n: number }>(table, 'USER#u', { prefix: 'TX#', limit: 2, cursor });
+      got.push(...page.items.map((x) => x.n));
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(got).toEqual([6, 5, 4, 3, 2, 1, 0]);
+  });
+
   it('không lặp, không mất dòng khi nhiều item cùng sort key; cursor hỏng → 400; trang cuối không có cursor', async () => {
     const table = new MemoryTable();
     const at = (i: number) => `2026-01-01T00:00:0${Math.floor(i / 3)}.000Z`; // 3 item / thời điểm
