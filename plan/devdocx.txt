@@ -432,7 +432,7 @@ Mỗi khi xong một phần việc, thêm 1 dòng: ngày · việc đã làm · 
          được chi nhánh (23), Admin xem tin mọi trạng thái /admin/listings/:id (24), báo 2 bên khi Admin kết luận tranh chấp (25),
          tạm ngừng bắt buộc lý do + hỏi lại (26), /admin/stats chỉ đếm (27), tranh chấp hỏi lại + chặn giá trống (28).
          QĐ-44: VIP 1 trả trước — yêu cầu → Admin gửi hóa đơn → chuyển khoản → Admin xác nhận đã thu → tự bật.
-         Người làm: [Tên người làm]   Kiểm chứng: 161 test, typecheck + build sạch, terraform plan 0 thêm / 1 sửa / 0 xóa
+         Người làm: [Tên người làm]   Kiểm chứng: 161 test, typecheck + build sạch, deploy dev 0 thêm / 1 sửa / 0 xóa · smoke RUN 796139 ALL PASS
 
 
 =====================================================================

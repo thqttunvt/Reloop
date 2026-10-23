@@ -85,7 +85,7 @@ Phạm vi: toàn bộ frontend (App, AdminLayout, sections, lists, members, Part
 ---------------------------------------------------------------------
 MỨC CAO — chặn luồng nghiệp vụ thật
 ---------------------------------------------------------------------
-[x] 23 (2026-10-24, sửa + test; chờ deploy dev) Đối tác cấp 2 MỚI không bao giờ được duyệt (lỗi do tách trang, commit 48b9c3a).
+[x] 23 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Đối tác cấp 2 MỚI không bao giờ được duyệt (lỗi do tách trang, commit 48b9c3a).
        Hiện tượng: hồ sơ cấp 2 đang chờ duyệt (PENDING) hoặc bị từ chối chỉ thấy form đăng ký; không còn khối
        Chi nhánh / Bảng giá. Form vẫn ghi "Hãy thêm ít nhất 1 chi nhánh và bảng giá" nhưng không có chỗ thêm.
        Admin bấm Duyệt → backend trả PARTNER_NO_BRANCH (nút Duyệt cũng bị khóa vì "Chưa có chi nhánh").
@@ -95,7 +95,7 @@ MỨC CAO — chặn luồng nghiệp vụ thật
        Đề xuất: hồ sơ cấp 2 PENDING / REJECTED → dưới form hiện thêm BranchesCard + RulesCard như cũ.
        Kiểm tra: đăng ký cấp 2 bằng tài khoản mới → thêm chi nhánh → Admin duyệt được.
 
-[x] 24 (2026-10-24, sửa + test; chờ deploy dev) Admin mở tin từ trang Admin bị "Không tìm thấy tin đăng" (404).
+[x] 24 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Admin mở tin từ trang Admin bị "Không tìm thấy tin đăng" (404).
        Hiện tượng: link tin ở "Tất cả tin theo tháng", hồ sơ thành viên, phản ánh đã xử lý… với tin
        Đã hủy / Hết hạn / Hoàn tất / Chờ duyệt, hoặc tin của người bán đang bị tạm ngừng → 404.
        Đúng các tin Admin cần xem nhất (tin bị gỡ, tin của người bị tạm ngừng).
@@ -104,7 +104,7 @@ MỨC CAO — chặn luồng nghiệp vụ thật
        Đề xuất: API chỉ đọc GET /admin/listings/{id} (mọi trạng thái, ghi nhật ký pii-read như xem giao dịch),
        trang chi tiết tin trong /admin/listings/:id; các link tin trong trang Admin trỏ về đó.
 
-[x] 25 (2026-10-24, sửa + test; chờ deploy dev) Admin kết luận tranh chấp → người bán và người mua KHÔNG nhận được thông báo nào.
+[x] 25 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Admin kết luận tranh chấp → người bán và người mua KHÔNG nhận được thông báo nào.
        Chỗ: backend/src/modules/transactions/transactionService.ts:457 (resolveDispute gọi mutate, không notify).
        Phí 10.000đ và trạng thái tin vẫn cập nhật đúng; chỉ thiếu báo.
        Đề xuất: báo cả 2 bên "Admin kết luận: hoàn tất với giá …đ / thất bại — <ghi chú>", link tới giao dịch.
@@ -112,14 +112,14 @@ MỨC CAO — chặn luồng nghiệp vụ thật
 ---------------------------------------------------------------------
 MỨC TRUNG BÌNH — thao tác Admin dễ nhầm / chi phí
 ---------------------------------------------------------------------
-[x] 26 (2026-10-24, sửa + test; chờ deploy dev) Tạm ngừng đối tác ở trang "Duyệt / tạm ngừng" không hỏi lại, lý do không bắt buộc.
+[x] 26 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Tạm ngừng đối tác ở trang "Duyệt / tạm ngừng" không hỏi lại, lý do không bắt buộc.
        Chỗ: frontend/src/pages/admin/sections.tsx:142-148; API /admin/partners/{id}/suspend (routes.ts:570)
        nhận note tùy ý. Trái QĐ-43 (tạm ngừng bắt buộc lý do + hỏi lại) và trái chính trang Thành viên
        (members.tsx:89 bắt ≥ 5 ký tự). Người bị ngừng nhận thông báo không có lý do.
        Đề xuất: backend bắt note ≥ 5 ký tự cho suspend (một chỗ cho mọi trang); frontend confirm() kèm
        số vi phạm 30 ngày như trang Phản ánh.
 
-[x] 27 (2026-10-24, sửa + test; chờ deploy dev) Mỗi lần bấm sang mục khác trong trang Admin đều gọi /admin/stats, kéo theo rất nhiều lượt đọc DynamoDB.
+[x] 27 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Mỗi lần bấm sang mục khác trong trang Admin đều gọi /admin/stats, kéo theo rất nhiều lượt đọc DynamoDB.
        Chỗ: AdminLayout.tsx:66 (gọi theo location.pathname) → routes.ts:809-818: đọc ĐẦY ĐỦ đối tác của cả
        4 trạng thái, mỗi đối tác thêm 1 lần đọc hồ sơ + 1 lần đọc chi nhánh (chỉ để đếm), cộng tin chờ duyệt
        (kèm tạo link ảnh), cờ rủi ro (kèm 3 truy vấn lịch sử / người), số liệu tháng (2 lần đọc / người có phí).
@@ -127,7 +127,7 @@ MỨC TRUNG BÌNH — thao tác Admin dễ nhầm / chi phí
        Đề xuất: /admin/stats chỉ đếm (hàm count không kéo hồ sơ / ảnh / lịch sử); số liệu tháng tách ra,
        chỉ gọi ở Dashboard; badge làm mới mỗi 60 giây hoặc sau thao tác thay vì mỗi lần đổi trang.
 
-[x] 28 (2026-10-24, sửa + test; chờ deploy dev) Trang Tranh chấp: bấm "Hoàn tất với giá này" / "Kết luận thất bại" không hỏi lại; ô giá để trống
+[x] 28 (2026-10-24, đã deploy dev, smoke 796139 ALL PASS) Trang Tranh chấp: bấm "Hoàn tất với giá này" / "Kết luận thất bại" không hỏi lại; ô giá để trống
        → gửi 0đ (Number('') = 0, backend nhận min 0). Người bán hiện bằng mã người dùng thay vì tên.
        Chỗ: sections.tsx:180-190, :216. Đề xuất: confirm() ghi rõ kết luận + giá; chặn giá trống;
        backend trả kèm tên người bán để hiện tên.
