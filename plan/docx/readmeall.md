@@ -1,7 +1,7 @@
 # ReLoop — Bàn giao ngữ cảnh (đọc file này đầu tiên)
 
 > **Mục đích:** lưu toàn bộ ngữ cảnh dự án để khi mở lại máy, Claude (hoặc thành viên mới) đọc là biết đã làm tới đâu.
-> **Cập nhật lần cuối:** 2026-10-22 (đối chiếu toàn bộ với code)
+> **Cập nhật lần cuối:** 2026-10-23 (đọc lại toàn bộ code)
 > **Quy tắc:** mỗi khi xong một phần việc hoặc chốt quyết định mới, cập nhật mục 6 (Trạng thái), mục 7 (Việc tiếp theo) và mục 9 (Nhật ký).
 
 ---
@@ -165,3 +165,4 @@ Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chi�
 | 2026-10-22 | Trang Admin mới theo `plan/docx/get.md` (đã lưu plan + quyết định PO): backend `pageQuery` (store/paging.ts), nhật ký Admin `AUDIT#<tháng>` ghi trong router (mọi POST /admin/* + xem dữ liệu cá nhân, chỉ field cho phép, lỗi ghi → log `audit_write_failed` + alarm), K1 GSI1 `TX#STATUS#` cho giao dịch, K3 `ROLE#Owner` khi getOrCreate, `AdminService` (thành viên, hồ sơ gộp, giao dịch, tin theo tháng UTC, số liệu tháng). Frontend: `/admin/*` layout riêng + 8 nhóm menu + badge, `usePagedList` / `<PagedTable>`, nhãn PN1/PN1V/PN2, menu người dùng theo vai trò (Giao dịch / Hồ sơ / Đăng xuất vào menu thả xuống), "Báo cáo" → "Phản ánh". smoke-aws.py thêm nhánh hoàn tất + tranh chấp + API Admin. 156 test. Deploy dev (Terraform 2 thêm / 1 sửa / 0 xóa). Sửa nhãn trạng thái bị kéo dài ở danh sách giao dịch. QĐ-27 thêm dòng nhật ký Admin. |
 | 2026-10-22 | Sửa lỗi bấm Admin bị đẩy về Chợ (AdminLayout thiếu route cha `/admin/*` → route con không khớp → Navigate ra ngoài). Menu Admin: 8 mục chính đúng tên PO (Dashboard, Hồ sơ, Đối tác, Giao dịch, Lịch sử, Thành viên, Ngân hàng, Bài viết), mục con hiện khi mở nhóm; Bài viết thêm Đăng tin + Tin của tôi (dùng lại trang người dùng, vẫn theo QĐ-34). Đã deploy dev. |
 | 2026-10-22 | smoke-aws.py RUN 357b07 ALL PASS (thêm nhánh hoàn tất + tranh chấp + API Admin). Khu đối tác Cấp 1 / Cấp 2 làm cùng kiểu trang Admin: menu trái theo nhóm (Tổng quan · Bài viết: Đăng tin, Tin của tôi · Thu mua (cấp 2): Tin phù hợp, Chi nhánh, Bảng giá · Ngân hàng: Phí dịch vụ · Hồ sơ), route `/partner/*`. Người chưa là đối tác vẫn chỉ thấy form đăng ký. Đã deploy dev. |
+| 2026-10-23 | Đọc lại toàn bộ code trên `feature/doi-tac-2-cap` (HEAD 48b9c3a): 156 test pass, typecheck backend + frontend sạch, code khớp mục 3–6; không sửa code. Phát hiện: Admin kết luận tranh chấp (`resolveDispute`) **không gửi thông báo** cho 2 bên; còn mở danhgia 12 (lượt AI theo ngày UTC), matching vẫn chạy trong request (TODO QĐ-13). `scripts/make-admin.sh` vẫn "M" chỉ do kết thúc dòng. |
