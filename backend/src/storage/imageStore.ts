@@ -39,6 +39,8 @@ export interface ImageStore {
   markModerated(key: string): Promise<void>;
   /** Ném 400 IMAGE_NOT_MODERATED nếu có ảnh chưa qua kiểm duyệt. */
   assertModerated(keys: string[]): Promise<void>;
+  /** Ảnh đã qua kiểm duyệt chưa (không có = coi như chưa). Dùng để không chạy Rekognition lại cho cùng ảnh. */
+  isModerated?(key: string): Promise<boolean>;
   remove(key: string): Promise<void>;
   /** Đọc ảnh (base64) để gửi cho AI — Bedrock không nhận ảnh qua URL. */
   read(key: string): Promise<{ mediaType: 'image/jpeg' | 'image/png' | 'image/webp'; data: string }>;
@@ -109,17 +111,17 @@ export class S3ImageStore implements ImageStore {
     await this.setTags(key, 'pending');
   }
 
+  async isModerated(Key: string): Promise<boolean> {
+    try {
+      const res = await this.s3.send(new GetObjectTaggingCommand({ Bucket: this.bucket, Key }));
+      return res.TagSet?.some((t) => t.Key === 'moderation' && t.Value === 'passed') ?? false;
+    } catch {
+      return false; // ảnh không tồn tại (đã bị xóa / hết hạn)
+    }
+  }
+
   async assertModerated(keys: string[]): Promise<void> {
-    const results = await Promise.all(
-      keys.map(async (Key) => {
-        try {
-          const res = await this.s3.send(new GetObjectTaggingCommand({ Bucket: this.bucket, Key }));
-          return res.TagSet?.some((t) => t.Key === 'moderation' && t.Value === 'passed') ?? false;
-        } catch {
-          return false; // ảnh không tồn tại (đã bị xóa / hết hạn)
-        }
-      }),
-    );
+    const results = await Promise.all(keys.map((Key) => this.isModerated(Key)));
     if (results.includes(false)) throw badRequest('IMAGE_NOT_MODERATED', 'Có ảnh chưa qua kiểm duyệt hoặc đã bị xóa — hãy tải lại ảnh');
   }
 
@@ -170,6 +172,9 @@ export async function moderateUpload(
   const [key] = assertOwnImageKeys(userId, [rawKey]);
   if (!key) throw badRequest('INVALID_IMAGE_KEYS', 'Ảnh không hợp lệ');
   if (!images.enabled) return { key, allowed: true, flagged: false };
+  // Đã kiểm duyệt rồi → không gọi Rekognition lần nữa (mỗi lần tốn tiền) và KHÔNG đặt lại tag state=pending —
+  // ảnh đã gắn vào tin sẽ bị S3 xóa sau 1 ngày nếu tag bị đặt lại (rà soát 24/10).
+  if (await images.isModerated?.(key)) return { key, allowed: true, flagged: false };
   const result = await moderator.check(key);
   if (!result.allowed) {
     await images.remove(key);

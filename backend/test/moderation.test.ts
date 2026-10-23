@@ -41,6 +41,19 @@ describe('Kiểm duyệt ảnh (Rekognition, M6)', () => {
     expect(rejected).toEqual(['listings/u1/b.jpg']);
   });
 
+  it('ảnh đã kiểm duyệt rồi → không gọi Rekognition lại, không đặt lại tag (ảnh đã gắn tin không bị xóa)', async () => {
+    const { images, calls } = fakes(true);
+    let checks = 0;
+    const moderator: ImageModerator = { enabled: true, check: async () => (checks++, { allowed: true, labels: [] }) };
+    const passed = new Set<string>();
+    images.isModerated = async (k) => passed.has(k);
+    images.markModerated = async (k) => void (passed.add(k), calls.push(`moderated:${k}`));
+    await moderateUpload(images, moderator, 'u1', 'listings/u1/c.jpg', () => undefined);
+    await moderateUpload(images, moderator, 'u1', 'listings/u1/c.jpg', () => undefined);
+    expect(checks).toBe(1);
+    expect(calls).toEqual(['moderated:listings/u1/c.jpg']);
+  });
+
   it('không kiểm duyệt / xóa được ảnh của người khác', async () => {
     const { images, moderator, calls } = fakes(false);
     await expect(moderateUpload(images, moderator, 'u1', 'listings/u2/b.jpg', () => undefined)).rejects.toMatchObject({ code: 'INVALID_IMAGE_KEYS' });

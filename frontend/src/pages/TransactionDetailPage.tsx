@@ -321,6 +321,12 @@ function CompletionCard({ d, act }: { d: TransactionDetail; act: Act }) {
   const confirmedByMe = !!t.completion[me];
   /** Bên kia xác nhận trước → mình chỉ Chấp nhận giá đó hoặc Khiếu nại (mục 7 danhgia) */
   const otherConfirm = t.completion[me === 'OWNER' ? 'PARTNER' : 'OWNER'];
+  // Ô giá trống → Number('') = 0 → từng gửi giá cuối 0đ (rà soát 24/10). Giá cuối bên kia chỉ chấp nhận / khiếu nại → hỏi lại.
+  const price = Number(finalPrice);
+  const priceOk = finalPrice.trim() !== '' && Number.isInteger(price) && price >= 0;
+  const confirmFinal = () =>
+    confirm(`Xác nhận đã bàn giao xong với giá cuối ${vnd(price)}?\nBên kia sẽ Chấp nhận hoặc Khiếu nại; im lặng 48 giờ thì tự hoàn tất với giá này.`) &&
+    void act('POST', '/confirm-completion', { finalPrice: price });
 
   return (
     <section className="card">
@@ -334,9 +340,11 @@ function CompletionCard({ d, act }: { d: TransactionDetail; act: Act }) {
         <div className="row">
           <label>
             Giá cuối đã nhận / trả (VND)
-            <input type="number" value={finalPrice} onChange={(e) => setFinalPrice(e.target.value)} />
+            <input type="number" min={0} step={1000} value={finalPrice} onChange={(e) => setFinalPrice(e.target.value)} />
           </label>
-          <button onClick={() => void act('POST', '/confirm-completion', { finalPrice: Number(finalPrice) })}>Xác nhận đã bàn giao xong</button>
+          <button onClick={confirmFinal} disabled={!priceOk} title={priceOk ? '' : 'Nhập giá cuối (số nguyên VND)'}>
+            Xác nhận đã bàn giao xong
+          </button>
         </div>
       )}
       {t.status === 'AWAITING_COUNTERPARTY' && otherConfirm && !confirmedByMe && (
@@ -373,7 +381,13 @@ function CompletionCard({ d, act }: { d: TransactionDetail; act: Act }) {
               </option>
             ))}
           </select>
-          <button className="danger" onClick={() => void act('POST', '/report-failure', { reason: failReason })}>
+          <button
+            className="danger"
+            onClick={() =>
+              confirm(`Báo giao dịch THẤT BẠI (${FAILURE_LABEL[failReason]})? Không hoàn tác được; tin quay lại Chợ nếu còn hạn.`) &&
+              void act('POST', '/report-failure', { reason: failReason })
+            }
+          >
             Báo thất bại
           </button>
         </div>
