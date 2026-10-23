@@ -28,7 +28,7 @@ Tiền **không qua ReLoop**: hai bên thanh toán trực tiếp khi bàn giao. 
 | `docx/letd.md` | Plan trang Admin mới (giao việc): khóa cần thêm, route con, thứ tự A0 → A6, điểm cần PO quyết | Giao việc trang Admin |
 | `docx/get.md` | **Plan trang Admin bản chốt** (đã đối chiếu code + quyết định PO 2026-10-22) — khác letd.md thì theo file này | Đang làm |
 | `quyetdinh.txt` | **43 quyết định** (QĐ-01 → QĐ-43, TL-xx), đã đối chiếu với code 2026-10-22; QĐ ví / giữ tiền đánh dấu TẠM NGƯNG | **Cao nhất** (sau code) |
-| `devdocx.txt` | Dev doc cho nhóm: cài đặt, quy tắc, phân việc, nhật ký tiến độ cho giảng viên, **mục 9 tra cứu kỹ thuật** (Terraform, env, khóa DynamoDB, chữ ký hàm, 88 API) | Làm việc hằng ngày |
+| `devdocx.txt` | Dev doc cho nhóm: cài đặt, quy tắc, phân việc, nhật ký tiến độ cho giảng viên, **mục 9 tra cứu kỹ thuật** (Terraform, env, khóa DynamoDB, chữ ký hàm, 99 API) | Làm việc hằng ngày |
 | `danhgia.txt` | Danh sách lỗi / mâu thuẫn đã rà soát + đề xuất + trạng thái sửa | Theo dõi lỗi |
 | `task.txt` | Danh sách task 12 tuần ban đầu | Lịch sử / kế hoạch |
 | `giaiphap.txt` | Đề xuất giải pháp cho từng điểm bất cập | Tham khảo (lịch sử) |
@@ -79,7 +79,7 @@ Cây thư mục chi tiết: [README.md](../../README.md#cấu-trúc). Tham chi�
 - **frontend/** React + Vite; Leaflet/OSM; đăng nhập Cognito (OAuth code + PKCE); polling: thông báo 30s, chat 5s.
 - **infra/** Terraform (state S3 `reloop-tfstate-926583575243`); tài nguyên nhóm dựng tay được đọc qua `data`. CloudWatch 9 alarm → SNS `reloop-dev-alarms` (email Admin đăng ký qua `make-admin.sh`).
 - **scripts/** `smoke-aws.py`, `make-admin.sh` (cấp quyền Admin + đăng ký email cảnh báo), `loadtest.mjs`.
-- **Test:** 140 test vitest (backend).
+- **Test:** 171 test vitest (backend).
 
 **Nguyên tắc code (phải giữ):** đổi trạng thái qua `stateMachines.ts`; ghi có điều kiện version + `withOptimisticRetry`; không Scan; việc nền idempotent; nghiệp vụ không gọi AWS trực tiếp; API tạo dữ liệu quan trọng bắt buộc `Idempotency-Key`; tiền là số nguyên VND, phí ghi qua `BillingService` cùng transaction đổi trạng thái.
 

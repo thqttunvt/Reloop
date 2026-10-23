@@ -52,7 +52,7 @@ Bản đồ thư mục:
   backend/src/store/keys.ts     TẤT CẢ khóa DynamoDB ở một file
   backend/src/domain/           state machine Listing / Quote / Transaction, danh mục
   backend/src/storage, ai/      S3, Rekognition, Bedrock (adapter — nghiệp vụ không gọi AWS trực tiếp)
-  backend/test/                 vitest (140 test)
+  backend/test/                 vitest (171 test)
   frontend/src/pages, lib/      React; lib/api.ts = kiểu dữ liệu + gọi API; lib/catalog.ts = nhãn tiếng Việt
   infra/*.tf                    Terraform; infra/deploy.sh = build + apply + upload web
   scripts/                      smoke-aws.py (test trên AWS), make-admin.sh, loadtest.mjs
@@ -928,8 +928,8 @@ ADAPTERS
     ListingService.adminHide(lid, note?, { notify? }) MATCHED → 409 LISTING_IN_TRANSACTION
     TransactionService.chatDealOps / agreeChatPrice / withdrawCancel / confirmCancel / finalizeCancel
     BillingService.debtStatus(userId) → { level: NONE|WARNING|NO_POSTING|FULL, invoice?, overdueAmount, daysOverdue }
-    BillingService.assertCanPost / assertNotLocked / suspectedFeeOps / vipFeeOps / appeal / resolveAppeal
-    PartnerService.requireSeller / isAvailable / listingQuota(partner) → { plan: BASIC|VIP1|BUSINESS, limit } / buyVip
+    BillingService.assertCanPost / assertNotLocked / suspectedFeeOps / appeal / resolveAppeal / bankInfo
+    PartnerService.requireSeller / isAvailable / listingQuota(partner) → { plan: BASIC|VIP1|BUSINESS, limit } / requestVip / invoiceVip / approveVip / rejectVip / cancelVip (QĐ-44)
     RiskService.recordViolation(userId, kind, ref, note?) / violationCount / evaluate / listOpen / resolve
     NotificationService.notifyAdmins(input)        hộp thư chung ADMIN_INBOX = 'ADMINS'
     ChatService.sendOffer / respondOffer / adminListingChats
@@ -965,7 +965,7 @@ POST   /conversations/{id}/offers                        Thành viên      -    
 POST   /conversations/{id}/offers/{offerId}/accept       Bên kia         YES  —  → {message, transactionId?}                   ChatBox
 POST   /conversations/{id}/offers/{offerId}/reject       Bên kia         -    —                                                    ChatBox
 BÁO CÁO VI PHẠM
-POST   /reports                                          User            -    {targetType, targetId, reason}                       ReportButton
+POST   /reports                                          User            -    {targetType: LISTING|PARTNER|TRANSACTION, …}                       ReportButton
 PHÍ / VÍ
 GET    /fees                                             User (L)        -    —                                                    (chưa dùng)
 GET    /billing/me                                       User (L)        -    —  (+ debt, suspected, postingLockDays, fullLockDays) BillingCard, App, CreateListingPage
@@ -985,7 +985,7 @@ POST   /listings                                         Đối tác đã duyệ
                                                                                handoverMethods[], location, area, imageKeys[],
                                                                                aiAnalysisId?}
 GET    /feed                                             User            -    ?cursor=                                             FeedPage
-GET    /listings/mine                                    User            -    —                                                    MyListingsPage
+GET    /listings/mine                                    User            -    ?cursor  → {items, nextCursor} (30 / trang)          MyListingsPage
 GET    /listings/{id}                                    Chủ/đối tác/xem -    —  → role OWNER|PARTNER|VIEWER                       ListingDetailPage, FeedPage
 POST   /listings/{id}/cancel                             Chủ tin         -    —                                                    ListingDetailPage (act)
 POST   /listings/{id}/quotes/{quoteId}/request-confirmation Chủ tin      -    —                                                    ListingDetailPage (act)
@@ -996,7 +996,7 @@ POST   /listings/{id}/quotes/{quoteId}/withdraw          Đối tác của quote
 POST   /listings/{id}/offers                             Đối tác cấp 2   YES  {branchId, price, note?, validHours?}                ListingDetailPage (act, idem)
 GIAO DỊCH
 POST   /transactions                                     Chủ tin         YES  {listingId, quoteId}                                 ListingDetailPage
-GET    /transactions                                     User            -    —                                                    TransactionsPage
+GET    /transactions                                     User            -    ?cursor  → {items, nextCursor} (30 / trang)          TransactionsPage
 GET    /transactions/{id}                                Hai bên / Admin -    —                                                    TransactionDetailPage
 PUT    /transactions/{id}/handover-plan                  Hai bên         -    {method, time(ISO), place, note?}                    TransactionDetailPage (act)
 POST   /transactions/{id}/handover-plan/accept           Bên còn lại     -    —                                                    TransactionDetailPage (act)
@@ -1014,13 +1014,14 @@ THÔNG BÁO
 GET    /notifications                                    User (L)        -    —                                                    NotificationBell
 GET    /notifications/unread-count                       User (L)        -    —                                                    NotificationBell
 POST   /notifications/read-all                           User (L)        -    —                                                    NotificationBell
-POST   /notifications/{id}/read                          User (chủ) (L)  -    —                                                    NotificationBell
+POST   /notifications/{id}/read                          User (chủ) (L)  -    ?at=<createdAt> (đọc theo khóa, không giới hạn 100)                                              NotificationBell
 ĐỐI TÁC
 GET    /partners/{id}/public                             User            -    —  (404 nếu chưa APPROVED)                           (chưa dùng)
 POST   /partners/apply                                   User            -    {tier, businessType, businessName, licenseNo?,       PartnerPage
                                                                                contactEmail}
 GET    /partners/me                                      User (L)        -    —  → {partner, branches, rules, quota}               App, CreateListingPage, PartnerPage
-POST   /partners/me/vip                                  Đối tác cấp 1   YES  —  → {partner, charged}  (VIP 1, QĐ-41)              PartnerPage (QuotaCard)
+POST   /partners/me/vip-requests                         Đối tác cấp 1   YES  —  → VipRequest REQUESTED (QĐ-44, chưa bật gói)      PartnerPage (QuotaCard)
+POST   /partners/me/vip-requests/{id}/cancel             Người gửi       -    —  (chỉ khi REQUESTED / INVOICED)                    PartnerPage (QuotaCard)
 PATCH  /partners/me/contact                              Đối tác         -    {contactEmail}                                       PartnerPage
 GET    /partners/me/requests                             Đối tác         -    —                                                    PartnerPage
 POST   /partners/me/branches                             Cấp 2, không    -    {name, location, radiusKm, categories[],             PartnerPage
@@ -1032,31 +1033,41 @@ POST   /partners/me/rules                                Đối tác cấp 2   -
 PATCH  /partners/me/rules/{id}                           Đối tác cấp 2   -    {conditions?, minPrice?, maxPrice?, minQuantity?,    PartnerPage
                                                                                active?}
 ADMIN
-GET    /admin/partners                                   Admin           -    ?status=PENDING|APPROVED|REJECTED|SUSPENDED          AdminPage
-POST   /admin/partners/{id}/review                       Admin           -    {approve: boolean, note?}                            AdminPage (call)
-POST   /admin/partners/{id}/suspend                      Admin           -    {note?}                                              AdminPage (call)
-POST   /admin/partners/{id}/reactivate                   Admin           -    —                                                    AdminPage (call)
-GET    /admin/invoices                                   Admin           -    ?status=ISSUED|PAID                                  AdminPage
-POST   /admin/invoices/{userId}/{month}/paid             Finance         -    {note?}                                              AdminPage
-POST   /admin/billing/issue                              Finance         -    {month: YYYY-MM}                                     AdminPage
+GET    /admin/partners                                   Admin           -    ?status=PENDING|APPROVED|REJECTED|SUSPENDED          admin/sections.tsx
+POST   /admin/partners/{id}/review                       Admin           -    {approve: boolean, note?}                            admin/sections.tsx (call)
+POST   /admin/partners/{id}/suspend                      Admin           -    {note?}                                              admin/sections.tsx (call)
+POST   /admin/partners/{id}/reactivate                   Admin           -    —                                                    admin/sections.tsx (call)
+GET    /admin/invoices                                   Admin           -    ?status=ISSUED|PAID                                  admin/sections.tsx
+POST   /admin/invoices/{userId}/{month}/paid             Finance         -    {note?}                                              admin/sections.tsx
+POST   /admin/billing/issue                              Finance         -    {month: YYYY-MM}                                     admin/sections.tsx
 GET    /admin/notifications                              Admin           -    —  (hộp thư chung Admin: tranh chấp mới…)            NotificationBell (admin)
 GET    /admin/notifications/unread-count                 Admin           -    —                                                    NotificationBell (admin)
 POST   /admin/notifications/read-all                     Admin           -    —                                                    NotificationBell (admin)
-POST   /admin/notifications/{id}/read                    Admin           -    —  (1 Admin đọc = cả nhóm đã đọc)                    NotificationBell (admin)
+POST   /admin/notifications/{id}/read                    Admin           -    ?at=<createdAt> (đọc theo khóa)  (1 Admin đọc = cả nhóm đã đọc)                    NotificationBell (admin)
 GET    /admin/listings/{id}/chats                        Admin           -    —  → {listing, conversations[{conversation, messages}]}  TransactionDetailPage (Admin, chỉ đọc, log admin_chat_viewed)
-GET    /admin/fee-appeals                                Admin           -    —                                                    AdminPage (QĐ-39)
-POST   /admin/fee-appeals/{userId}/{month}/{transactionId}/resolve  Finance  -  {waive: boolean, note?}  → {line, refundDue}        AdminPage
-GET    /admin/risk-flags                                 Admin           -    —                                                    AdminPage
-POST   /admin/risk-flags/{userId}/resolve                Admin           -    {action: DISMISS|WARN|SUSPEND, note?}                AdminPage
-GET    /admin/listings/review                            Admin           -    —                                                    AdminPage
-POST   /admin/listings/{id}/review                       Admin           -    {approve: boolean, note (bắt buộc khi từ chối)}      AdminPage
-GET    /admin/reports                                    Admin           -    —  (+ target {title, link}, violator {name, violations30d})  AdminPage
-POST   /admin/reports/{id}/resolve                       Admin           -    {action: DISMISS|WARN|HIDE_AND_WARN|HIDE_AND_SUSPEND|  AdminPage
+GET    /admin/fee-appeals                                Admin           -    —                                                    admin/sections.tsx (QĐ-39)
+POST   /admin/fee-appeals/{userId}/{month}/{transactionId}/resolve  Finance  -  {waive: boolean, note?}  → {line, refundDue}        admin/sections.tsx
+GET    /admin/risk-flags                                 Admin           -    —                                                    admin/sections.tsx
+POST   /admin/risk-flags/{userId}/resolve                Admin           -    {action: DISMISS|WARN|SUSPEND, note?}                admin/sections.tsx
+GET    /admin/listings/review                            Admin           -    —                                                    admin/sections.tsx
+POST   /admin/listings/{id}/review                       Admin           -    {approve: boolean, note (bắt buộc khi từ chối)}      admin/sections.tsx
+GET    /admin/reports                                    Admin           -    —  (+ target {title, link}, violator {name, violations30d})  admin/sections.tsx
+POST   /admin/reports/{id}/resolve                       Admin           -    {action: DISMISS|WARN|HIDE_AND_WARN|HIDE_AND_SUSPEND|  admin/sections.tsx
                                                                                SUSPEND, note (bắt buộc ≥ 5 ký tự khi tạm ngừng)}
-GET    /admin/stats                                      Admin           -    —                                                    AdminPage
-GET    /admin/disputes                                   Admin           -    —                                                    AdminPage
-POST   /admin/transactions/{id}/resolve                  Admin           -    {outcome: COMPLETED|FAILED, finalPrice (khi          AdminPage
+GET    /admin/stats                                      Admin           -    ?month= (chỉ khi có mới tính số liệu tháng + VIP)    AdminLayout (badge), OverviewPage
+GET    /admin/disputes                                   Admin           -    —                                                    admin/sections.tsx
+POST   /admin/transactions/{id}/resolve                  Admin           -    {outcome: COMPLETED|FAILED, finalPrice (khi          admin/sections.tsx
                                                                                COMPLETED), note}
+GET    /admin/audit                                      Admin           -    ?month=YYYY-MM (giờ VN) &cursor → {items(auditId…), nextCursor}admin/lists.tsx (AuditPage)
+GET    /admin/users                                      Admin           -    ?cursor | ?email=  (tìm ≥ 3 ký tự, tối đa 50)        admin/members.tsx
+GET    /admin/users/{id}                                 Admin (pii)     -    —  → hồ sơ gộp (đối tác, tin, giao dịch, phí, vi phạm…)admin/members.tsx
+GET    /admin/transactions                               Admin           -    ?status=&cursor  (+ ownerName)                       admin/lists.tsx
+GET    /admin/listings                                   Admin           -    ?month= (UTC) &status= &cursor  (+ ownerName)        admin/lists.tsx
+GET    /admin/listings/{id}                              Admin (pii)     -    —  → {listing (mọi trạng thái, có vị trí), images, seller, quotes}admin/listing.tsx
+GET    /admin/vip-requests                               Admin           -    ?status=REQUESTED|INVOICED|APPROVED|REJECTED|CANCELLEDadmin/sections.tsx (VipRequestsAdmin)
+POST   /admin/vip-requests/{userId}/{id}/invoice         Finance         -    —  → INVOICED + paymentCode RLV…, báo người bán      admin/sections.tsx
+POST   /admin/vip-requests/{userId}/{id}/approve         Finance         -    {note?}  → bật / cộng dồn VIP 1                      admin/sections.tsx
+POST   /admin/vip-requests/{userId}/{id}/reject          Finance         -    {note (bắt buộc ≥ 5 ký tự)}                          admin/sections.tsx
 
 Admin = Cognito group Admins (claim → 'admin'); Finance = FinanceAdmins (→ 'admin_finance').
 Ngoài HTTP: EventBridge sweep 15' (LISTING_EXPIRE, TX_REMIND, TX_AUTO_COMPLETE, TX_CANCEL, lập hóa đơn tháng trước)

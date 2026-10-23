@@ -70,7 +70,7 @@ Ngoài trang: **chuông thông báo** có hộp thư chung Admin (`ADMINS`, mộ
 | GET | `/admin/stats` | admin | Đếm theo các hàng đợi (không Scan) |
 | GET | `/admin/partners?status=` | admin | PENDING (mặc định) / APPROVED / REJECTED / SUSPENDED, kèm người đăng ký + chi nhánh |
 | POST | `/admin/partners/{id}/review` | admin | `{ approve, note? }` |
-| POST | `/admin/partners/{id}/suspend` | admin | `{ note? }` |
+| POST | `/admin/partners/{id}/suspend` | admin | `{ note }` bắt buộc ≥ 5 ký tự (2026-10-24) |
 | POST | `/admin/partners/{id}/reactivate` | admin | |
 | GET | `/admin/invoices?status=` | admin | ISSUED (mặc định) / PAID, kèm tên đối tác |
 | POST | `/admin/invoices/{userId}/{month}/paid` | **admin_finance** | `{ note? }` |
@@ -95,7 +95,10 @@ Ngoài trang: **chuông thông báo** có hộp thư chung Admin (`ADMINS`, mộ
 | GET | `/admin/users/{id}` | admin, ghi nhật ký `pii-read` | Hồ sơ gộp 1 người |
 | GET | `/admin/transactions?status=&cursor=` | admin | Giao dịch theo trạng thái (GSI1 `TX#STATUS#`) |
 | GET | `/admin/listings?month=&status=&cursor=` | admin | Tin theo tháng UTC (`FEED#`) |
-| GET | `/admin/stats?month=` | admin | Thêm `month`: giao dịch hoàn tất, phí phát sinh / lập / thu |
+| GET | `/admin/stats?month=` | admin | Không có `month` → chỉ đếm badge (2026-10-24). Có `month`: giao dịch hoàn tất, phí phát sinh / lập / thu, VIP 1 đã thu |
+| GET | `/admin/listings/{id}` | admin, ghi nhật ký `pii-read` | Xem 1 tin mọi trạng thái, có vị trí chính xác (2026-10-24) |
+| GET | `/admin/vip-requests?status=` | admin | Yêu cầu VIP 1 (QĐ-44) |
+| POST | `/admin/vip-requests/{userId}/{id}/invoice` · `/approve` · `/reject` | **admin_finance** | Gửi hóa đơn RLV… / xác nhận đã thu → bật gói / từ chối (`note` ≥ 5 ký tự) |
 
 ### Hàng đợi / truy vấn có sẵn (không Scan)
 

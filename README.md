@@ -5,7 +5,7 @@ Chợ đồ điện tử cũ, hỏng. Người bán (đối tác đã được A
 - Web (dev): https://d1cjl1tvcp0r6q.cloudfront.net
 - Tài liệu kế hoạch: [plan/](plan/). Thứ tự ưu tiên khi các file mâu thuẫn: **code** → [plan/quyetdinh.txt](plan/quyetdinh.txt) → [plan/devdocx.txt](plan/devdocx.txt) → task.txt → giaiphap.txt → spec gốc. Trạng thái mới nhất: [plan/docx/readmeall.md](plan/docx/readmeall.md). Tra cứu kỹ thuật (API, khóa DynamoDB, Terraform): `plan/devdocx.txt` mục 9.
 - **Phí dịch vụ (QĐ-37, 39, 41):** đăng tin miễn phí; người bán trả 10.000đ / giao dịch hoàn tất (+ 10.000đ nếu hủy giao dịch rồi gỡ tin trong 72 giờ; + 10.000đ / 30 ngày gói VIP 1). Hóa đơn gộp theo tháng, chuyển khoản, Admin tài chính xác nhận. Nợ quá hạn > 3 ngày: không đăng tin mới; > 7 ngày: khóa mọi chức năng (QĐ-40).
-- **Hạn mức tin đang mở (QĐ-41):** cấp 1 = 3 tin, cấp 1 + VIP 1 = 5, cấp 2 = 10.
+- **Hạn mức tin đang mở (QĐ-41):** cấp 1 = 3 tin, cấp 1 + VIP 1 = 5, cấp 2 = 10. **VIP 1 trả trước (QĐ-44):** đăng ký → Admin tài chính gửi hóa đơn → chuyển khoản → Admin xác nhận đã thu → gói tự bật.
 - **Nạp / rút tiền qua ngân hàng đã bỏ (2026-10-16).** Hai bên thanh toán trực tiếp khi bàn giao. Sổ cái ví, giữ tiền, hoa hồng, phí đăng bài vẫn giữ trong code để nối lại khi có kết nối ngân hàng cho đối tác chuyển tiền.
 
 ## Cấu trúc
@@ -25,18 +25,18 @@ backend/    API serverless (TypeScript) — chạy local bằng Node, lên AWS b
     modules/users       hồ sơ (SĐT không bắt buộc), điều khoản (QĐ-28, phiên bản 2026-10-21)
     modules/locations   địa điểm đã lưu, mặc định
     modules/partners    đối tác 2 cấp, Admin duyệt / tạm ngừng, chi nhánh (1–5 km), bảng giá, hạn mức tin + VIP 1
-    modules/listings    đăng tin (hạn mức, ảnh chờ duyệt), bảng tin "Chợ" (phân trang 7 ngày), matching geohash + Haversine, báo giá dự kiến, xác nhận / từ chối / rút, offer thủ công, Admin gỡ tin
+    modules/listings    đăng tin (hạn mức, ảnh chờ duyệt), bảng tin "Chợ" (phân trang 7 ngày), matching geohash + Haversine (chạy nền, QĐ-13), báo giá dự kiến, xác nhận / từ chối / rút, offer thủ công, Admin gỡ tin
     modules/ai          AI phân tích ảnh chạy nền + giới hạn 20 lượt/ngày; tin đăng lưu nhãn "AI gợi ý ↔ người đăng chốt" (AILABEL#<tháng>)
     modules/transactions chọn báo giá / chốt từ chat, bàn giao, điều chỉnh giá, hoàn tất 2 bước (xác nhận giá → chấp nhận, 48h tự hoàn tất), hủy sau 5 phút, thất bại, khiếu nại / tranh chấp, đánh giá
     modules/reputation  điểm uy tín (rating, tỉ lệ hoàn tất / hủy)
     modules/notifications thông báo (polling) + hộp thư chung Admin
     modules/chat        chat người bán ↔ người mua theo từng tin (polling 5s), ra giá / chấp nhận giá, Admin xem chat
     modules/reports     báo cáo vi phạm, Admin xử lý theo mức (cảnh cáo / gỡ tin / tạm ngừng)
-    modules/billing     phí 10.000đ / giao dịch, phí nghi bán ngoài, VIP 1, hóa đơn tháng, khiếu nại phí, khóa khi nợ
+    modules/billing     phí 10.000đ / giao dịch, phí nghi bán ngoài, hóa đơn tháng, khiếu nại phí, khóa khi nợ (VIP 1 trả trước nằm ở modules/partners)
     modules/risk        đếm vi phạm, cờ "nghi né phí / vi phạm nhiều lần" cho Admin
     modules/jobs        hẹn giờ việc nền theo "ngăn giờ" (không Scan)
     modules/wallet      sổ cái, giữ tiền, hoa hồng, phí đăng bài (chưa nối vào luồng)
-  test/                 vitest — 140 test
+  test/                 vitest — 171 test
 frontend/   React + TypeScript + Vite; Leaflet + OpenStreetMap; đăng nhập Cognito (OAuth code + PKCE)
 infra/      Terraform môi trường dev (state trên S3) + bootstrap.sh + deploy.sh
 scripts/    smoke-aws.py (integration test trên AWS) · make-admin.sh · loadtest.mjs
@@ -114,7 +114,7 @@ AWS_PROFILE=reloop bash scripts/make-admin.sh <email> --finance            # c�
 - **Không gọi dịch vụ AWS trực tiếp trong nghiệp vụ.** Đi qua interface (`Table`, `AuthProvider`, `ImageStore`, `Analyzer`…) để local và AWS dùng chung code.
 - **Đổi trạng thái** phải qua `stateMachines.ts` (`assertTransition`); ghi có điều kiện version (optimistic locking).
 - **Việc nền** idempotent: kiểm tra lại trạng thái trước khi ghi; chạy trễ / trùng không sai.
-- **API tạo dữ liệu quan trọng** (đăng tin, gửi offer, chọn báo giá, chấp nhận giá trong chat, mua VIP 1) bắt buộc header `Idempotency-Key`.
+- **API tạo dữ liệu quan trọng** (đăng tin, gửi offer, chọn báo giá, chấp nhận giá trong chat, đăng ký VIP 1) bắt buộc header `Idempotency-Key`.
 - **Tiền** là số nguyên VND; phí ghi qua `BillingService` trong cùng transaction với việc đổi trạng thái (ví / `Ledger.post()` chỉ còn giữ cho thanh toán qua ví sau này).
 - **Không Scan.** Khóa mới khai báo ở `backend/src/store/keys.ts`.
 - **Không commit bí mật.** `.env` nằm trong `.gitignore`.
